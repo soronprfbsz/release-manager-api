@@ -4,9 +4,6 @@ import com.ts.rm.domain.filesync.service.FileSyncService;
 import com.ts.rm.domain.filesync.dto.FileSyncDto;
 import com.ts.rm.domain.filesync.enums.FileSyncTarget;
 import com.ts.rm.global.response.ApiResponse;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -30,8 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/file-sync")
 @RequiredArgsConstructor
-@Tag(name = "파일 동기화", description = "파일시스템과 DB 메타데이터 동기화 API")
-public class FileSyncController {
+public class FileSyncController implements FileSyncControllerDocs {
 
     private final FileSyncService fileSyncService;
 
@@ -43,11 +39,8 @@ public class FileSyncController {
      * @param request 분석 요청 (대상, 경로 등)
      * @return 분석 결과 (불일치 목록)
      */
+    @Override
     @PostMapping("/analyze")
-    @Operation(
-            summary = "파일 동기화 분석",
-            description = "파일시스템과 DB 메타데이터를 비교하여 불일치 항목을 분석합니다."
-    )
     public ResponseEntity<ApiResponse<FileSyncDto.AnalyzeResponse>> analyze(
             @RequestBody(required = false) FileSyncDto.AnalyzeRequest request) {
 
@@ -71,11 +64,8 @@ public class FileSyncController {
      * @param request 적용 요청 (액션 목록)
      * @return 적용 결과
      */
+    @Override
     @PostMapping("/apply")
-    @Operation(
-            summary = "동기화 액션 적용",
-            description = "분석된 불일치 항목에 대해 선택한 액션을 적용합니다."
-    )
     public ResponseEntity<ApiResponse<FileSyncDto.ApplyResponse>> apply(
             @Valid @RequestBody FileSyncDto.ApplyRequest request) {
 
@@ -92,13 +82,9 @@ public class FileSyncController {
      * @param targetType 대상 유형 필터 (선택)
      * @return 무시된 파일 목록
      */
+    @Override
     @GetMapping("/ignores")
-    @Operation(
-            summary = "무시된 파일 목록 조회",
-            description = "파일 동기화 분석에서 제외된 무시 목록을 조회합니다."
-    )
     public ResponseEntity<ApiResponse<List<FileSyncDto.IgnoredFile>>> getIgnoredFiles(
-            @Parameter(description = "대상 유형 필터 (RELEASE_FILE, RESOURCE_FILE, BACKUP_FILE)")
             @RequestParam(required = false) FileSyncTarget targetType) {
 
         log.info("무시된 파일 목록 조회 요청 - targetType: {}", targetType);
@@ -114,13 +100,9 @@ public class FileSyncController {
      * @param ignoreId 무시 항목 ID
      * @return 성공 응답
      */
+    @Override
     @DeleteMapping("/ignores/{ignoreId}")
-    @Operation(
-            summary = "무시 목록에서 제거",
-            description = "무시 목록에서 항목을 제거합니다. 제거된 항목은 다음 분석 시 다시 나타납니다."
-    )
     public ResponseEntity<ApiResponse<Void>> removeFromIgnoreList(
-            @Parameter(description = "무시 항목 ID")
             @PathVariable Long ignoreId) {
 
         log.info("무시 목록 제거 요청 - ignoreId: {}", ignoreId);
@@ -142,12 +124,8 @@ public class FileSyncController {
      * @param request 등록 요청
      * @return 등록 결과
      */
+    @Override
     @PostMapping("/resources/register")
-    @Operation(
-            summary = "리소스 파일 등록",
-            description = "분석 결과에서 UNREGISTERED 상태인 리소스 파일들을 DB에 등록합니다. " +
-                    "리소스명, 대분류, 소분류, 설명 등의 메타데이터를 함께 입력할 수 있습니다."
-    )
     public ResponseEntity<ApiResponse<FileSyncDto.RegisterResponse>> registerResourceFiles(
             @Valid @RequestBody FileSyncDto.ResourceFileRegisterRequest request) {
 
@@ -166,12 +144,8 @@ public class FileSyncController {
      * @param request 등록 요청
      * @return 등록 결과
      */
+    @Override
     @PostMapping("/backups/register")
-    @Operation(
-            summary = "백업 파일 등록",
-            description = "분석 결과에서 UNREGISTERED 상태인 백업 파일들을 DB에 등록합니다. " +
-                    "파일 카테고리, 설명 등의 메타데이터를 함께 입력할 수 있습니다."
-    )
     public ResponseEntity<ApiResponse<FileSyncDto.RegisterResponse>> registerBackupFiles(
             @Valid @RequestBody FileSyncDto.BackupFileRegisterRequest request) {
 
@@ -190,12 +164,8 @@ public class FileSyncController {
      * @param request 등록 요청
      * @return 등록 결과
      */
+    @Override
     @PostMapping("/patches/register")
-    @Operation(
-            summary = "패치 파일 등록",
-            description = "분석 결과에서 UNREGISTERED 상태인 패치 폴더들을 DB에 등록합니다. " +
-                    "담당 엔지니어, 고객사 코드, 설명 등의 메타데이터를 함께 입력할 수 있습니다."
-    )
     public ResponseEntity<ApiResponse<FileSyncDto.RegisterResponse>> registerPatchFiles(
             @Valid @RequestBody FileSyncDto.PatchFileRegisterRequest request) {
 
@@ -214,12 +184,8 @@ public class FileSyncController {
      * @param request 등록 요청
      * @return 등록 결과
      */
+    @Override
     @PostMapping("/releases/register")
-    @Operation(
-            summary = "릴리즈 파일 등록",
-            description = "분석 결과에서 UNREGISTERED 상태인 릴리즈 파일들을 DB에 등록합니다. " +
-                    "릴리즈 버전 ID, 파일 카테고리, 하위 카테고리, 실행 순서, 설명 등의 메타데이터를 함께 입력할 수 있습니다."
-    )
     public ResponseEntity<ApiResponse<FileSyncDto.RegisterResponse>> registerReleaseFiles(
             @Valid @RequestBody FileSyncDto.ReleaseFileRegisterRequest request) {
 
