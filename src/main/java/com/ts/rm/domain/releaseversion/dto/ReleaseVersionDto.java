@@ -303,7 +303,7 @@ public final class ReleaseVersionDto {
             @Schema(description = "버전", example = "1.1.0")
             String version,
 
-            @Schema(description = "생성일자", example = "2025-11-20")
+            @Schema(description = "생성일시", example = "2025-11-20T14:30:00")
             String createdAt,
 
             @Schema(description = "생성자 이름", example = "홍길동")
@@ -368,7 +368,7 @@ public final class ReleaseVersionDto {
             @Schema(description = "전체 버전 (핫픽스 포함)", example = "1.1.0.1")
             String fullVersion,
 
-            @Schema(description = "생성일자", example = "2025-11-20")
+            @Schema(description = "생성일시", example = "2025-11-20T14:30:00")
             String createdAt,
 
             @Schema(description = "생성자 이름", example = "홍길동")
@@ -495,7 +495,7 @@ public final class ReleaseVersionDto {
             @Schema(description = "커스텀 버전", example = "1.0.0")
             String version,
 
-            @Schema(description = "생성일자", example = "2025-12-01")
+            @Schema(description = "생성일시", example = "2025-12-01T14:30:00")
             String createdAt,
 
             @Schema(description = "생성자 이름", example = "홍길동")
@@ -887,7 +887,7 @@ public final class ReleaseVersionDto {
             @Schema(description = "전체 버전", example = "1.3.2.1")
             String fullVersion,
 
-            @Schema(description = "생성일자", example = "2025-12-01")
+            @Schema(description = "생성일시", example = "2025-12-01T14:30:00")
             String createdAt,
 
             @Schema(description = "생성자 이름", example = "홍길동")

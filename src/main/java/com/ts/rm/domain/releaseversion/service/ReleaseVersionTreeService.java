@@ -207,9 +207,9 @@ public class ReleaseVersionTreeService {
     private ReleaseVersionDto.CustomVersionNode buildCustomVersionNodeWithHotfixes(
             ReleaseVersion version, Map<Long, List<ReleaseVersion>> hotfixesByParentId) {
 
-        // createdAt을 "YYYY-MM-DD" 형식으로 포맷
+        // createdAt을 ISO-8601 형식으로 포맷 (시간 포함)
         String createdAt = version.getCreatedAt() != null
-                ? version.getCreatedAt().toLocalDate().toString()
+                ? version.getCreatedAt().toString()
                 : null;
 
         // fileCategories 조회
@@ -219,9 +219,9 @@ public class ReleaseVersionTreeService {
                 .map(FileCategory::getCode)
                 .toList();
 
-        // approvedAt 포매팅
+        // approvedAt 포매팅 (시간 포함)
         String approvedAt = version.getApprovedAt() != null
-                ? version.getApprovedAt().toLocalDate().toString()
+                ? version.getApprovedAt().toString()
                 : null;
 
         // 승인자 아바타 정보 (approver FK 직접 사용)
@@ -371,9 +371,9 @@ public class ReleaseVersionTreeService {
     private ReleaseVersionDto.VersionNode buildVersionNodeWithHotfixes(
             ReleaseVersion version, Map<Long, List<ReleaseVersion>> hotfixesByParentId) {
 
-        // createdAt을 "YYYY-MM-DD" 형식으로 포맷
+        // createdAt을 ISO-8601 형식으로 포맷 (시간 포함)
         String createdAt = version.getCreatedAt() != null
-                ? version.getCreatedAt().toLocalDate().toString()
+                ? version.getCreatedAt().toString()
                 : null;
 
         // fileCategories 조회
@@ -383,9 +383,9 @@ public class ReleaseVersionTreeService {
                 .map(FileCategory::getCode)
                 .toList();
 
-        // approvedAt 포매팅
+        // approvedAt 포매팅 (시간 포함)
         String approvedAt = version.getApprovedAt() != null
-                ? version.getApprovedAt().toLocalDate().toString()
+                ? version.getApprovedAt().toString()
                 : null;
 
         // 승인자 아바타 정보 (approver FK 직접 사용)
@@ -434,9 +434,9 @@ public class ReleaseVersionTreeService {
      * @return HotfixNode
      */
     private ReleaseVersionDto.HotfixNode buildHotfixNode(ReleaseVersion version) {
-        // createdAt을 "YYYY-MM-DD" 형식으로 포맷
+        // createdAt을 ISO-8601 형식으로 포맷 (시간 포함)
         String createdAt = version.getCreatedAt() != null
-                ? version.getCreatedAt().toLocalDate().toString()
+                ? version.getCreatedAt().toString()
                 : null;
 
         // fileCategories 조회
@@ -446,9 +446,9 @@ public class ReleaseVersionTreeService {
                 .map(FileCategory::getCode)
                 .toList();
 
-        // approvedAt 포매팅
+        // approvedAt 포매팅 (시간 포함)
         String approvedAt = version.getApprovedAt() != null
-                ? version.getApprovedAt().toLocalDate().toString()
+                ? version.getApprovedAt().toString()
                 : null;
 
         // 승인자 아바타 정보 (approver FK 직접 사용)

@@ -64,7 +64,7 @@ public interface ReleaseVersionDtoMapper {
      */
     @Mapping(target = "hotfixVersion", source = "hotfixVersion")
     @Mapping(target = "fullVersion", expression = "java(releaseVersion.getFullVersion())")
-    @Mapping(target = "createdAt", expression = "java(releaseVersion.getCreatedAt() != null ? releaseVersion.getCreatedAt().toLocalDate().toString() : null)")
+    @Mapping(target = "createdAt", expression = "java(releaseVersion.getCreatedAt() != null ? releaseVersion.getCreatedAt().toString() : null)")
     @Mapping(target = "fileCategories", ignore = true)
     @Mapping(target = "createdByName", source = "createdByName")
     @Mapping(target = "createdByEmail", source = "createdByEmail")
