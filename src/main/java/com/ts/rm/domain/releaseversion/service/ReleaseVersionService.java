@@ -361,7 +361,7 @@ public class ReleaseVersionService {
         releaseVersion.setIsApproved(true);
         releaseVersion.setApprover(approver);
         releaseVersion.setApprovedByEmail(approvedByEmail);
-        releaseVersion.setApprovedAt(LocalDateTime.now());
+        releaseVersion.setApprovedAt(LocalDateTime.now(java.time.ZoneOffset.UTC));
 
         // 트랜잭션 커밋 시 자동으로 UPDATE 쿼리 실행 (Dirty Checking)
         log.info("릴리즈 버전 승인 완료 - versionId: {}, approvedByEmail: {}, approvedAt: {}",

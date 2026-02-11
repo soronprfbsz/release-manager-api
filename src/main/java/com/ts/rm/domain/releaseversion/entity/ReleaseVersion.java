@@ -17,9 +17,11 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.AllArgsConstructor;
@@ -27,7 +29,6 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 @Entity
@@ -68,7 +69,6 @@ public class ReleaseVersion {
     @Column(name = "patch_version", nullable = false)
     private Integer patchVersion;
 
-    @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -120,6 +120,16 @@ public class ReleaseVersion {
     @OneToMany(mappedBy = "releaseVersion", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
     private List<ReleaseFile> releaseFiles = new ArrayList<>();
+
+    /**
+     * 엔티티 저장 전 createdAt을 UTC로 설정
+     */
+    @PrePersist
+    protected void prePersist() {
+        if (this.createdAt == null) {
+            this.createdAt = LocalDateTime.now(ZoneOffset.UTC);
+        }
+    }
 
     /**
      * 릴리즈 파일 추가

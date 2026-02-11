@@ -438,7 +438,7 @@ public class ReleaseVersionUploadService {
         if (approved) {
             builder.approver(creator)
                    .approvedByEmail(createdByEmail)
-                   .approvedAt(java.time.LocalDateTime.now());
+                   .approvedAt(java.time.LocalDateTime.now(java.time.ZoneOffset.UTC));
         }
 
         final ReleaseVersion savedVersion = releaseVersionRepository.save(builder.build());
@@ -745,7 +745,7 @@ public class ReleaseVersionUploadService {
         if (approved) {
             builder.approver(creator)
                    .approvedByEmail(createdByEmail)
-                   .approvedAt(java.time.LocalDateTime.now());
+                   .approvedAt(java.time.LocalDateTime.now(java.time.ZoneOffset.UTC));
         }
 
         final ReleaseVersion savedVersion = releaseVersionRepository.save(builder.build());
@@ -1239,7 +1239,7 @@ public class ReleaseVersionUploadService {
         if (isApproved) {
             builder.approver(creator)
                     .approvedByEmail(createdByEmail)
-                    .approvedAt(java.time.LocalDateTime.now());
+                    .approvedAt(java.time.LocalDateTime.now(java.time.ZoneOffset.UTC));
         }
 
         ReleaseVersion savedHotfix = releaseVersionRepository.save(builder.build());
