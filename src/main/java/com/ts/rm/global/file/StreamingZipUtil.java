@@ -8,10 +8,10 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.catalina.connector.ClientAbortException;
+import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
+import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream;
 
 /**
  * 스트리밍 방식 ZIP 압축 유틸리티
@@ -19,14 +19,43 @@ import org.apache.catalina.connector.ClientAbortException;
  * <p>메모리 사용량을 최소화하면서 HTTP 응답 스트림에 직접 ZIP 파일을 생성합니다.
  * ByteArrayOutputStream 대신 응답 OutputStream을 직접 사용하여 메모리 효율성을 극대화합니다.
  *
+ * <p>Apache Commons Compress를 사용하여 Unix 파일 권한 비트(external attributes)를
+ * ZIP 엔트리에 보존합니다. Linux/macOS의 {@code unzip} 도구는 이 비트를 복원하므로,
+ * {@code .sh} 등 실행 스크립트가 {@code chmod} 없이 바로 실행 가능합니다.
+ * Windows 탐색기는 모드 비트를 무시하므로 호환성에는 영향이 없습니다.
  */
 @Slf4j
 public class StreamingZipUtil {
 
     private static final int BUFFER_SIZE = 8192; // 8KB 버퍼
 
+    /** 실행 권한 파일 모드 (rwxr-xr-x, 0755) */
+    private static final int UNIX_MODE_EXECUTABLE = 0755;
+
+    /** 일반 파일 모드 (rw-r--r--, 0644) */
+    private static final int UNIX_MODE_REGULAR = 0644;
+
     private StreamingZipUtil() {
         // Utility class - 인스턴스 생성 방지
+    }
+
+    /**
+     * 파일명 확장자로 실행 권한을 판단하여 Unix 파일 모드를 반환
+     *
+     * <p>현재는 {@code .sh} 스크립트만 실행 권한을 부여합니다.
+     *
+     * @param fileName 파일명 또는 ZIP 내부 경로
+     * @return Unix 파일 모드 (octal)
+     */
+    private static int resolveUnixMode(String fileName) {
+        if (fileName == null) {
+            return UNIX_MODE_REGULAR;
+        }
+        String lower = fileName.toLowerCase();
+        if (lower.endsWith(".sh")) {
+            return UNIX_MODE_EXECUTABLE;
+        }
+        return UNIX_MODE_REGULAR;
     }
 
     /**
@@ -71,6 +100,8 @@ public class StreamingZipUtil {
      * <p>이 메서드는 메모리에 전체 ZIP을 생성하지 않고, 각 파일을 읽으면서
      * 즉시 압축하여 출력 스트림으로 전송합니다.
      *
+     * <p>{@code .sh} 파일은 Unix 실행 권한(0755)을 부여하여 압축합니다.
+     *
      * @param outputStream 압축된 데이터를 쓸 출력 스트림 (예: HttpServletResponse.getOutputStream())
      * @param files        압축할 파일 목록 (ZipFileEntry 리스트)
      * @throws BusinessException 압축 실패 시
@@ -84,9 +115,9 @@ public class StreamingZipUtil {
         int addedFileCount = 0;
         int missingFileCount = 0;
 
-        try (ZipOutputStream zos = new ZipOutputStream(outputStream)) {
-            // ZIP 압축 레벨 설정 (기본값 사용: 6)
-            // zos.setLevel(Deflater.DEFAULT_COMPRESSION);
+        try (ZipArchiveOutputStream zos = new ZipArchiveOutputStream(outputStream)) {
+            // UTF-8 파일명 지원
+            zos.setEncoding("UTF-8");
 
             for (ZipFileEntry fileEntry : files) {
                 Path sourcePath = fileEntry.sourcePath();
@@ -107,18 +138,19 @@ public class StreamingZipUtil {
 
                 // ZIP 엔트리 생성 (경로 구분자를 슬래시로 통일)
                 String entryName = fileEntry.zipEntryPath().replace("\\", "/");
-                ZipEntry zipEntry = new ZipEntry(entryName);
+                ZipArchiveEntry zipEntry = new ZipArchiveEntry(entryName);
 
-                // 파일 메타데이터 설정 (선택사항)
+                // 파일 메타데이터 설정
                 zipEntry.setTime(Files.getLastModifiedTime(sourcePath).toMillis());
                 zipEntry.setSize(Files.size(sourcePath));
+                zipEntry.setUnixMode(resolveUnixMode(entryName));
 
-                zos.putNextEntry(zipEntry);
+                zos.putArchiveEntry(zipEntry);
 
                 // 파일을 스트리밍 방식으로 복사 (버퍼 사용)
                 streamFileTo(sourcePath, zos);
 
-                zos.closeEntry();
+                zos.closeArchiveEntry();
                 addedFileCount++;
 
                 log.debug("파일 추가: {} -> {} ({} bytes)",
@@ -137,7 +169,7 @@ public class StreamingZipUtil {
                         addedFileCount, files.size());
             }
 
-            // ZipOutputStream finish 호출 (필수)
+            // ZipArchiveOutputStream finish 호출 (필수)
             zos.finish();
 
             log.info("스트리밍 ZIP 압축 완료: {}개 파일 추가 (요청: {}개, 누락: {}개)",
@@ -164,7 +196,7 @@ public class StreamingZipUtil {
      * @param zos        ZIP 출력 스트림
      * @throws IOException 파일 읽기/쓰기 실패 시
      */
-    private static void streamFileTo(Path sourcePath, ZipOutputStream zos) throws IOException {
+    private static void streamFileTo(Path sourcePath, ZipArchiveOutputStream zos) throws IOException {
         try (BufferedInputStream bis = new BufferedInputStream(
                 Files.newInputStream(sourcePath), BUFFER_SIZE)) {
 
@@ -181,6 +213,8 @@ public class StreamingZipUtil {
     /**
      * 디렉토리 전체를 스트리밍 방식으로 압축
      *
+     * <p>{@code .sh} 파일은 Unix 실행 권한(0755)을 부여하여 압축합니다.
+     *
      * @param outputStream 압축된 데이터를 쓸 출력 스트림
      * @param sourceDir    압축할 디렉토리 경로
      * @throws BusinessException 압축 실패 시
@@ -196,7 +230,8 @@ public class StreamingZipUtil {
                     "디렉토리가 아닙니다: " + sourceDir);
         }
 
-        try (ZipOutputStream zos = new ZipOutputStream(outputStream)) {
+        try (ZipArchiveOutputStream zos = new ZipArchiveOutputStream(outputStream)) {
+            zos.setEncoding("UTF-8");
 
             Files.walk(sourceDir)
                     .filter(path -> !Files.isDirectory(path))
@@ -206,13 +241,14 @@ public class StreamingZipUtil {
                                     .toString()
                                     .replace("\\", "/");
 
-                            ZipEntry zipEntry = new ZipEntry(entryName);
+                            ZipArchiveEntry zipEntry = new ZipArchiveEntry(entryName);
                             zipEntry.setTime(Files.getLastModifiedTime(path).toMillis());
                             zipEntry.setSize(Files.size(path));
+                            zipEntry.setUnixMode(resolveUnixMode(entryName));
 
-                            zos.putNextEntry(zipEntry);
+                            zos.putArchiveEntry(zipEntry);
                             streamFileTo(path, zos);
-                            zos.closeEntry();
+                            zos.closeArchiveEntry();
 
                             log.debug("디렉토리 파일 추가: {} -> {}", path.getFileName(), entryName);
 

@@ -82,6 +82,9 @@ dependencies {
 	// .env 파일 지원
 	implementation 'me.paulschwarz:spring-dotenv:4.0.0'
 
+	// Apache Commons Compress (ZIP Unix 파일 권한 비트 지원)
+	implementation 'org.apache.commons:commons-compress:1.26.2'
+
 	developmentOnly 'org.springframework.boot:spring-boot-devtools'
 	runtimeOnly 'org.mariadb.jdbc:mariadb-java-client'
 	implementation 'com.github.gavlyukovskiy:p6spy-spring-boot-starter:1.12.0'
