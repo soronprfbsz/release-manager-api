@@ -72,6 +72,14 @@ declare -a VERSION_METADATA=(
 {{VERSION_METADATA}}
 )
 
+# --- InfraEye CLI 연동 변수 ---
+# InfraEye db patch 로 실행되면 아래 변수들은 InfraEye CLI 가 export 한 값으로 override 됨.
+# 직접 실행(./cratedb_patch.sh) 시에는 기본값 사용.
+INFRAEYE_VERSION_DIR="${INFRAEYE_VERSION_DIR:-/opt/infraeye/data/version}"
+INFRAEYE_BACKUP_DIR="${INFRAEYE_BACKUP_DIR:-/opt/infraeye/data/backup/DB}"
+BACKUP_TS="$(date +%Y%m%d-%H%M%S)"
+BACKUP_DIR="${INFRAEYE_BACKUP_DIR}/${BACKUP_TS}-cratedb"
+
 # 스크립트 시작
 START_TIME=$(date +"%Y-%m-%d %H:%M:%S")
 log_to_file "=========================================="
@@ -166,6 +174,65 @@ if [ "$EXECUTION_MODE" = "1" ]; then
     fi
 
     log_success "CrateDB 접속 성공!"
+
+    # 사전 백업 (DDL 스냅샷만 - 시계열 데이터 제외)
+    log_step "사전 백업 시작 (DDL 스냅샷): $BACKUP_DIR"
+    mkdir -p "$BACKUP_DIR"
+
+    _crate_exec_docker() {
+        local sql="$1"
+        local fmt="${2:-tabular}"
+        if [ -z "$CRATEDB_PASSWORD" ]; then
+            docker exec "$DOCKER_CONTAINER_NAME" crash --username "$CRATEDB_USER" --format "$fmt" --command "$sql" 2>>"$LOG_FILE"
+        else
+            docker exec -e CRATEPW="$CRATEDB_PASSWORD" "$DOCKER_CONTAINER_NAME" crash --username "$CRATEDB_USER" --format "$fmt" --command "$sql" 2>>"$LOG_FILE"
+        fi
+    }
+
+    DDL_FILE="$BACKUP_DIR/cratedb.ddl.sql"
+    : > "$DDL_FILE"
+
+    # 사용자 테이블 목록 (시스템 스키마 제외)
+    TABLE_LIST=$(_crate_exec_docker \
+        "SELECT table_schema || '.' || table_name FROM information_schema.tables WHERE table_schema NOT IN ('information_schema', 'sys', 'pg_catalog')" \
+        "csv" | tail -n +2 | tr -d '"' | sed '/^$/d')
+
+    if [ -z "$TABLE_LIST" ]; then
+        log_warning "CrateDB 사용자 테이블이 없습니다. DDL 스냅샷 생략."
+    else
+        echo "-- CrateDB DDL snapshot" >> "$DDL_FILE"
+        echo "-- generated_at: $(date +"%Y-%m-%d %H:%M:%S")" >> "$DDL_FILE"
+        echo "-- patch: {{FROM_VERSION}} -> {{TO_VERSION}}" >> "$DDL_FILE"
+        echo "" >> "$DDL_FILE"
+
+        local ddl_ok=0
+        local ddl_fail=0
+        while IFS= read -r tbl; do
+            [ -z "$tbl" ] && continue
+            echo "-- $tbl" >> "$DDL_FILE"
+            if _crate_exec_docker "SHOW CREATE TABLE $tbl" "tabular" >> "$DDL_FILE"; then
+                echo "" >> "$DDL_FILE"
+                ddl_ok=$((ddl_ok + 1))
+            else
+                echo "-- [ERROR] SHOW CREATE TABLE failed" >> "$DDL_FILE"
+                ddl_fail=$((ddl_fail + 1))
+            fi
+        done <<< "$TABLE_LIST"
+
+        log_success "DDL 스냅샷 완료: $DDL_FILE (성공 $ddl_ok, 실패 $ddl_fail)"
+    fi
+
+    cat > "$BACKUP_DIR/manifest.txt" <<EOF
+backup_at: $(date +"%Y-%m-%d %H:%M:%S")
+patch_from: {{FROM_VERSION}}
+patch_to: {{TO_VERSION}}
+db_type: cratedb
+execution_mode: docker
+container: $DOCKER_CONTAINER_NAME
+note: DDL 스냅샷만 저장. 시계열 데이터 백업 없음 (재수집 필요).
+EOF
+    log_info "백업 manifest: $BACKUP_DIR/manifest.txt"
+    echo ""
 
     # SQL 실행 함수 (Docker 방식)
     execute_sql() {
@@ -325,6 +392,64 @@ else
     fi
 
     log_success "CrateDB 접속 성공!"
+
+    # 사전 백업 (DDL 스냅샷만 - 시계열 데이터 제외)
+    log_step "사전 백업 시작 (DDL 스냅샷): $BACKUP_DIR"
+    mkdir -p "$BACKUP_DIR"
+
+    _crate_exec_network() {
+        local sql="$1"
+        local fmt="${2:-tabular}"
+        if [ -z "$CRATEDB_PASSWORD" ]; then
+            crash --hosts "$CRATEDB_HOST:$CRATEDB_PORT" --username "$CRATEDB_USER" --format "$fmt" --command "$sql" 2>>"$LOG_FILE"
+        else
+            CRATEPW="$CRATEDB_PASSWORD" crash --hosts "$CRATEDB_HOST:$CRATEDB_PORT" --username "$CRATEDB_USER" --format "$fmt" --command "$sql" 2>>"$LOG_FILE"
+        fi
+    }
+
+    DDL_FILE="$BACKUP_DIR/cratedb.ddl.sql"
+    : > "$DDL_FILE"
+
+    TABLE_LIST=$(_crate_exec_network \
+        "SELECT table_schema || '.' || table_name FROM information_schema.tables WHERE table_schema NOT IN ('information_schema', 'sys', 'pg_catalog')" \
+        "csv" | tail -n +2 | tr -d '"' | sed '/^$/d')
+
+    if [ -z "$TABLE_LIST" ]; then
+        log_warning "CrateDB 사용자 테이블이 없습니다. DDL 스냅샷 생략."
+    else
+        echo "-- CrateDB DDL snapshot" >> "$DDL_FILE"
+        echo "-- generated_at: $(date +"%Y-%m-%d %H:%M:%S")" >> "$DDL_FILE"
+        echo "-- patch: {{FROM_VERSION}} -> {{TO_VERSION}}" >> "$DDL_FILE"
+        echo "" >> "$DDL_FILE"
+
+        local ddl_ok=0
+        local ddl_fail=0
+        while IFS= read -r tbl; do
+            [ -z "$tbl" ] && continue
+            echo "-- $tbl" >> "$DDL_FILE"
+            if _crate_exec_network "SHOW CREATE TABLE $tbl" "tabular" >> "$DDL_FILE"; then
+                echo "" >> "$DDL_FILE"
+                ddl_ok=$((ddl_ok + 1))
+            else
+                echo "-- [ERROR] SHOW CREATE TABLE failed" >> "$DDL_FILE"
+                ddl_fail=$((ddl_fail + 1))
+            fi
+        done <<< "$TABLE_LIST"
+
+        log_success "DDL 스냅샷 완료: $DDL_FILE (성공 $ddl_ok, 실패 $ddl_fail)"
+    fi
+
+    cat > "$BACKUP_DIR/manifest.txt" <<EOF
+backup_at: $(date +"%Y-%m-%d %H:%M:%S")
+patch_from: {{FROM_VERSION}}
+patch_to: {{TO_VERSION}}
+db_type: cratedb
+execution_mode: network
+host: $CRATEDB_HOST:$CRATEDB_PORT
+note: DDL 스냅샷만 저장. 시계열 데이터 백업 없음 (재수집 필요).
+EOF
+    log_info "백업 manifest: $BACKUP_DIR/manifest.txt"
+    echo ""
 
     # SQL 실행 함수 (네트워크 방식)
     execute_sql() {
@@ -504,6 +629,15 @@ echo "  - 실행 시간: ${DURATION_MIN}분 ${DURATION_SEC}초"
 echo ""
 log_info "로그 파일: $LOG_FILE"
 echo ""
+
+# 버전 레지스트리 업데이트 (InfraEye --version / info version 용)
+if [ -n "${INFRAEYE_VERSION_DIR:-}" ]; then
+    mkdir -p "$INFRAEYE_VERSION_DIR"
+    echo "{{TO_VERSION}}" > "$INFRAEYE_VERSION_DIR/cratedb"
+    echo "$(date +"%Y-%m-%d %H:%M:%S") cratedb {{FROM_VERSION}} -> {{TO_VERSION}} success" \
+        >> "$INFRAEYE_VERSION_DIR/log"
+    log_success "버전 레지스트리 업데이트: $INFRAEYE_VERSION_DIR/cratedb = {{TO_VERSION}}"
+fi
 
 # 최종 로그 기록
 log_to_file "=========================================="

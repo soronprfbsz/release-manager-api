@@ -40,19 +40,29 @@ public class StreamingZipUtil {
     }
 
     /**
-     * 파일명 확장자로 실행 권한을 판단하여 Unix 파일 모드를 반환
+     * 서버 파일 시스템의 실행 비트를 우선 확인하여 Unix 파일 모드를 반환
      *
-     * <p>현재는 {@code .sh} 스크립트만 실행 권한을 부여합니다.
+     * <p>판단 순서:
+     * <ol>
+     *   <li>서버 파일이 실행 가능(executable)이면 0755 반환
+     *       (예: {@code AbstractScriptGenerator.saveScript()}가 {@code setExecutable(true)} 세팅한 파일,
+     *       확장자 없는 {@code InfraEye} 바이너리 포함)
+     *   <li>{@code .sh} 확장자이면 0755 반환 (보완 폴백)
+     *   <li>그 외 일반 파일: 0644 반환
+     * </ol>
      *
-     * @param fileName 파일명 또는 ZIP 내부 경로
+     * @param sourcePath 원본 파일 경로 (null 허용)
+     * @param fileName   ZIP 내부 경로 또는 파일명 (null 허용)
      * @return Unix 파일 모드 (octal)
      */
-    private static int resolveUnixMode(String fileName) {
-        if (fileName == null) {
-            return UNIX_MODE_REGULAR;
+    private static int resolveUnixMode(Path sourcePath, String fileName) {
+        // 1순위: 서버 파일이 executable이면 0755
+        // AbstractScriptGenerator가 setExecutable(true)로 세팅하므로 .sh 외 파일도 포함
+        if (sourcePath != null && Files.isExecutable(sourcePath)) {
+            return UNIX_MODE_EXECUTABLE;
         }
-        String lower = fileName.toLowerCase();
-        if (lower.endsWith(".sh")) {
+        // 2순위(보완 폴백): .sh 확장자면 0755
+        if (fileName != null && fileName.toLowerCase().endsWith(".sh")) {
             return UNIX_MODE_EXECUTABLE;
         }
         return UNIX_MODE_REGULAR;
@@ -143,7 +153,8 @@ public class StreamingZipUtil {
                 // 파일 메타데이터 설정
                 zipEntry.setTime(Files.getLastModifiedTime(sourcePath).toMillis());
                 zipEntry.setSize(Files.size(sourcePath));
-                zipEntry.setUnixMode(resolveUnixMode(entryName));
+                // 서버 파일의 실행 비트를 우선 확인 (확장자 없는 InfraEye 바이너리 포함)
+                zipEntry.setUnixMode(resolveUnixMode(sourcePath, entryName));
 
                 zos.putArchiveEntry(zipEntry);
 
@@ -244,7 +255,8 @@ public class StreamingZipUtil {
                             ZipArchiveEntry zipEntry = new ZipArchiveEntry(entryName);
                             zipEntry.setTime(Files.getLastModifiedTime(path).toMillis());
                             zipEntry.setSize(Files.size(path));
-                            zipEntry.setUnixMode(resolveUnixMode(entryName));
+                            // 서버 파일의 실행 비트를 우선 확인 (확장자 없는 InfraEye 바이너리 포함)
+                            zipEntry.setUnixMode(resolveUnixMode(path, entryName));
 
                             zos.putArchiveEntry(zipEntry);
                             streamFileTo(path, zos);

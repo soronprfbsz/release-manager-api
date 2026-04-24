@@ -72,6 +72,14 @@ declare -a VERSION_METADATA=(
 {{VERSION_METADATA}}
 )
 
+# --- InfraEye CLI 연동 변수 ---
+# InfraEye db patch 로 실행되면 아래 변수들은 InfraEye CLI 가 export 한 값으로 override 됨.
+# 직접 실행(./mariadb_patch.sh) 시에는 기본값 사용.
+INFRAEYE_VERSION_DIR="${INFRAEYE_VERSION_DIR:-/opt/infraeye/data/version}"
+INFRAEYE_BACKUP_DIR="${INFRAEYE_BACKUP_DIR:-/opt/infraeye/data/backup/DB}"
+BACKUP_TS="$(date +%Y%m%d-%H%M%S)"
+BACKUP_DIR="${INFRAEYE_BACKUP_DIR}/${BACKUP_TS}-mariadb"
+
 # 스크립트 시작
 START_TIME=$(date +"%Y-%m-%d %H:%M:%S")
 log_to_file "=========================================="
@@ -168,6 +176,43 @@ if [ "$EXECUTION_MODE" = "1" ]; then
 
     log_success "MariaDB 접속 성공!"
 
+    # 사전 백업 (docker exec + mysqldump)
+    # - CM_DB, NMS_DB: full dump
+    # - NMC_DB: 스키마만 (시계열 데이터 제외)
+    log_step "사전 백업 시작: $BACKUP_DIR"
+    mkdir -p "$BACKUP_DIR"
+
+    _backup_db_docker() {
+        local db_name="$1"
+        local dump_opts="$2"
+        local out_file="$3"
+        if docker exec "$DOCKER_CONTAINER_NAME" mariadb-dump \
+            -u"$DB_USER" -p"$DB_PASSWORD" $dump_opts "$db_name" > "$out_file" 2>>"$LOG_FILE"; then
+            log_success "$db_name 백업 완료: $out_file ($(du -h "$out_file" | cut -f1))"
+        else
+            log_warning "$db_name 백업 실패 (존재하지 않거나 권한 부족일 수 있음): $out_file"
+        fi
+    }
+
+    _backup_db_docker "CM_DB"  "--single-transaction --routines --triggers" "$BACKUP_DIR/CM_DB.sql"
+    _backup_db_docker "NMS_DB" "--single-transaction --routines --triggers" "$BACKUP_DIR/NMS_DB.sql"
+    _backup_db_docker "NMC_DB" "--single-transaction --no-data --routines --triggers" "$BACKUP_DIR/NMC_DB.schema.sql"
+
+    cat > "$BACKUP_DIR/manifest.txt" <<EOF
+backup_at: $(date +"%Y-%m-%d %H:%M:%S")
+patch_from: {{FROM_VERSION}}
+patch_to: {{TO_VERSION}}
+db_type: mariadb
+execution_mode: docker
+container: $DOCKER_CONTAINER_NAME
+CM_DB: full
+NMS_DB: full
+NMC_DB: schema-only (시계열 데이터 제외)
+note: NMC_DB 데이터 복구 필요 시 수집 시스템 재수집
+EOF
+    log_info "백업 manifest: $BACKUP_DIR/manifest.txt"
+    echo ""
+
     execute_sql() {
         local sql_file=$1
         log_step "SQL 파일 실행: $sql_file"
@@ -232,6 +277,41 @@ else
     fi
 
     log_success "MariaDB 접속 성공!"
+
+    # 사전 백업 (호스트 mariadb-dump)
+    log_step "사전 백업 시작: $BACKUP_DIR"
+    mkdir -p "$BACKUP_DIR"
+
+    _backup_db_network() {
+        local db_name="$1"
+        local dump_opts="$2"
+        local out_file="$3"
+        if mariadb-dump -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" \
+            $dump_opts "$db_name" > "$out_file" 2>>"$LOG_FILE"; then
+            log_success "$db_name 백업 완료: $out_file ($(du -h "$out_file" | cut -f1))"
+        else
+            log_warning "$db_name 백업 실패 (존재하지 않거나 권한 부족일 수 있음): $out_file"
+        fi
+    }
+
+    _backup_db_network "CM_DB"  "--single-transaction --routines --triggers" "$BACKUP_DIR/CM_DB.sql"
+    _backup_db_network "NMS_DB" "--single-transaction --routines --triggers" "$BACKUP_DIR/NMS_DB.sql"
+    _backup_db_network "NMC_DB" "--single-transaction --no-data --routines --triggers" "$BACKUP_DIR/NMC_DB.schema.sql"
+
+    cat > "$BACKUP_DIR/manifest.txt" <<EOF
+backup_at: $(date +"%Y-%m-%d %H:%M:%S")
+patch_from: {{FROM_VERSION}}
+patch_to: {{TO_VERSION}}
+db_type: mariadb
+execution_mode: network
+host: $DB_HOST:$DB_PORT
+CM_DB: full
+NMS_DB: full
+NMC_DB: schema-only (시계열 데이터 제외)
+note: NMC_DB 데이터 복구 필요 시 수집 시스템 재수집
+EOF
+    log_info "백업 manifest: $BACKUP_DIR/manifest.txt"
+    echo ""
 
     execute_sql() {
         local sql_file=$1
@@ -346,6 +426,15 @@ echo ""
 log_info "각 버전 정보가 CM_DB.VERSION_HISTORY 테이블에 기록되었습니다."
 log_info "로그 파일: $LOG_FILE"
 echo ""
+
+# 버전 레지스트리 업데이트 (InfraEye --version / info version 용)
+if [ -n "${INFRAEYE_VERSION_DIR:-}" ]; then
+    mkdir -p "$INFRAEYE_VERSION_DIR"
+    echo "{{TO_VERSION}}" > "$INFRAEYE_VERSION_DIR/mariadb"
+    echo "$(date +"%Y-%m-%d %H:%M:%S") mariadb {{FROM_VERSION}} -> {{TO_VERSION}} success (by $APPLIED_BY)" \
+        >> "$INFRAEYE_VERSION_DIR/log"
+    log_success "버전 레지스트리 업데이트: $INFRAEYE_VERSION_DIR/mariadb = {{TO_VERSION}}"
+fi
 
 # 최종 로그 기록
 log_to_file "=========================================="
