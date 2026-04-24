@@ -10,7 +10,6 @@ import com.ts.rm.domain.patch.entity.Patch;
 import com.ts.rm.domain.patch.entity.PatchHistory;
 import com.ts.rm.domain.patch.repository.PatchHistoryRepository;
 import com.ts.rm.domain.patch.repository.PatchRepository;
-import com.ts.rm.domain.patch.util.InfraEyeCliScriptGenerator;
 import com.ts.rm.domain.patch.util.ScriptGenerator;
 import com.ts.rm.domain.project.entity.Project;
 import com.ts.rm.domain.project.repository.ProjectRepository;
@@ -59,15 +58,7 @@ public class PatchGenerationService {
     private final ProjectRepository projectRepository;
     private final ScriptGenerator mariaDBScriptGenerator;
     private final ScriptGenerator crateDBScriptGenerator;
-    private final InfraEyeCliScriptGenerator infraEyeCliScriptGenerator;
     private final AccountLookupService accountLookupService;
-
-    /**
-     * InfraEye CLI 파일을 패치에 포함시킬 fromVersion
-     *
-     * <p>레거시 {@code /usr/bin/InfraEye}를 교체하는 파일은 1.0.0 패치에만 포함됩니다.
-     */
-    private static final String INFRAEYE_CLI_BUNDLED_FROM_VERSION = "1.0.0";
 
     @Value("${app.release.base-path:data/release-manager}")
     private String releaseBasePath;
@@ -905,13 +896,6 @@ public class PatchGenerationService {
                 log.info("CrateDB 파일이 없어 스크립트를 생성하지 않습니다.");
             }
 
-            // InfraEye CLI 교체 파일은 fromVersion=1.0.0 패치에만 포함
-            if (INFRAEYE_CLI_BUNDLED_FROM_VERSION.equals(fromVersion.getVersion())) {
-                log.info("InfraEye CLI 포함 조건 충족 (fromVersion={}), 패치에 /InfraEye 추가",
-                        fromVersion.getVersion());
-                infraEyeCliScriptGenerator.generate(outputPath);
-            }
-
         } catch (Exception e) {
             log.error("패치 스크립트 생성 실패: {}", outputPath, e);
             throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
@@ -950,7 +934,6 @@ public class PatchGenerationService {
             content.append("## 디렉토리 구조\n");
             content.append("```\n");
             content.append(".\n");
-            content.append("├── InfraEye                    # (fromVersion=1.0.0 전용) InfraEye CLI 교체용\n");
             content.append("├── mariadb_patch.sh            # MariaDB 패치 실행 스크립트\n");
             content.append("├── cratedb_patch.sh            # CrateDB 패치 실행 스크립트 (파일 있을 때만)\n");
             content.append("├── database/\n");
