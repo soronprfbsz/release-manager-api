@@ -270,14 +270,81 @@ function _read_site_version()
     fi
 }
 
+function _find_patch_metadata_file()
+{
+    local start_dir="$1"
+    local base_dir="${INFRAEYE_PATCH_DIR:-$INFRAEYE_PATCH_BASE_DIR}"
+    local current="$start_dir"
+
+    while [ -n "$current" ] && [[ "$current" == "$base_dir"* ]]; do
+        if [ -f "$current/.infraeye-site-version" ]; then
+            echo "$current/.infraeye-site-version"
+            return 0
+        fi
+        if [ "$current" = "$base_dir" ]; then
+            break
+        fi
+        current="$(dirname "$current")"
+    done
+
+    local backup_dir="${base_dir}/backup"
+    local matches=()
+    while IFS= read -r -d '' f; do
+        matches+=("$f")
+    done < <(find "$base_dir" -path "$backup_dir" -prune -o -type f -name ".infraeye-site-version" -print0 2>/dev/null)
+
+    if [ "${#matches[@]}" -eq 1 ]; then
+        echo "${matches[0]}"
+        return 0
+    fi
+
+    if [ "${#matches[@]}" -ge 2 ]; then
+        echo "[WARN] .infraeye-site-version 파일이 2개 이상 발견되어 Site 버전을 결정할 수 없습니다." >&2
+    fi
+
+    return 1
+}
+
+function _read_patch_to_version()
+{
+    local start_dir="$1"
+    local metadata_file
+    metadata_file="$(_find_patch_metadata_file "$start_dir" 2>/dev/null || true)"
+
+    if [ -n "$metadata_file" ]; then
+        awk -F= '$1 == "to_version" { print $2; exit }' "$metadata_file"
+        return 0
+    fi
+
+    return 1
+}
+
+function _record_site_version()
+{
+    local component="$1"
+    local version="$2"
+
+    if [ -z "$version" ]; then
+        echo "[WARN] 사이트 버전 메타파일(.infraeye-site-version)을 찾지 못해 Site 버전을 갱신하지 않습니다."
+        return 0
+    fi
+
+    mkdir -p "$INFRAEYE_VERSION_DIR"
+    echo "$version" > "$INFRAEYE_VERSION_DIR/site"
+    echo "$(date +"%Y-%m-%d %H:%M:%S") site ${component} -> ${version} success" >> "$INFRAEYE_VERSION_DIR/log"
+    echo "[InfraEye] Site 버전 레지스트리 업데이트: $INFRAEYE_VERSION_DIR/site = $version"
+}
+
 # --version / info version 공용 출력
 function _show_version()
 {
-    local mdb cdb
+    local site mdb cdb
+    site=$(_read_site_version "site")
     mdb=$(_read_site_version "mariadb")
     cdb=$(_read_site_version "cratedb")
     cat <<EOF
 InfraEye CLI ${INFRAEYE_CLI_VERSION} (Release Manager edition)
+  Site: ${site}
   MariaDB: ${mdb}
   CrateDB: ${cdb}
 EOF
@@ -364,6 +431,7 @@ function eng_patch()
                         docker exec --user $cmd_user "$container_nm" bash -c "/usr/bin/cp -rf /docker_dir/patch/eng/bin /opt/infraeye/nms && chmod -R 755 /opt/infraeye/nms/bin && chown -R infraeye:infraeye /opt/infraeye/nms/bin"
                         docker exec --user root:root "$container_nm" bash -c "/opt/infraeye/nms/bin/capabilities.sh add"
                         docker exec --user $cmd_user "$container_nm" bash -c "InfraEye_eng start"
+                        _record_site_version "eng" "$(_read_patch_to_version "${INFRAEYE_PATCH_BASE_DIR}" 2>/dev/null || true)"
                 fi
         elif [ "$engPathType" -eq 2 ]; then
 
@@ -376,6 +444,7 @@ function eng_patch()
                         #docker exec --user $cmd_user "$container_nm" bash -c "/usr/bin/cp -rf /docker_dir/patch/eng/* /opt/infraeye/nms/bin/ && chmod -R 755 /opt/infraeye/nms/bin && chown -R infraeye:infraeye /opt/infraeye/nms/bin"
                         docker exec --user $cmd_user "$container_nm" bash -c "rsync -av --exclude 'bin' /docker_dir/patch/eng/ /opt/infraeye/nms/bin/ && chmod -R 755 /opt/infraeye/nms/bin && chown -R infraeye:infraeye /opt/infraeye/nms/bin"
                         docker exec --user root:root "$container_nm" bash -c "/opt/infraeye/nms/bin/capabilities.sh add"
+                        _record_site_version "eng" "$(_read_patch_to_version "${INFRAEYE_PATCH_BASE_DIR}" 2>/dev/null || true)"
                 fi
 
         else
@@ -696,6 +765,7 @@ function web_patch()
         fi
 
         docker exec --user $cmd_user "$container_nm" bash -c "InfraEye_was start"
+        _record_site_version "was" "$(_read_patch_to_version "$patch_src_host_dir" 2>/dev/null || true)"
 }
 
 
