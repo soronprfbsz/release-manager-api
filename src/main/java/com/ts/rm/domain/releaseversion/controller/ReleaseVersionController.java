@@ -8,6 +8,8 @@ import com.ts.rm.domain.releaseversion.service.ReleaseVersionUploadService;
 import com.ts.rm.global.response.ApiResponse;
 import com.ts.rm.global.security.SecurityUtil;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -360,22 +362,35 @@ public class ReleaseVersionController implements ReleaseVersionControllerDocs {
 
         String createdBy = SecurityUtil.getTokenInfo().email();
 
-        byte[] zipBytes = null;
+        // 대용량 ZIP(수백 MB ~ GB)을 힙에 올리지 않도록 multipart 를 디스크 temp 파일에
+        // 직접 옮기고 그 경로만 서비스로 전달한다. getBytes() 호출은 OOM 위험.
+        Path tempZip = null;
         if (file != null && !file.isEmpty()) {
             try {
-                zipBytes = file.getBytes();
+                tempZip = Files.createTempFile("rm-build-upload-", ".zip");
+                file.transferTo(tempZip.toFile());
             } catch (IOException e) {
-                log.error("업로드 파일 읽기 실패", e);
+                log.error("업로드 파일 임시 저장 실패", e);
+                if (tempZip != null) {
+                    try { Files.deleteIfExists(tempZip); } catch (IOException ignored) {}
+                }
                 throw new com.ts.rm.global.exception.BusinessException(
                         com.ts.rm.global.exception.ErrorCode.FILE_UPLOAD_FAILED,
-                        "업로드 파일 읽기 실패: " + e.getMessage());
+                        "업로드 파일 저장 실패: " + e.getMessage());
             }
         }
 
-        ReleaseVersionDto.CreateBuildResponse response = buildFileService
-                .createBuildWithZip(id, request, zipBytes, createdBy);
-
-        return ResponseEntity.ok(ApiResponse.success(response));
+        try {
+            ReleaseVersionDto.CreateBuildResponse response = buildFileService
+                    .createBuildWithZip(id, request, tempZip, createdBy);
+            return ResponseEntity.ok(ApiResponse.success(response));
+        } finally {
+            if (tempZip != null) {
+                try { Files.deleteIfExists(tempZip); } catch (IOException e) {
+                    log.warn("임시 ZIP 정리 실패: {}", tempZip, e);
+                }
+            }
+        }
     }
 
     /**
@@ -436,19 +451,26 @@ public class ReleaseVersionController implements ReleaseVersionControllerDocs {
         }
 
         String uploadedBy = SecurityUtil.getTokenInfo().email();
-        byte[] zipBytes;
+
+        Path tempZip;
         try {
-            zipBytes = file.getBytes();
+            tempZip = Files.createTempFile("rm-build-replace-", ".zip");
+            file.transferTo(tempZip.toFile());
         } catch (IOException e) {
-            log.error("업로드 파일 읽기 실패", e);
+            log.error("업로드 파일 임시 저장 실패", e);
             throw new com.ts.rm.global.exception.BusinessException(
                     com.ts.rm.global.exception.ErrorCode.FILE_UPLOAD_FAILED,
-                    "업로드 파일 읽기 실패: " + e.getMessage());
+                    "업로드 파일 저장 실패: " + e.getMessage());
         }
 
-        ReleaseVersionDto.UploadBuildZipResponse response =
-                buildFileService.replaceBuildZip(id, zipBytes, uploadedBy);
-
-        return ResponseEntity.ok(ApiResponse.success(response));
+        try {
+            ReleaseVersionDto.UploadBuildZipResponse response =
+                    buildFileService.replaceBuildZip(id, tempZip, uploadedBy);
+            return ResponseEntity.ok(ApiResponse.success(response));
+        } finally {
+            try { Files.deleteIfExists(tempZip); } catch (IOException e) {
+                log.warn("임시 ZIP 정리 실패: {}", tempZip, e);
+            }
+        }
     }
 }

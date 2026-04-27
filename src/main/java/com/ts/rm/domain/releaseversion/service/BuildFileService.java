@@ -11,7 +11,6 @@ import com.ts.rm.global.exception.ErrorCode;
 import com.ts.rm.global.file.BuildZipValidator;
 import com.ts.rm.global.file.FileChecksumUtil;
 import com.ts.rm.global.file.ZipExtractUtil;
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -66,15 +65,18 @@ public class BuildFileService {
      * <p>흐름:
      * <ol>
      *   <li>{@link ReleaseVersionService#createBuild} 호출 → 빌드 행 생성</li>
-     *   <li>{@code zipBytes} 가 비어있지 않으면 {@link #uploadBuildZip} 으로 검증/추출/등록</li>
+     *   <li>{@code zipPath} 가 null 이 아니면 {@link #uploadBuildZip} 으로 검증/추출/등록</li>
      *   <li>응답에 업로드된 파일 개수 포함하여 반환</li>
      * </ol>
      *
      * <p>두 단계가 같은 트랜잭션 안에서 수행되므로 ZIP 업로드 실패 시 빌드 행 생성도 롤백된다.
      *
+     * <p>대용량 ZIP(수백 MB ~ GB) 을 힙에 올리지 않도록 byte 배열이 아닌 디스크 경로(temp file)
+     * 를 입력으로 받는다. 컨트롤러는 multipart 를 직접 디스크로 전송한 뒤 그 경로를 넘긴다.
+     *
      * @param baseVersionId  빌드 원본 버전 ID
      * @param request        빌드 생성 요청 (comment, buildVersion?)
-     * @param zipBytes       업로드 ZIP 바이트 (null/빈 배열이면 빌드만 생성)
+     * @param zipPath        업로드된 ZIP 파일의 디스크 경로 (null 이면 빌드만 생성)
      * @param createdByEmail 생성자 이메일
      * @return CreateBuildResponse (uploadedFileCount 포함)
      */
@@ -82,7 +84,7 @@ public class BuildFileService {
     public ReleaseVersionDto.CreateBuildResponse createBuildWithZip(
             Long baseVersionId,
             ReleaseVersionDto.CreateBuildRequest request,
-            byte[] zipBytes,
+            Path zipPath,
             String createdByEmail) {
 
         // 1. 빌드 버전 행 생성
@@ -91,8 +93,8 @@ public class BuildFileService {
 
         // 2. ZIP 이 있으면 추출/등록
         int uploadedCount = 0;
-        if (zipBytes != null && zipBytes.length > 0) {
-            UploadResult uploadResult = uploadBuildZip(buildResponse.buildVersionId(), zipBytes, createdByEmail);
+        if (zipPath != null) {
+            UploadResult uploadResult = uploadBuildZip(buildResponse.buildVersionId(), zipPath, createdByEmail);
             uploadedCount = uploadResult.createdFiles().size();
         }
 
@@ -114,15 +116,15 @@ public class BuildFileService {
      * 삭제도 롤백된다.
      *
      * @param buildVersionId 업로드 대상 빌드 버전 ID
-     * @param zipBytes       새 ZIP 바이트 (빈 배열 불가)
+     * @param zipPath        새 ZIP 파일 경로 (null 불가)
      * @param uploadedByEmail 업로드자 이메일
      * @return UploadBuildZipResponse (uploadedFileCount 포함)
      */
     @Transactional
     public ReleaseVersionDto.UploadBuildZipResponse replaceBuildZip(
-            Long buildVersionId, byte[] zipBytes, String uploadedByEmail) {
+            Long buildVersionId, Path zipPath, String uploadedByEmail) {
 
-        if (zipBytes == null || zipBytes.length == 0) {
+        if (zipPath == null) {
             throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
                     "재업로드할 ZIP 파일이 비어 있습니다.");
         }
@@ -148,7 +150,7 @@ public class BuildFileService {
         fileSystemService.deleteBuildDirectory(build);
 
         // 4. 새 ZIP 업로드
-        UploadResult result = uploadBuildZip(buildVersionId, zipBytes, uploadedByEmail);
+        UploadResult result = uploadBuildZip(buildVersionId, zipPath, uploadedByEmail);
 
         return new ReleaseVersionDto.UploadBuildZipResponse(
                 buildVersionId,
@@ -169,14 +171,20 @@ public class BuildFileService {
      * </ol>
      *
      * @param buildVersionId 업로드 대상 빌드 버전 ID (build_version &gt; 0 이어야 함)
-     * @param zipBytes       ZIP 파일 바이트 배열
+     * @param zipPath        ZIP 파일 경로 (디스크 저장된 multipart temp file)
      * @param uploadedByEmail 업로드자 이메일 (description 에 기록)
      * @return 업로드 결과
      */
     @Transactional
-    public UploadResult uploadBuildZip(Long buildVersionId, byte[] zipBytes, String uploadedByEmail) {
-        log.info("빌드 ZIP 업로드 요청 - buildVersionId: {}, sizeBytes: {}",
-                buildVersionId, zipBytes != null ? zipBytes.length : 0);
+    public UploadResult uploadBuildZip(Long buildVersionId, Path zipPath, String uploadedByEmail) {
+        long zipSize;
+        try {
+            zipSize = Files.size(zipPath);
+        } catch (IOException e) {
+            throw new BusinessException(ErrorCode.FILE_UPLOAD_FAILED,
+                    "ZIP 파일 크기 조회 실패: " + e.getMessage());
+        }
+        log.info("빌드 ZIP 업로드 요청 - buildVersionId: {}, sizeBytes: {}", buildVersionId, zipSize);
 
         // 1. 빌드 버전 조회 + 검증
         ReleaseVersion build = releaseVersionRepository.findById(buildVersionId)
@@ -192,8 +200,8 @@ public class BuildFileService {
                     "빌드의 원본 버전이 없습니다 (build_base_version_id 누락).");
         }
 
-        // 2. ZIP 검증 (web/engine/etc 외 거부)
-        BuildZipValidator.validate(zipBytes);
+        // 2. ZIP 검증 (web/engine/etc 외 거부) — 스트리밍
+        BuildZipValidator.validate(zipPath);
 
         // 3. 빌드 디렉토리 준비 + 압축 해제
         Path buildBasePath = fileSystemService.resolveBuildBasePath(baseVersion, build.getBuildVersion());
@@ -204,8 +212,7 @@ public class BuildFileService {
                     "빌드 디렉토리 준비 실패: " + e.getMessage());
         }
 
-        List<ZipExtractUtil.ExtractedFileInfo> extracted = ZipExtractUtil.extract(
-                new ByteArrayInputStream(zipBytes), buildBasePath);
+        List<ZipExtractUtil.ExtractedFileInfo> extracted = ZipExtractUtil.extract(zipPath, buildBasePath);
 
         if (extracted.isEmpty()) {
             log.warn("빌드 ZIP 에서 추출된 파일이 없음 - buildVersionId: {}", buildVersionId);

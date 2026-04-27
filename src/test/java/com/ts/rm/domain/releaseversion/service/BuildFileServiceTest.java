@@ -12,8 +12,9 @@ import com.ts.rm.domain.releaseversion.entity.ReleaseVersion;
 import com.ts.rm.domain.releaseversion.repository.ReleaseVersionRepository;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -64,9 +65,10 @@ class BuildFileServiceTest {
         ReflectionTestUtils.setField(buildFileService, "baseReleasePath", tempDir.toString());
     }
 
-    private byte[] makeZip(String... entries) throws IOException {
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        try (ZipOutputStream zos = new ZipOutputStream(baos)) {
+    private Path makeZip(String... entries) throws IOException {
+        Path zipPath = Files.createTempFile(tempDir, "test-zip-", ".zip");
+        try (OutputStream out = Files.newOutputStream(zipPath);
+             ZipOutputStream zos = new ZipOutputStream(out)) {
             for (String name : entries) {
                 ZipEntry e = new ZipEntry(name);
                 zos.putNextEntry(e);
@@ -76,7 +78,7 @@ class BuildFileServiceTest {
                 zos.closeEntry();
             }
         }
-        return baos.toByteArray();
+        return zipPath;
     }
 
     private ReleaseVersion buildBase() {
@@ -118,7 +120,7 @@ class BuildFileServiceTest {
         given(releaseFileRepository.save(any(ReleaseFile.class)))
                 .willAnswer(inv -> inv.getArgument(0));
 
-        byte[] zip = makeZip("web/foo.war", "engine/NC_SMS/x.jar", "etc/config.yml");
+        Path zip = makeZip("web/foo.war", "engine/NC_SMS/x.jar", "etc/config.yml");
 
         BuildFileService.UploadResult result = buildFileService.uploadBuildZip(99L, zip, "u@x");
 
@@ -163,7 +165,7 @@ class BuildFileServiceTest {
 
         given(releaseVersionRepository.findById(50L)).willReturn(Optional.of(notBuild));
 
-        byte[] zip = makeZip("web/foo.war");
+        Path zip = makeZip("web/foo.war");
 
         assertThatThrownBy(() -> buildFileService.uploadBuildZip(50L, zip, "u@x"))
                 .isInstanceOf(BusinessException.class)
@@ -177,7 +179,7 @@ class BuildFileServiceTest {
         ReleaseVersion buildVer = build(99L, base, 260427);
         given(releaseVersionRepository.findById(99L)).willReturn(Optional.of(buildVer));
 
-        byte[] zip = makeZip("database/v1.sql");
+        Path zip = makeZip("database/v1.sql");
 
         assertThatThrownBy(() -> buildFileService.uploadBuildZip(99L, zip, "u@x"))
                 .isInstanceOf(BusinessException.class)
@@ -190,7 +192,7 @@ class BuildFileServiceTest {
     void uploadBuildZip_buildNotFound_rejected() throws IOException {
         given(releaseVersionRepository.findById(404L)).willReturn(Optional.empty());
 
-        byte[] zip = makeZip("web/foo.war");
+        Path zip = makeZip("web/foo.war");
         assertThatThrownBy(() -> buildFileService.uploadBuildZip(404L, zip, "u@x"))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ErrorCode.RELEASE_VERSION_NOT_FOUND);
@@ -217,7 +219,7 @@ class BuildFileServiceTest {
         given(releaseFileRepository.save(any(ReleaseFile.class)))
                 .willAnswer(inv -> inv.getArgument(0));
 
-        byte[] zip = makeZip("web/foo.war");
+        Path zip = makeZip("web/foo.war");
         BuildFileService.UploadResult result = buildFileService.uploadBuildZip(99L, zip, "u@x");
 
         // 시작 order 가 5+1 = 6
@@ -274,7 +276,7 @@ class BuildFileServiceTest {
         given(releaseFileRepository.save(any(ReleaseFile.class)))
                 .willAnswer(inv -> inv.getArgument(0));
 
-        byte[] zip = makeZip("web/foo.war", "engine/x.jar");
+        Path zip = makeZip("web/foo.war", "engine/x.jar");
 
         var result = buildFileService.createBuildWithZip(10L, req, zip, "u@x");
 

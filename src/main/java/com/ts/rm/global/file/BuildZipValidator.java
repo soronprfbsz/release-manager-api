@@ -4,6 +4,9 @@ import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.zip.ZipEntry;
@@ -51,11 +54,49 @@ public final class BuildZipValidator {
         if (zipBytes == null || zipBytes.length == 0) {
             throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE, "ZIP 파일이 비어있습니다.");
         }
+        validateStream(new ByteArrayInputStream(zipBytes));
+    }
 
+    /**
+     * Path 기반 ZIP 검증 (대용량 ZIP 메모리 안전 버전).
+     *
+     * <p>{@link #validate(byte[])} 는 입력 전체가 힙에 올라가야 하므로 수백 MB 이상의 ZIP 에서
+     * OOM 위험이 있다. 본 메서드는 파일을 스트리밍하여 검증하므로 ZIP 크기에 무관하게 동작한다.
+     *
+     * @param zipFile ZIP 파일 경로
+     * @throws BusinessException 검증 실패 시
+     */
+    public static void validate(Path zipFile) {
+        if (zipFile == null) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE, "ZIP 파일이 비어있습니다.");
+        }
+        long size;
+        try {
+            size = Files.size(zipFile);
+        } catch (IOException e) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
+                    "ZIP 파일 크기 조회 실패: " + e.getMessage());
+        }
+        if (size == 0) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE, "ZIP 파일이 비어있습니다.");
+        }
+
+        try (InputStream is = Files.newInputStream(zipFile)) {
+            validateStream(is);
+        } catch (IOException e) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
+                    "ZIP 파일 읽기 실패: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 임의의 ZIP 입력 스트림에 대해 루트 디렉토리 화이트리스트 검증을 수행하는 공통 핵심.
+     */
+    private static void validateStream(InputStream inputStream) {
         Set<String> invalidRootEntries = new LinkedHashSet<>();
         boolean hasAnyContent = false;
 
-        try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(zipBytes))) {
+        try (ZipInputStream zis = new ZipInputStream(inputStream)) {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 String name = entry.getName();

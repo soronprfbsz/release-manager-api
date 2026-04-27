@@ -616,6 +616,12 @@ public class ReleaseVersionService {
             try {
                 ReleaseVersion saved = saveBuildEntity(baseVersion, creator, candidate, request.comment(),
                         createdByEmail);
+
+                // 클로저 테이블에 self-row(depth=0) 등록.
+                // 트리 조회(findAllByProjectIdAndReleaseTypeWithHierarchy)는 hierarchy 와의
+                // INNER JOIN 으로 결과를 추리므로 이 호출이 빠지면 빌드가 트리에 표시되지 않는다.
+                treeService.createHierarchyForNewVersion(saved, baseVersion.getReleaseType());
+
                 fileSystemService.createBuildDirectoryStructure(saved, baseVersion);
 
                 log.info("빌드 생성 완료 - buildVersionId: {}, fullVersion: {}",
