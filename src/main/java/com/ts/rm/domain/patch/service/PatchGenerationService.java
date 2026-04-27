@@ -28,6 +28,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -83,14 +84,21 @@ public class PatchGenerationService {
             String fromVersion, String toVersion, String createdByEmail, String description,
             Long assigneeId, String patchName, boolean includeAllBuildVersions) {
 
-        // 버전 조회 (프로젝트 내에서, 핫픽스 제외)
-        ReleaseVersion from = releaseVersionRepository.findByProject_ProjectIdAndReleaseTypeAndVersionAndHotfixVersion(
-                        projectId, releaseType.toUpperCase(), fromVersion, 0)
+        // 버전 조회 (프로젝트 내에서, 핫픽스 제외, 빌드 인식)
+        ParsedInputVersion fromParsed = parseInputVersion(fromVersion);
+        ParsedInputVersion toParsed = parseInputVersion(toVersion);
+
+        ReleaseVersion from = releaseVersionRepository
+                .findByProject_ProjectIdAndReleaseTypeAndVersionAndHotfixVersionAndBuildVersion(
+                        projectId, releaseType.toUpperCase(),
+                        fromParsed.baseVersionString(), 0, fromParsed.buildVersion())
                 .orElseThrow(() -> new BusinessException(ErrorCode.RELEASE_VERSION_NOT_FOUND,
                         "From 버전을 찾을 수 없습니다: " + fromVersion));
 
-        ReleaseVersion to = releaseVersionRepository.findByProject_ProjectIdAndReleaseTypeAndVersionAndHotfixVersion(
-                        projectId, releaseType.toUpperCase(), toVersion, 0)
+        ReleaseVersion to = releaseVersionRepository
+                .findByProject_ProjectIdAndReleaseTypeAndVersionAndHotfixVersionAndBuildVersion(
+                        projectId, releaseType.toUpperCase(),
+                        toParsed.baseVersionString(), 0, toParsed.buildVersion())
                 .orElseThrow(() -> new BusinessException(ErrorCode.RELEASE_VERSION_NOT_FOUND,
                         "To 버전을 찾을 수 없습니다: " + toVersion));
 
@@ -121,31 +129,39 @@ public class PatchGenerationService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.CUSTOMER_NOT_FOUND,
                         "고객사를 찾을 수 없습니다: " + customerId));
 
-        // From 버전 조회 (베이스 버전 또는 커스텀 버전)
-        // 베이스 버전 형식: 1.1.0, 커스텀 버전 형식: 1.1.0-companyA.1.0.0
+        // From 버전 조회 (베이스 버전 또는 커스텀 버전, 빌드 인식)
+        // 베이스 버전 형식: 1.1.0(.260427), 커스텀 버전 형식: 1.1.0-companyA.1.0.0(.260427)
+        ParsedInputVersion fromParsed = parseInputVersion(fromVersion);
+        ParsedInputVersion toParsed = parseInputVersion(toVersion);
+
         ReleaseVersion from;
         if (fromVersion.contains("-")) {
-            // 커스텀 버전인 경우: version 필드로 조회 (핫픽스 제외)
+            // 커스텀 버전: 고객사 내에서 (version, build) 일치 row
             from = releaseVersionRepository.findAllByCustomer_CustomerIdOrderByCreatedAtDesc(customerId)
                     .stream()
-                    .filter(v -> fromVersion.equals(v.getVersion()))
-                    .filter(v -> v.getHotfixVersion() == 0)  // 핫픽스 제외
+                    .filter(v -> fromParsed.baseVersionString().equals(v.getVersion()))
+                    .filter(v -> v.getHotfixVersion() == 0)
+                    .filter(v -> (v.getBuildVersion() != null ? v.getBuildVersion() : 0)
+                            == fromParsed.buildVersion())
                     .findFirst()
                     .orElseThrow(() -> new BusinessException(ErrorCode.RELEASE_VERSION_NOT_FOUND,
                             "From 커스텀 버전을 찾을 수 없습니다: " + fromVersion));
         } else {
-            // 베이스 버전(표준 버전)인 경우: 프로젝트 내 표준 버전에서 조회 (핫픽스 제외)
-            from = releaseVersionRepository.findByProject_ProjectIdAndReleaseTypeAndVersionAndHotfixVersion(
-                            projectId, "STANDARD", fromVersion, 0)
+            // 베이스(표준) 버전
+            from = releaseVersionRepository
+                    .findByProject_ProjectIdAndReleaseTypeAndVersionAndHotfixVersionAndBuildVersion(
+                            projectId, "STANDARD", fromParsed.baseVersionString(), 0, fromParsed.buildVersion())
                     .orElseThrow(() -> new BusinessException(ErrorCode.RELEASE_VERSION_NOT_FOUND,
                             "From 베이스 버전을 찾을 수 없습니다: " + fromVersion));
         }
 
-        // To 버전 조회 (커스텀 버전만 허용, 핫픽스 제외)
+        // To 버전 조회 (커스텀 버전만 허용, 빌드 인식)
         ReleaseVersion to = releaseVersionRepository.findAllByCustomer_CustomerIdOrderByCreatedAtDesc(customerId)
                 .stream()
-                .filter(v -> toVersion.equals(v.getVersion()))
-                .filter(v -> v.getHotfixVersion() == 0)  // 핫픽스 제외
+                .filter(v -> toParsed.baseVersionString().equals(v.getVersion()))
+                .filter(v -> v.getHotfixVersion() == 0)
+                .filter(v -> (v.getBuildVersion() != null ? v.getBuildVersion() : 0)
+                        == toParsed.buildVersion())
                 .findFirst()
                 .orElseThrow(() -> new BusinessException(ErrorCode.RELEASE_VERSION_NOT_FOUND,
                         "To 커스텀 버전을 찾을 수 없습니다: " + toVersion));
@@ -191,18 +207,32 @@ public class PatchGenerationService {
             boolean isFromBaseVersion = isBaseVersion(fromVersion);
 
             // 2. 중간 버전 목록 조회 (fromVersion <= customVersion <= toVersion)
-            // 베이스 버전에서 시작하는 경우 모든 커스텀 버전을 포함 (fromCustomVersion = "0.0.-1")
-            String fromCustomVersionForQuery = isFromBaseVersion ? "0.0.-1" : fromVersion.getCustomVersion();
-            List<ReleaseVersion> betweenVersions = releaseVersionRepository.findCustomVersionsBetween(
-                    customerId,
-                    fromCustomVersionForQuery,
-                    toVersion.getCustomVersion()
-            );
+            // 빌드-only 패치 (같은 base): to 빌드 row 만 포함
+            List<ReleaseVersion> betweenVersions;
+            if (isSameBaseVersion(fromVersion, toVersion)) {
+                betweenVersions = toVersion.isBuild() ? List.of(toVersion) : List.of();
+            } else {
+                // 베이스 버전에서 시작하는 경우 모든 커스텀 버전을 포함 (fromCustomVersion = "0.0.-1")
+                String fromCustomVersionForQuery = isFromBaseVersion ? "0.0.-1" : fromVersion.getCustomVersion();
+                List<ReleaseVersion> baseVersions = releaseVersionRepository.findCustomVersionsBetween(
+                        customerId,
+                        fromCustomVersionForQuery,
+                        toVersion.getCustomVersion()
+                );
+                // to 가 빌드면 끝에 추가하여 WEB/ENGINE 가 to 빌드 파일이 되도록
+                if (toVersion.isBuild() && !baseVersions.contains(toVersion)) {
+                    List<ReleaseVersion> enriched = new ArrayList<>(baseVersions);
+                    enriched.add(toVersion);
+                    betweenVersions = enriched;
+                } else {
+                    betweenVersions = baseVersions;
+                }
+            }
 
             if (betweenVersions.isEmpty()) {
                 throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
                         String.format("From %s와 To %s 사이에 패치할 커스텀 버전이 없습니다.",
-                                fromVersion.getVersion(), toVersion.getVersion()));
+                                fromVersion.getFullVersion(), toVersion.getFullVersion()));
             }
 
             log.info("커스텀 패치 생성 시작 - Project: {}, Customer: {}, From: {}{}, To: {}, 포함 버전: {}",
@@ -238,13 +268,13 @@ public class PatchGenerationService {
             // 9. 생성자 Account 조회
             Account creator = accountLookupService.findByEmail(createdByEmail);
 
-            // 10. 패치 저장 (전체 버전 형식 저장)
+            // 10. 패치 저장 (전체 버전 형식 저장 — 빌드/핫픽스 정보 포함)
             Patch patch = Patch.builder()
                     .project(project)
                     .releaseType("CUSTOM")
                     .customer(customer)
-                    .fromVersion(fromVersion.getVersion())
-                    .toVersion(toVersion.getVersion())
+                    .fromVersion(fromVersion.getFullVersion())
+                    .toVersion(toVersion.getFullVersion())
                     .patchName(resolvedPatchName)
                     .outputPath(outputPath)
                     .creator(creator)
@@ -354,7 +384,13 @@ public class PatchGenerationService {
         if (!v1.getCustomMinorVersion().equals(v2.getCustomMinorVersion())) {
             return Integer.compare(v1.getCustomMinorVersion(), v2.getCustomMinorVersion());
         }
-        return Integer.compare(v1.getCustomPatchVersion(), v2.getCustomPatchVersion());
+        if (!v1.getCustomPatchVersion().equals(v2.getCustomPatchVersion())) {
+            return Integer.compare(v1.getCustomPatchVersion(), v2.getCustomPatchVersion());
+        }
+        // 같은 커스텀 triple → 빌드 비교 (빌드 도입 후 추가)
+        int b1 = v1.getBuildVersion() != null ? v1.getBuildVersion() : 0;
+        int b2 = v2.getBuildVersion() != null ? v2.getBuildVersion() : 0;
+        return Integer.compare(b1, b2);
     }
 
     /**
@@ -478,23 +514,19 @@ public class PatchGenerationService {
 
             validateVersionRange(fromVersion, toVersion);
 
-            // 2. 중간 버전 목록 조회 (fromVersion <= version <= toVersion)
-            List<ReleaseVersion> betweenVersions = releaseVersionRepository.findVersionsBetween(
-                    projectId,
-                    fromVersion.getReleaseType(),
-                    fromVersion.getVersion(),
-                    toVersion.getVersion()
-            );
+            // 2. 중간 버전 목록 조회 (fromVersion <= version <= toVersion, 빌드 인식)
+            List<ReleaseVersion> betweenVersions = collectBetweenVersionsWithBuild(
+                    projectId, fromVersion, toVersion);
 
             if (betweenVersions.isEmpty()) {
                 throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
                         String.format("From %s와 To %s 사이에 패치할 버전이 없습니다.",
-                                fromVersion.getVersion(), toVersion.getVersion()));
+                                fromVersion.getFullVersion(), toVersion.getFullVersion()));
             }
 
             log.info("패치 생성 시작 - Project: {}, From: {}, To: {}, 포함 버전: {}",
-                    projectId, fromVersion.getVersion(), toVersion.getVersion(),
-                    betweenVersions.stream().map(ReleaseVersion::getVersion).toList());
+                    projectId, fromVersion.getFullVersion(), toVersion.getFullVersion(),
+                    betweenVersions.stream().map(ReleaseVersion::getFullVersion).toList());
 
             // 3. 고객사 조회 (customerId가 있는 경우)
             Customer customer = null;
@@ -531,13 +563,13 @@ public class PatchGenerationService {
             // 9. 생성자 Account 조회
             Account creator = accountLookupService.findByEmail(createdByEmail);
 
-            // 10. 패치 저장
+            // 10. 패치 저장 (빌드/핫픽스 정보 포함된 fullVersion 저장)
             Patch patch = Patch.builder()
                     .project(project)
                     .releaseType(fromVersion.getReleaseType())
                     .customer(customer)
-                    .fromVersion(fromVersion.getVersion())
-                    .toVersion(toVersion.getVersion())
+                    .fromVersion(fromVersion.getFullVersion())
+                    .toVersion(toVersion.getFullVersion())
                     .patchName(resolvedPatchName)
                     .outputPath(outputPath)
                     .creator(creator)
@@ -627,16 +659,128 @@ public class PatchGenerationService {
     }
 
     /**
-     * 버전 비교 (v1 < v2 이면 -1, v1 == v2 이면 0, v1 > v2 이면 1)
+     * 두 버전이 같은 base (major.minor.patch) 인지 확인.
+     *
+     * <p>빌드만 다른 패치(예: 1.1.0 → 1.1.0.260427) 판정에 사용.
+     */
+    private boolean isSameBaseVersion(ReleaseVersion v1, ReleaseVersion v2) {
+        return java.util.Objects.equals(v1.getMajorVersion(), v2.getMajorVersion())
+                && java.util.Objects.equals(v1.getMinorVersion(), v2.getMinorVersion())
+                && java.util.Objects.equals(v1.getPatchVersion(), v2.getPatchVersion());
+    }
+
+    /**
+     * 표준 패치용 betweenVersions 수집 (빌드 인식).
+     *
+     * <ul>
+     *   <li>{@code from} 과 {@code to} 가 같은 base 인 경우 (빌드-only 패치):
+     *       to 빌드 row 만 포함하여 base 의 DB SQL 미포함 보장</li>
+     *   <li>그 외, to 가 빌드면 base versions 끝에 추가 → 마지막 버전의 WEB/ENGINE 가 to 빌드의 파일이 됨</li>
+     * </ul>
+     */
+    private List<ReleaseVersion> collectBetweenVersionsWithBuild(
+            String projectId, ReleaseVersion fromVersion, ReleaseVersion toVersion) {
+        if (isSameBaseVersion(fromVersion, toVersion)) {
+            // 빌드-only: to 빌드만 (둘 다 base/같은 build 는 validateVersionRange 에서 거름)
+            return toVersion.isBuild() ? List.of(toVersion) : List.of();
+        }
+
+        List<ReleaseVersion> baseVersions = releaseVersionRepository.findVersionsBetween(
+                projectId,
+                fromVersion.getReleaseType(),
+                fromVersion.getVersion(),
+                toVersion.getVersion()
+        );
+
+        if (toVersion.isBuild() && !baseVersions.contains(toVersion)) {
+            List<ReleaseVersion> enriched = new ArrayList<>(baseVersions);
+            enriched.add(toVersion);
+            return enriched;
+        }
+        return baseVersions;
+    }
+
+    /**
+     * 버전 비교 (v1 &lt; v2 이면 -1, v1 == v2 이면 0, v1 &gt; v2 이면 1)
+     *
+     * <p>4단 비교: major.minor.patch.build 순. build_version 이 null 이면 0 으로 취급.
+     *
+     * <p>예시: 1.1.0 &lt; 1.1.0.260427 &lt; 1.1.0.260428 &lt; 1.1.1
      */
     private int compareVersions(ReleaseVersion v1, ReleaseVersion v2) {
-        if (v1.getMajorVersion() != v2.getMajorVersion()) {
+        if (!java.util.Objects.equals(v1.getMajorVersion(), v2.getMajorVersion())) {
             return Integer.compare(v1.getMajorVersion(), v2.getMajorVersion());
         }
-        if (v1.getMinorVersion() != v2.getMinorVersion()) {
+        if (!java.util.Objects.equals(v1.getMinorVersion(), v2.getMinorVersion())) {
             return Integer.compare(v1.getMinorVersion(), v2.getMinorVersion());
         }
-        return Integer.compare(v1.getPatchVersion(), v2.getPatchVersion());
+        if (!java.util.Objects.equals(v1.getPatchVersion(), v2.getPatchVersion())) {
+            return Integer.compare(v1.getPatchVersion(), v2.getPatchVersion());
+        }
+        int b1 = v1.getBuildVersion() != null ? v1.getBuildVersion() : 0;
+        int b2 = v2.getBuildVersion() != null ? v2.getBuildVersion() : 0;
+        return Integer.compare(b1, b2);
+    }
+
+    /**
+     * 입력 버전 문자열 파싱 결과 (lookup 에서 사용).
+     *
+     * @param baseVersionString 룩업의 {@code version} 컬럼 값 (예: "1.1.0", "1.1.0-companyA.1.0.0")
+     * @param buildVersion      빌드 버전 (없으면 0)
+     */
+    record ParsedInputVersion(String baseVersionString, int buildVersion) {}
+
+    /**
+     * 입력 버전 문자열 파싱.
+     *
+     * <p>지원 포맷:
+     * <ul>
+     *   <li>표준 일반: {@code "1.1.0"} → base="1.1.0", build=0</li>
+     *   <li>표준 빌드: {@code "1.1.0.260427"} → base="1.1.0", build=260427</li>
+     *   <li>커스텀 일반: {@code "1.1.0-companyA.1.0.0"} → base="1.1.0-companyA.1.0.0", build=0</li>
+     *   <li>커스텀 빌드: {@code "1.1.0-companyA.1.0.0.260427"} → base="1.1.0-companyA.1.0.0", build=260427</li>
+     * </ul>
+     */
+    static ParsedInputVersion parseInputVersion(String input) {
+        if (input == null || input.isBlank()) {
+            throw new BusinessException(ErrorCode.INVALID_VERSION_FORMAT, "버전이 비어있습니다.");
+        }
+        int dashIndex = input.indexOf('-');
+        if (dashIndex < 0) {
+            // 표준 버전
+            String[] parts = input.split("\\.");
+            if (parts.length == 3) {
+                return new ParsedInputVersion(input, 0);
+            }
+            if (parts.length == 4) {
+                String base = parts[0] + "." + parts[1] + "." + parts[2];
+                return new ParsedInputVersion(base, parseInt(parts[3], input));
+            }
+            throw new BusinessException(ErrorCode.INVALID_VERSION_FORMAT,
+                    "표준 버전 형식이 잘못되었습니다 (예상 3 또는 4파트): " + input);
+        }
+        // 커스텀 버전
+        String afterDash = input.substring(dashIndex + 1);
+        String[] customParts = afterDash.split("\\.");
+        // customParts: [customerCode, customMaj, customMin, customPatch] (4) 또는 + build (5)
+        if (customParts.length == 4) {
+            return new ParsedInputVersion(input, 0);
+        }
+        if (customParts.length == 5) {
+            String base = input.substring(0, input.lastIndexOf('.'));
+            return new ParsedInputVersion(base, parseInt(customParts[4], input));
+        }
+        throw new BusinessException(ErrorCode.INVALID_VERSION_FORMAT,
+                "커스텀 버전 형식이 잘못되었습니다 (예상 4 또는 5 파트): " + input);
+    }
+
+    private static int parseInt(String s, String fullInput) {
+        try {
+            return Integer.parseInt(s);
+        } catch (NumberFormatException e) {
+            throw new BusinessException(ErrorCode.INVALID_VERSION_FORMAT,
+                    "버전 숫자 파싱 실패: " + fullInput);
+        }
     }
 
     /**
@@ -860,6 +1004,13 @@ public class PatchGenerationService {
     private void generatePatchScripts(ReleaseVersion fromVersion, ReleaseVersion toVersion,
             List<ReleaseVersion> versions, String outputPath, String patchedBy) {
         try {
+            // 빌드-only 패치 (같은 base): DB 변경이 없으므로 mariadb/cratedb 스크립트 생성 생략
+            if (isSameBaseVersion(fromVersion, toVersion)) {
+                log.info("같은 base 버전 ({}) 내 빌드 패치이므로 DB 스크립트 생성 생략",
+                        fromVersion.getBaseVersionString());
+                return;
+            }
+
             // 프로젝트 ID 추출 (versions 목록의 첫 번째 버전에서)
             String projectId = versions.get(0).getProject().getProjectId();
 

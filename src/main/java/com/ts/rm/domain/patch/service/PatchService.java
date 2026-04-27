@@ -287,10 +287,11 @@ public class PatchService {
         }
 
         // 커스텀 버전들 추가 (최신순)
-        // version 필드: 시멘틱 버저닝 형식 (예: 1.1.0-companyA.1.0.0)
+        // 핫픽스/빌드는 version 필드가 base 와 동일하므로 fullVersion 으로 식별 가능하게 노출
+        // (예: 1.1.0-companyA.1.0.0, 1.1.0-companyA.1.0.0.1, 1.1.0-companyA.1.0.0.260427)
         customVersions.forEach(v -> result.add(new PatchDto.CustomVersionSelectOption(
                 v.getReleaseVersionId(),
-                v.getVersion(),  // 전체 버전 문자열 사용
+                v.getFullVersion(),
                 v.getIsApproved(),
                 false // 커스텀 버전
         )));

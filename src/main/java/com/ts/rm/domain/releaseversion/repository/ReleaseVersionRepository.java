@@ -238,4 +238,41 @@ public interface ReleaseVersionRepository extends JpaRepository<ReleaseVersion, 
      */
     List<ReleaseVersion> findAllByProject_ProjectIdAndReleaseTypeAndHotfixVersionOrderByCreatedAtDesc(
             String projectId, String releaseType, Integer hotfixVersion);
+
+    // ========================================
+    // Build 관련 메서드
+    // ========================================
+
+    /**
+     * 특정 버전의 빌드 목록 조회 (빌드 버전 내림차순)
+     *
+     * @param buildBaseVersionId 빌드 원본 버전 ID
+     * @return 빌드 목록 (build_version DESC)
+     */
+    List<ReleaseVersion> findAllByBuildBaseVersion_ReleaseVersionIdOrderByBuildVersionDesc(Long buildBaseVersionId);
+
+    /**
+     * 특정 base 버전에 동일 build_version 존재 여부
+     *
+     * @param buildBaseVersionId 빌드 원본 버전 ID
+     * @param buildVersion       빌드 버전 (예: 260427)
+     * @return 존재 여부
+     */
+    boolean existsByBuildBaseVersion_ReleaseVersionIdAndBuildVersion(Long buildBaseVersionId, Integer buildVersion);
+
+    /**
+     * 프로젝트, 릴리즈 타입, 버전, 핫픽스 버전, 빌드 버전으로 정확히 1행 조회.
+     *
+     * <p>build_version 도입 후 (version, hotfix_version) 만으로는 row 가 유일하지 않으므로
+     * 빌드까지 포함해 정확히 일치하는 단일 row 를 찾는다.
+     *
+     * @param projectId     프로젝트 ID
+     * @param releaseType   릴리즈 타입 (STANDARD/CUSTOM)
+     * @param version       기본 버전 (예: 1.1.0 또는 1.1.0-companyA.1.0.0)
+     * @param hotfixVersion 핫픽스 버전 (일반/빌드는 0)
+     * @param buildVersion  빌드 버전 (일반은 0)
+     * @return 정확히 일치하는 ReleaseVersion
+     */
+    Optional<ReleaseVersion> findByProject_ProjectIdAndReleaseTypeAndVersionAndHotfixVersionAndBuildVersion(
+            String projectId, String releaseType, String version, Integer hotfixVersion, Integer buildVersion);
 }

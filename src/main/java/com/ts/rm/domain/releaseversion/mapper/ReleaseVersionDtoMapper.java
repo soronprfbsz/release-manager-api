@@ -18,6 +18,8 @@ public interface ReleaseVersionDtoMapper {
     @Mapping(target = "customerCode", source = "customer.customerCode")
     @Mapping(target = "hotfixVersion", source = "hotfixVersion")
     @Mapping(target = "isHotfix", expression = "java(releaseVersion.isHotfix())")
+    @Mapping(target = "buildVersion", source = "buildVersion")
+    @Mapping(target = "isBuild", expression = "java(releaseVersion.isBuild())")
     @Mapping(target = "fullVersion", expression = "java(releaseVersion.getFullVersion())")
     @Mapping(target = "patchFileCount", expression = "java(releaseVersion.getReleaseFiles() != null ? releaseVersion.getReleaseFiles().size() : 0)")
     @Mapping(target = "fileCategories", ignore = true)
@@ -40,6 +42,8 @@ public interface ReleaseVersionDtoMapper {
     @Mapping(target = "customerCode", source = "customer.customerCode")
     @Mapping(target = "hotfixVersion", source = "hotfixVersion")
     @Mapping(target = "isHotfix", expression = "java(releaseVersion.isHotfix())")
+    @Mapping(target = "buildVersion", source = "buildVersion")
+    @Mapping(target = "isBuild", expression = "java(releaseVersion.isBuild())")
     @Mapping(target = "fullVersion", expression = "java(releaseVersion.getFullVersion())")
     @Mapping(target = "releaseFiles", source = "releaseFiles")
     @Mapping(target = "customBaseVersionId", source = "customBaseVersion.releaseVersionId")
@@ -71,4 +75,20 @@ public interface ReleaseVersionDtoMapper {
     ReleaseVersionDto.HotfixItem toHotfixItem(ReleaseVersion releaseVersion);
 
     List<ReleaseVersionDto.HotfixItem> toHotfixItemList(List<ReleaseVersion> releaseVersions);
+
+    /**
+     * 빌드 항목 변환
+     */
+    @Mapping(target = "buildVersionId", source = "releaseVersionId")
+    @Mapping(target = "buildVersion", source = "buildVersion")
+    @Mapping(target = "version", source = "version")
+    @Mapping(target = "fullVersion", expression = "java(releaseVersion.getFullVersion())")
+    @Mapping(target = "isApproved", source = "isApproved")
+    @Mapping(target = "createdAt", expression = "java(releaseVersion.getCreatedAt() != null ? releaseVersion.getCreatedAt().toString() : null)")
+    @Mapping(target = "createdByEmail", source = "createdByEmail")
+    @Mapping(target = "createdByName", source = "createdByName")
+    @Mapping(target = "comment", source = "comment")
+    ReleaseVersionDto.BuildItem toBuildItem(ReleaseVersion releaseVersion);
+
+    List<ReleaseVersionDto.BuildItem> toBuildItemList(List<ReleaseVersion> releaseVersions);
 }

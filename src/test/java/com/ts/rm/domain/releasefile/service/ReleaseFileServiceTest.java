@@ -16,7 +16,6 @@ import com.ts.rm.domain.releasefile.enums.FileCategory;
 import com.ts.rm.domain.releasefile.mapper.ReleaseFileDtoMapper;
 import com.ts.rm.domain.releasefile.repository.ReleaseFileRepository;
 import com.ts.rm.domain.releaseversion.entity.ReleaseVersion;
-import com.ts.rm.domain.releaseversion.enums.ReleaseCategory;
 import com.ts.rm.domain.releaseversion.repository.ReleaseVersionRepository;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
@@ -60,7 +59,6 @@ class ReleaseFileServiceTest {
         testVersion = ReleaseVersion.builder()
                 .releaseVersionId(1L)
                 .releaseType("STANDARD")
-                .releaseCategory(ReleaseCategory.PATCH)
                 .version("1.1.0")
                 .majorVersion(1)
                 .minorVersion(1)
@@ -237,7 +235,7 @@ class ReleaseFileServiceTest {
         // then
         assertThat(result).isNotNull();
         assertThat(result.filePath()).isEqualTo(
-                "/release/1.1.0/patch/mariadb/001_create_users_table.sql");
+                "/release-manager/1.1.0/patch/mariadb/001_create_users_table.sql");
     }
 
     @Test
@@ -300,13 +298,13 @@ class ReleaseFileServiceTest {
                 )
         );
 
-        given(releaseFileRepository.findReleaseFilesBetweenVersionsExcludingInstall(anyString(), anyString()))
+        given(releaseFileRepository.findReleaseFilesBetweenVersions(anyString(), anyString(), anyString()))
                 .willReturn(releaseFiles);
         given(mapper.toSimpleResponseList(any())).willReturn(simpleResponses);
 
         // when
         List<ReleaseFileDto.SimpleResponse> result =
-                releaseFileService.getReleaseFilesBetweenVersions("1.0.0", "1.1.0");
+                releaseFileService.getReleaseFilesBetweenVersions("infraeye2", "1.0.0", "1.1.0");
 
         // then
         assertThat(result).hasSize(1);

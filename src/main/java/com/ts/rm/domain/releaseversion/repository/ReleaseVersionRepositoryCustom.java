@@ -121,4 +121,18 @@ public interface ReleaseVersionRepositoryCustom {
      * @return 핫픽스가 있는 버전 ID 목록
      */
     List<Long> findVersionIdsWithHotfixes(String projectId, String releaseType);
+
+    // ========================================
+    // Build 관련 메서드
+    // ========================================
+
+    /**
+     * 특정 base 버전의 최대 build_version 조회
+     *
+     * <p>충돌 회피용 retry 시작점 결정에 사용.
+     *
+     * @param buildBaseVersionId 빌드 원본 버전 ID
+     * @return 최대 build_version (빌드가 하나도 없으면 Optional.empty)
+     */
+    Optional<Integer> findMaxBuildVersionByBaseId(Long buildBaseVersionId);
 }

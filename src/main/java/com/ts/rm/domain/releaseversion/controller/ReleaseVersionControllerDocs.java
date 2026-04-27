@@ -796,4 +796,115 @@ public interface ReleaseVersionControllerDocs {
         @Schema(description = "핫픽스 목록")
         public ReleaseVersionDto.HotfixListResponse data;
     }
+
+    // ========================================
+    // Build (빌드 버전) API Documentation
+    // ========================================
+
+    @Operation(
+            summary = "빌드 버전 생성 (선택적 ZIP 동봉)",
+            description = "특정 버전에 대한 빌드(WEB/ENGINE 산출물 패치)를 생성합니다.\n\n"
+                    + "**빌드 특징**:\n"
+                    + "- 같은 base 버전 위에 build_version 으로 구분 (예: 1.1.0.260427)\n"
+                    + "- 빌드는 즉시 활성 (is_approved=true)\n"
+                    + "- buildVersion 미입력 시 서버가 오늘 yyMMdd 자동 채움\n"
+                    + "- 같은 base 에 동일 buildVersion 있으면 +1 후 자동 재시도\n\n"
+                    + "**제약사항**:\n"
+                    + "- 핫픽스 위에는 빌드 생성 불가\n"
+                    + "- 빌드 위에는 빌드 생성 불가\n"
+                    + "- ZIP 루트는 web/, engine/, etc/ 만 허용 (대소문자 구분)\n\n"
+                    + "**저장 경로**: `versions/{projectId}/{type}/{majorMinor}/{version}/builds/{buildVersion}/`",
+            responses = @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "성공",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = CreateBuildApiResponse.class)
+                    )
+            )
+    )
+    ResponseEntity<ApiResponse<ReleaseVersionDto.CreateBuildResponse>> createBuild(
+            @Parameter(description = "빌드 원본 버전 ID", required = true)
+            @PathVariable Long id,
+            @Valid @ModelAttribute ReleaseVersionDto.CreateBuildRequest request,
+            @Parameter(description = "빌드 ZIP 파일 (web/engine/etc 루트만 허용). 미동봉 시 빌드 행만 생성")
+            @RequestPart(value = "file", required = false) MultipartFile file,
+            @Parameter(description = "JWT 인증 토큰", required = true, example = "Bearer eyJhbGciOiJIUzI1NiIs...")
+            @RequestHeader("Authorization") String authorization
+    );
+
+    @Operation(
+            summary = "특정 버전의 빌드 목록 조회",
+            description = "지정한 base 버전의 모든 빌드를 build_version 내림차순으로 조회합니다.",
+            responses = @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "성공",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = BuildListApiResponse.class)
+                    )
+            )
+    )
+    ResponseEntity<ApiResponse<ReleaseVersionDto.BuildListResponse>> getBuildsByVersionId(
+            @Parameter(description = "원본 버전 ID", required = true)
+            @PathVariable Long id
+    );
+
+    @Operation(
+            summary = "빌드 버전 삭제",
+            description = "빌드 행과 빌드 디렉토리(builds/{buildVersion}/) 를 함께 삭제합니다.",
+            responses = @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "성공"
+            )
+    )
+    ResponseEntity<ApiResponse<Void>> deleteBuild(
+            @Parameter(description = "빌드 ReleaseVersion ID", required = true)
+            @PathVariable Long id
+    );
+
+    @Operation(
+            summary = "빌드 ZIP 재업로드 (교체)",
+            description = "기존 빌드의 파일/ReleaseFile 행을 모두 삭제하고 새 ZIP 으로 교체합니다.\n\n"
+                    + "**제약사항**:\n"
+                    + "- 빌드 버전(build_version > 0) 에만 사용 가능\n"
+                    + "- ZIP 루트는 web/, engine/, etc/ 만 허용 (대소문자 구분)\n"
+                    + "- 동일 트랜잭션이므로 신규 업로드 실패 시 삭제도 롤백됨",
+            responses = @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "성공"
+            )
+    )
+    ResponseEntity<ApiResponse<ReleaseVersionDto.UploadBuildZipResponse>> replaceBuildZip(
+            @Parameter(description = "빌드 ReleaseVersion ID", required = true)
+            @PathVariable Long id,
+            @Parameter(description = "새 빌드 ZIP 파일", required = true)
+            @RequestPart("file") MultipartFile file,
+            @Parameter(description = "JWT 인증 토큰", required = true, example = "Bearer eyJhbGciOiJIUzI1NiIs...")
+            @RequestHeader("Authorization") String authorization
+    );
+
+    /**
+     * Swagger 스키마용 wrapper 클래스 - 빌드 생성 응답
+     */
+    @Schema(description = "빌드 생성 API 응답")
+    class CreateBuildApiResponse {
+        @Schema(description = "응답 상태", example = "success")
+        public String status;
+
+        @Schema(description = "빌드 생성 결과")
+        public ReleaseVersionDto.CreateBuildResponse data;
+    }
+
+    /**
+     * Swagger 스키마용 wrapper 클래스 - 빌드 목록 응답
+     */
+    @Schema(description = "빌드 목록 API 응답")
+    class BuildListApiResponse {
+        @Schema(description = "응답 상태", example = "success")
+        public String status;
+
+        @Schema(description = "빌드 목록")
+        public ReleaseVersionDto.BuildListResponse data;
+    }
 }

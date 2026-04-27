@@ -10,19 +10,23 @@ import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 
+import com.ts.rm.domain.account.entity.Account;
 import com.ts.rm.domain.customer.entity.Customer;
 import com.ts.rm.domain.customer.repository.CustomerRepository;
+import com.ts.rm.domain.project.entity.Project;
+import com.ts.rm.domain.project.repository.ProjectRepository;
+import com.ts.rm.domain.releasefile.repository.ReleaseFileRepository;
 import com.ts.rm.domain.releaseversion.dto.ReleaseVersionDto;
 import com.ts.rm.domain.releaseversion.entity.ReleaseVersion;
-import com.ts.rm.domain.releaseversion.enums.ReleaseCategory;
 import com.ts.rm.domain.releaseversion.mapper.ReleaseVersionDtoMapper;
-import com.ts.rm.domain.releasefile.repository.ReleaseFileRepository;
 import com.ts.rm.domain.releaseversion.repository.ReleaseVersionHierarchyRepository;
 import com.ts.rm.domain.releaseversion.repository.ReleaseVersionRepository;
+import com.ts.rm.global.account.AccountLookupService;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,7 +38,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
- * ReleaseVersion Service 단위 테스트 (TDD)
+ * ReleaseVersionService 단위 테스트.
+ *
+ * <p>create/getById/getByType/update/delete/getVersionsBetween 등 일반 동작을 검증한다.
+ * 빌드 버전 관련 로직은 {@link ReleaseVersionBuildServiceTest} 를 참조.
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("ReleaseVersionService 테스트")
@@ -53,6 +60,12 @@ class ReleaseVersionServiceTest {
     private CustomerRepository customerRepository;
 
     @Mock
+    private ProjectRepository projectRepository;
+
+    @Mock
+    private AccountLookupService accountLookupService;
+
+    @Mock
     private ReleaseVersionDtoMapper mapper;
 
     @Mock
@@ -64,6 +77,10 @@ class ReleaseVersionServiceTest {
     @InjectMocks
     private ReleaseVersionService releaseVersionService;
 
+    private static final String PROJECT_ID = "infraeye2";
+
+    private Project testProject;
+    private Account testAccount;
     private Customer testCustomer;
     private ReleaseVersion testVersion;
     private ReleaseVersionDto.CreateRequest createRequest;
@@ -71,61 +88,56 @@ class ReleaseVersionServiceTest {
 
     @BeforeEach
     void setUp() {
+        testProject = Project.builder()
+                .projectId(PROJECT_ID)
+                .projectName("Infraeye 2")
+                .build();
+
+        testAccount = Account.builder()
+                .accountId(1L)
+                .email("jhlee@tscientific")
+                .accountName("이재훈")
+                .build();
+
         testCustomer = Customer.builder()
                 .customerId(1L)
                 .customerCode("company_a")
                 .customerName("A회사")
                 .isActive(true)
-                .createdBy("admin@tscientific")
-                .updatedBy("admin@tscientific")
                 .build();
 
         testVersion = ReleaseVersion.builder()
                 .releaseVersionId(1L)
+                .project(testProject)
                 .releaseType("STANDARD")
                 .version("1.1.0")
                 .majorVersion(1)
                 .minorVersion(1)
                 .patchVersion(0)
-                .createdBy("jhlee@tscientific")
+                .creator(testAccount)
+                .createdByEmail("jhlee@tscientific")
                 .comment("새로운 기능")
                 .releaseFiles(new ArrayList<>())
                 .build();
 
         createRequest = ReleaseVersionDto.CreateRequest.builder()
+                .projectId(PROJECT_ID)
                 .version("1.1.0")
-                .createdBy("jhlee@tscientific")
+                .createdByEmail("jhlee@tscientific")
                 .comment("새로운 기능")
                 .build();
 
-        detailResponse = new ReleaseVersionDto.DetailResponse(
-                1L,
-                "infraeye2",
-                "Infraeye 2",
-                "STANDARD",
-                ReleaseCategory.PATCH,
-                null,
-                "1.1.0",
-                1,
-                1,
-                0,
-                "1.1.x",
-                "jhlee@tscientific",
-                "새로운 기능",
-                false,
-                null,
-                null,
-                null,
-                LocalDateTime.now(),
-                new ArrayList<>()
-        );
+        detailResponse = buildDetailResponse(1L, "1.1.0", 1, 1, 0);
     }
 
     @Test
     @DisplayName("표준 릴리즈 버전 생성 - 성공")
     void createStandardVersion_Success() {
         // given
-        given(releaseVersionRepository.existsByVersion(anyString())).willReturn(false);
+        given(projectRepository.findById(PROJECT_ID)).willReturn(Optional.of(testProject));
+        given(accountLookupService.findByEmail(anyString())).willReturn(testAccount);
+        given(releaseVersionRepository.existsByProject_ProjectIdAndVersion(anyString(), anyString()))
+                .willReturn(false);
         given(releaseVersionRepository.save(any(ReleaseVersion.class))).willReturn(testVersion);
         given(mapper.toDetailResponse(any(ReleaseVersion.class))).willReturn(detailResponse);
 
@@ -148,7 +160,10 @@ class ReleaseVersionServiceTest {
     @DisplayName("표준 릴리즈 버전 생성 - 중복 버전 실패")
     void createStandardVersion_DuplicateVersion() {
         // given
-        given(releaseVersionRepository.existsByVersion(anyString())).willReturn(true);
+        given(projectRepository.findById(PROJECT_ID)).willReturn(Optional.of(testProject));
+        given(accountLookupService.findByEmail(anyString())).willReturn(testAccount);
+        given(releaseVersionRepository.existsByProject_ProjectIdAndVersion(anyString(), anyString()))
+                .willReturn(true);
 
         // when & then
         assertThatThrownBy(() -> releaseVersionService.createStandardVersion(createRequest))
@@ -163,10 +178,14 @@ class ReleaseVersionServiceTest {
     void createStandardVersion_InvalidVersionFormat() {
         // given
         ReleaseVersionDto.CreateRequest invalidRequest = ReleaseVersionDto.CreateRequest.builder()
+                .projectId(PROJECT_ID)
                 .version("invalid")
-                .createdBy("jhlee@tscientific")
+                .createdByEmail("jhlee@tscientific")
                 .comment("테스트")
                 .build();
+
+        given(projectRepository.findById(PROJECT_ID)).willReturn(Optional.of(testProject));
+        given(accountLookupService.findByEmail(anyString())).willReturn(testAccount);
 
         // when & then
         assertThatThrownBy(() -> releaseVersionService.createStandardVersion(invalidRequest))
@@ -179,29 +198,36 @@ class ReleaseVersionServiceTest {
     void createCustomVersion_Success() {
         // given
         ReleaseVersionDto.CreateRequest customRequest = ReleaseVersionDto.CreateRequest.builder()
+                .projectId(PROJECT_ID)
                 .version("1.0.0")
-                .createdBy("admin@tscientific")
+                .createdByEmail("admin@tscientific")
                 .comment("커스텀 버전")
                 .customerId(1L)
-                .customVersion("1.0.0-company_a")
+                .customMajorVersion(1)
+                .customMinorVersion(0)
+                .customPatchVersion(0)
                 .build();
 
         ReleaseVersion customVersion = ReleaseVersion.builder()
                 .releaseVersionId(2L)
+                .project(testProject)
                 .releaseType("CUSTOM")
                 .customer(testCustomer)
                 .version("1.0.0")
                 .majorVersion(1)
                 .minorVersion(0)
                 .patchVersion(0)
-                .createdBy("admin@tscientific")
+                .creator(testAccount)
+                .createdByEmail("admin@tscientific")
                 .comment("커스텀 버전")
-                .customVersion("1.0.0-company_a")
                 .releaseFiles(new ArrayList<>())
                 .build();
 
         given(customerRepository.findById(anyLong())).willReturn(Optional.of(testCustomer));
-        given(releaseVersionRepository.existsByVersion(anyString())).willReturn(false);
+        given(projectRepository.findById(PROJECT_ID)).willReturn(Optional.of(testProject));
+        given(accountLookupService.findByEmail(anyString())).willReturn(testAccount);
+        given(releaseVersionRepository.existsByProject_ProjectIdAndVersion(anyString(), anyString()))
+                .willReturn(false);
         given(releaseVersionRepository.save(any(ReleaseVersion.class))).willReturn(customVersion);
         given(mapper.toDetailResponse(any(ReleaseVersion.class))).willReturn(detailResponse);
 
@@ -211,7 +237,6 @@ class ReleaseVersionServiceTest {
 
         // then
         assertThat(result).isNotNull();
-
         then(customerRepository).should(times(1)).findById(1L);
         then(releaseVersionRepository).should(times(1)).save(any(ReleaseVersion.class));
     }
@@ -221,8 +246,9 @@ class ReleaseVersionServiceTest {
     void createCustomVersion_MissingCustomerId() {
         // given
         ReleaseVersionDto.CreateRequest invalidRequest = ReleaseVersionDto.CreateRequest.builder()
+                .projectId(PROJECT_ID)
                 .version("1.0.0")
-                .createdBy("admin@tscientific")
+                .createdByEmail("admin@tscientific")
                 .comment("커스텀 버전")
                 .customerId(null)
                 .build();
@@ -266,18 +292,12 @@ class ReleaseVersionServiceTest {
     @DisplayName("타입별 버전 목록 조회 - 성공")
     void getVersionsByType_Success() {
         // given
-        List<ReleaseVersion> versions = List.of(testVersion);
-        List<ReleaseVersionDto.SimpleResponse> simpleResponses = List.of(
-                new ReleaseVersionDto.SimpleResponse(
-                        1L, "infraeye2", "STANDARD", null, "1.1.0", "1.1.x",
-                        "jhlee@tscientific", "새로운 기능", false, null, null,
-                        new ArrayList<>(), LocalDateTime.now(), 0
-                )
-        );
-
+        ReleaseVersionDto.SimpleResponse simple = buildSimpleResponse(1L, "1.1.0");
         given(releaseVersionRepository.findAllByReleaseTypeOrderByCreatedAtDesc(anyString()))
-                .willReturn(versions);
-        given(mapper.toSimpleResponseList(any())).willReturn(simpleResponses);
+                .willReturn(List.of(testVersion));
+        given(mapper.toSimpleResponseList(any())).willReturn(new ArrayList<>(List.of(simple)));
+        given(releaseFileRepository.findCategoriesByVersionId(anyLong()))
+                .willReturn(Collections.emptyList());
 
         // when
         List<ReleaseVersionDto.SimpleResponse> result = releaseVersionService.getVersionsByType(
@@ -315,36 +335,109 @@ class ReleaseVersionServiceTest {
     void deleteVersion_Success() {
         // given
         given(releaseVersionRepository.findById(anyLong())).willReturn(Optional.of(testVersion));
+        given(releaseFileRepository
+                .findAllByReleaseVersion_ReleaseVersionIdOrderByExecutionOrderAsc(anyLong()))
+                .willReturn(Collections.emptyList());
 
         // when
         releaseVersionService.deleteVersion(1L);
 
         // then
         then(releaseVersionRepository).should(times(1)).delete(any(ReleaseVersion.class));
+        then(fileSystemService).should(times(1)).deleteVersionDirectory(any(ReleaseVersion.class));
     }
 
     @Test
     @DisplayName("버전 범위 조회 - 성공")
     void getVersionsBetween_Success() {
         // given
-        List<ReleaseVersion> versions = List.of(testVersion);
-        List<ReleaseVersionDto.SimpleResponse> simpleResponses = List.of(
-                new ReleaseVersionDto.SimpleResponse(
-                        1L, "infraeye2", "STANDARD", null, "1.1.0", "1.1.x",
-                        "jhlee@tscientific", "새로운 기능", false, null, null,
-                        new ArrayList<>(), LocalDateTime.now(), 0
-                )
-        );
-
-        given(releaseVersionRepository.findVersionsBetween(anyString(), anyString(), anyString()))
-                .willReturn(versions);
-        given(mapper.toSimpleResponseList(any())).willReturn(simpleResponses);
+        ReleaseVersionDto.SimpleResponse simple = buildSimpleResponse(1L, "1.1.0");
+        given(releaseVersionRepository.findVersionsBetween(
+                anyString(), anyString(), anyString(), anyString()))
+                .willReturn(List.of(testVersion));
+        given(mapper.toSimpleResponseList(any())).willReturn(new ArrayList<>(List.of(simple)));
+        given(releaseFileRepository.findCategoriesByVersionId(anyLong()))
+                .willReturn(Collections.emptyList());
 
         // when
         List<ReleaseVersionDto.SimpleResponse> result = releaseVersionService.getVersionsBetween(
-                "STANDARD", "1.0.0", "1.1.0");
+                PROJECT_ID, "STANDARD", "1.0.0", "1.1.0");
 
         // then
         assertThat(result).hasSize(1);
+    }
+
+    // === Helper Methods ===
+
+    private ReleaseVersionDto.DetailResponse buildDetailResponse(Long id, String version,
+            int major, int minor, int patch) {
+        return new ReleaseVersionDto.DetailResponse(
+                id,                  // releaseVersionId
+                PROJECT_ID,          // projectId
+                "Infraeye 2",        // projectName
+                "STANDARD",          // releaseType
+                null,                // customerCode
+                version,             // version
+                major,               // majorVersion
+                minor,               // minorVersion
+                patch,               // patchVersion
+                0,                   // hotfixVersion
+                false,               // isHotfix
+                0,                   // buildVersion
+                false,               // isBuild
+                version,             // fullVersion
+                major + "." + minor + ".x", // majorMinor
+                "jhlee@tscientific", // createdByEmail
+                "이재훈",             // createdByName
+                null,                // createdByAvatarStyle
+                null,                // createdByAvatarSeed
+                false,               // isDeletedCreator
+                "새로운 기능",        // comment
+                false,               // isApproved
+                null,                // approvedBy
+                null,                // approvedByName
+                false,               // isDeletedApprover
+                null,                // approvedAt
+                null,                // customMajorVersion
+                null,                // customMinorVersion
+                null,                // customPatchVersion
+                null,                // customVersion
+                null,                // customBaseVersionId
+                null,                // customBaseVersion
+                null,                // hotfixBaseVersionId
+                null,                // hotfixBaseVersion
+                LocalDateTime.now(), // createdAt
+                new ArrayList<>()    // releaseFiles
+        );
+    }
+
+    private ReleaseVersionDto.SimpleResponse buildSimpleResponse(Long id, String version) {
+        return new ReleaseVersionDto.SimpleResponse(
+                id,                  // releaseVersionId
+                PROJECT_ID,          // projectId
+                "STANDARD",          // releaseType
+                null,                // customerCode
+                version,             // version
+                0,                   // hotfixVersion
+                false,               // isHotfix
+                0,                   // buildVersion
+                false,               // isBuild
+                version,             // fullVersion
+                "1.1.x",             // majorMinor
+                "jhlee@tscientific", // createdByEmail
+                "이재훈",             // createdByName
+                null,                // createdByAvatarStyle
+                null,                // createdByAvatarSeed
+                false,               // isDeletedCreator
+                "새로운 기능",        // comment
+                false,               // isApproved
+                null,                // approvedBy
+                null,                // approvedByName
+                false,               // isDeletedApprover
+                null,                // approvedAt
+                new ArrayList<>(),   // fileCategories
+                LocalDateTime.now(), // createdAt
+                0                    // patchFileCount
+        );
     }
 }

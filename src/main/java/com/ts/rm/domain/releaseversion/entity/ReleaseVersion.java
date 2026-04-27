@@ -104,6 +104,14 @@ public class ReleaseVersion {
     @JoinColumn(name = "hotfix_base_version_id")
     private ReleaseVersion hotfixBaseVersion;
 
+    @Column(name = "build_version", nullable = false)
+    @Builder.Default
+    private Integer buildVersion = 0;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "build_base_version_id")
+    private ReleaseVersion buildBaseVersion;
+
     @Column(name = "custom_major_version")
     private Integer customMajorVersion;
 
@@ -211,9 +219,21 @@ public class ReleaseVersion {
     }
 
     /**
-     * 전체 버전 문자열 반환 (핫픽스 포함)
-     * <p>표준 버전: 1.3.2, 핫픽스: 1.3.2.1
-     * <p>커스텀 버전: 1.1.0-customerA.1.0.0, 핫픽스: 1.1.0-customerA.1.0.0.1
+     * 빌드 버전 여부 확인
+     */
+    @Transient
+    public boolean isBuild() {
+        return buildVersion != null && buildVersion > 0;
+    }
+
+    /**
+     * 전체 버전 문자열 반환 (핫픽스/빌드 포함)
+     * <p>표준 버전:       1.3.2
+     * <p>핫픽스:          1.3.2.1
+     * <p>빌드:            1.3.2.260427
+     * <p>커스텀:          1.1.0-customerA.1.0.0
+     * <p>커스텀+핫픽스:   1.1.0-customerA.1.0.0.1
+     * <p>커스텀+빌드:     1.1.0-customerA.1.0.0.260427
      */
     @Transient
     public String getFullVersion() {
@@ -222,11 +242,17 @@ public class ReleaseVersion {
             if (isHotfix()) {
                 return version + "." + hotfixVersion;
             }
+            if (isBuild()) {
+                return version + "." + buildVersion;
+            }
             return version;
         }
         // 표준 버전
         if (isHotfix()) {
             return majorVersion + "." + minorVersion + "." + patchVersion + "." + hotfixVersion;
+        }
+        if (isBuild()) {
+            return majorVersion + "." + minorVersion + "." + patchVersion + "." + buildVersion;
         }
         return majorVersion + "." + minorVersion + "." + patchVersion;
     }

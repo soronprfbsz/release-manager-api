@@ -14,7 +14,6 @@ import com.ts.rm.domain.project.entity.Project;
 import com.ts.rm.domain.project.repository.ProjectRepository;
 import com.ts.rm.domain.releasefile.repository.ReleaseFileRepository;
 import com.ts.rm.domain.releaseversion.entity.ReleaseVersion;
-import com.ts.rm.domain.releaseversion.enums.ReleaseCategory;
 import com.ts.rm.domain.releaseversion.repository.ReleaseVersionRepository;
 import com.ts.rm.global.exception.BusinessException;
 import java.util.Arrays;
@@ -86,7 +85,6 @@ class PatchGenerationServiceTest {
                 .releaseVersionId(fromVersionId)
                 .project(project)
                 .releaseType("STANDARD")
-                .releaseCategory(ReleaseCategory.PATCH)
                 .version("1.0.0")
                 .majorVersion(1)
                 .minorVersion(0)
@@ -99,7 +97,6 @@ class PatchGenerationServiceTest {
                 .releaseVersionId(toVersionId)
                 .project(project)
                 .releaseType("STANDARD")
-                .releaseCategory(ReleaseCategory.PATCH)
                 .version("1.0.2")
                 .majorVersion(1)
                 .minorVersion(0)
@@ -112,7 +109,6 @@ class PatchGenerationServiceTest {
                 .releaseVersionId(2L)
                 .project(project)
                 .releaseType("STANDARD")
-                .releaseCategory(ReleaseCategory.PATCH)
                 .version("1.0.1")
                 .majorVersion(1)
                 .minorVersion(0)
@@ -125,12 +121,12 @@ class PatchGenerationServiceTest {
         when(releaseVersionRepository.findById(fromVersionId)).thenReturn(Optional.of(fromVersion));
         when(releaseVersionRepository.findById(toVersionId)).thenReturn(Optional.of(toVersion));
         when(releaseVersionRepository.findUnapprovedVersionsBetween(
-                anyString(), anyString(), anyString()))
+                anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(List.of(unapprovedVersion));
 
         // When & Then
         assertThatThrownBy(() -> patchGenerationService.generatePatch(
-                projectId, fromVersionId, toVersionId, null, createdBy, null, null, null))
+                projectId, fromVersionId, toVersionId, null, createdBy, null, null, null, false))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("버전 범위 내에 미승인 버전이 존재합니다")
                 .hasMessageContaining("1.0.1");
@@ -156,7 +152,6 @@ class PatchGenerationServiceTest {
                 .releaseVersionId(fromVersionId)
                 .project(project)
                 .releaseType("STANDARD")
-                .releaseCategory(ReleaseCategory.PATCH)
                 .version("1.0.0")
                 .majorVersion(1)
                 .minorVersion(0)
@@ -169,7 +164,6 @@ class PatchGenerationServiceTest {
                 .releaseVersionId(toVersionId)
                 .project(project)
                 .releaseType("STANDARD")
-                .releaseCategory(ReleaseCategory.PATCH)
                 .version("1.0.4")
                 .majorVersion(1)
                 .minorVersion(0)
@@ -182,7 +176,6 @@ class PatchGenerationServiceTest {
                 .releaseVersionId(2L)
                 .project(project)
                 .releaseType("STANDARD")
-                .releaseCategory(ReleaseCategory.PATCH)
                 .version("1.0.1")
                 .majorVersion(1)
                 .minorVersion(0)
@@ -194,7 +187,6 @@ class PatchGenerationServiceTest {
                 .releaseVersionId(4L)
                 .project(project)
                 .releaseType("STANDARD")
-                .releaseCategory(ReleaseCategory.PATCH)
                 .version("1.0.3")
                 .majorVersion(1)
                 .minorVersion(0)
@@ -207,12 +199,12 @@ class PatchGenerationServiceTest {
         when(releaseVersionRepository.findById(fromVersionId)).thenReturn(Optional.of(fromVersion));
         when(releaseVersionRepository.findById(toVersionId)).thenReturn(Optional.of(toVersion));
         when(releaseVersionRepository.findUnapprovedVersionsBetween(
-                anyString(), anyString(), anyString()))
+                anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(Arrays.asList(unapprovedVersion1, unapprovedVersion2));
 
         // When & Then
         assertThatThrownBy(() -> patchGenerationService.generatePatch(
-                projectId, fromVersionId, toVersionId, null, createdBy, null, null, null))
+                projectId, fromVersionId, toVersionId, null, createdBy, null, null, null, false))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("버전 범위 내에 미승인 버전이 존재합니다")
                 .hasMessageContaining("1.0.1")

@@ -310,4 +310,104 @@ public class ReleaseVersionFileSystemService {
             }
         }
     }
+
+    /**
+     * 빌드 디렉토리 베이스 경로 계산 (생성하지 않음)
+     *
+     * <pre>
+     * STANDARD: versions/{projectId}/standard/{majorMinor}/{version}/builds/{buildVersion}
+     * CUSTOM:   versions/{projectId}/custom/{customerCode}/{majorMinor}/{version}/builds/{buildVersion}
+     * </pre>
+     *
+     * @param baseVersion  빌드의 원본 버전 (STANDARD 또는 CUSTOM)
+     * @param buildVersion 빌드 버전 번호 (예: 260427)
+     * @return 빌드 디렉토리 경로
+     */
+    public Path resolveBuildBasePath(ReleaseVersion baseVersion, Integer buildVersion) {
+        String projectId = baseVersion.getProject() != null ? baseVersion.getProject().getProjectId() : "infraeye2";
+
+        if ("STANDARD".equals(baseVersion.getReleaseType())) {
+            return Paths.get(baseReleasePath, "versions", projectId, "standard",
+                    baseVersion.getMajorMinor(), baseVersion.getVersion(),
+                    "builds", String.valueOf(buildVersion));
+        }
+
+        String customerCode = baseVersion.getCustomer() != null
+                ? baseVersion.getCustomer().getCustomerCode()
+                : "unknown";
+        return Paths.get(baseReleasePath, "versions", projectId, "custom",
+                customerCode, baseVersion.getMajorMinor(), baseVersion.getVersion(),
+                "builds", String.valueOf(buildVersion));
+    }
+
+    /**
+     * 빌드 디렉토리 구조 생성
+     *
+     * <pre>
+     * versions/{...}/builds/{buildVersion}/web/
+     * versions/{...}/builds/{buildVersion}/engine/
+     * versions/{...}/builds/{buildVersion}/etc/
+     * </pre>
+     *
+     * @param buildVersion 빌드 버전 엔티티
+     * @param baseVersion  빌드 원본 버전 엔티티
+     */
+    public void createBuildDirectoryStructure(ReleaseVersion buildVersion, ReleaseVersion baseVersion) {
+        Path buildBase = resolveBuildBasePath(baseVersion, buildVersion.getBuildVersion());
+        try {
+            Files.createDirectories(buildBase.resolve("web"));
+            Files.createDirectories(buildBase.resolve("engine"));
+            Files.createDirectories(buildBase.resolve("etc"));
+            log.info("빌드 디렉토리 구조 생성 완료: {}", buildBase);
+        } catch (IOException e) {
+            log.error("빌드 디렉토리 생성 실패: {}", buildVersion.getFullVersion(), e);
+            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                    "빌드 디렉토리 생성 실패: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 빌드 카테고리(web/engine/etc) 경로 반환
+     *
+     * @param baseVersion  빌드 원본 버전
+     * @param buildVersion 빌드 버전 번호
+     * @param category     "web", "engine", "etc" 중 하나
+     * @return 카테고리 경로
+     */
+    public Path resolveBuildCategoryPath(ReleaseVersion baseVersion, Integer buildVersion, String category) {
+        if (!"web".equals(category) && !"engine".equals(category) && !"etc".equals(category)) {
+            throw new IllegalArgumentException("빌드 카테고리는 web, engine, etc 중 하나여야 합니다: " + category);
+        }
+        return resolveBuildBasePath(baseVersion, buildVersion).resolve(category);
+    }
+
+    /**
+     * 빌드 디렉토리 삭제
+     *
+     * @param buildVersion 빌드 버전 엔티티 (buildBaseVersion 이 채워져 있어야 함)
+     */
+    public void deleteBuildDirectory(ReleaseVersion buildVersion) {
+        if (buildVersion.getBuildBaseVersion() == null) {
+            log.warn("빌드의 원본 버전이 없습니다: {}", buildVersion.getReleaseVersionId());
+            return;
+        }
+
+        Path buildPath = resolveBuildBasePath(buildVersion.getBuildBaseVersion(), buildVersion.getBuildVersion());
+
+        if (Files.exists(buildPath)) {
+            deleteDirectory(buildPath);
+            log.info("빌드 디렉토리 삭제 완료: {}", buildPath);
+
+            // 빈 builds 디렉토리도 정리
+            try {
+                Path parentPath = buildPath.getParent();  // builds 디렉토리
+                if (parentPath != null && Files.exists(parentPath) && isDirectoryEmpty(parentPath)) {
+                    Files.delete(parentPath);
+                    log.info("빈 builds 디렉토리 삭제: {}", parentPath);
+                }
+            } catch (IOException e) {
+                log.warn("builds 디렉토리 삭제 실패: {}", buildPath.getParent(), e);
+            }
+        }
+    }
 }

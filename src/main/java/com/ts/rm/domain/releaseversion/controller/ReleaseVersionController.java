@@ -1,11 +1,13 @@
 package com.ts.rm.domain.releaseversion.controller;
 
 import com.ts.rm.domain.releaseversion.dto.ReleaseVersionDto;
+import com.ts.rm.domain.releaseversion.service.BuildFileService;
 import com.ts.rm.domain.releaseversion.service.ReleaseVersionService;
 import com.ts.rm.domain.releaseversion.service.ReleaseVersionTreeService;
 import com.ts.rm.domain.releaseversion.service.ReleaseVersionUploadService;
 import com.ts.rm.global.response.ApiResponse;
 import com.ts.rm.global.security.SecurityUtil;
+import java.io.IOException;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,6 +40,7 @@ public class ReleaseVersionController implements ReleaseVersionControllerDocs {
     private final ReleaseVersionService releaseVersionService;
     private final ReleaseVersionUploadService uploadService;
     private final ReleaseVersionTreeService treeService;
+    private final BuildFileService buildFileService;
 
     /**
      * 표준 릴리즈 버전 생성 (ZIP 파일 업로드)
@@ -321,6 +324,130 @@ public class ReleaseVersionController implements ReleaseVersionControllerDocs {
         log.info("핫픽스 목록 조회 요청 - hotfixBaseVersionId: {}", id);
 
         ReleaseVersionDto.HotfixListResponse response = releaseVersionService.getHotfixesByHotfixBaseVersionId(id);
+
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    // ========================================
+    // Build (빌드 버전) API
+    // ========================================
+
+    /**
+     * 빌드 버전 생성 (선택적으로 ZIP 동봉)
+     *
+     * <p>multipart/form-data 로 호출:
+     * <ul>
+     *   <li>{@code request} 필드: comment(필수), buildVersion(선택, 미입력 시 오늘 yyMMdd)</li>
+     *   <li>{@code file} part: ZIP 파일 (선택). 루트는 web/, engine/, etc/ 만 허용</li>
+     * </ul>
+     *
+     * @param id            빌드 원본 버전 ID
+     * @param request       빌드 생성 요청 (comment, buildVersion?)
+     * @param file          ZIP 파일 (선택)
+     * @param authorization JWT 토큰
+     * @return 빌드 생성 응답 (uploadedFileCount 포함)
+     */
+    @Override
+    @PostMapping(value = "/versions/{id}/builds", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ApiResponse<ReleaseVersionDto.CreateBuildResponse>> createBuild(
+            @PathVariable Long id,
+            @Valid @ModelAttribute ReleaseVersionDto.CreateBuildRequest request,
+            @RequestPart(value = "file", required = false) MultipartFile file,
+            @RequestHeader("Authorization") String authorization) {
+
+        log.info("빌드 생성 요청 - baseVersionId: {}, buildVersion: {}, fileSize: {}",
+                id, request.buildVersion(), file != null ? file.getSize() : 0);
+
+        String createdBy = SecurityUtil.getTokenInfo().email();
+
+        byte[] zipBytes = null;
+        if (file != null && !file.isEmpty()) {
+            try {
+                zipBytes = file.getBytes();
+            } catch (IOException e) {
+                log.error("업로드 파일 읽기 실패", e);
+                throw new com.ts.rm.global.exception.BusinessException(
+                        com.ts.rm.global.exception.ErrorCode.FILE_UPLOAD_FAILED,
+                        "업로드 파일 읽기 실패: " + e.getMessage());
+            }
+        }
+
+        ReleaseVersionDto.CreateBuildResponse response = buildFileService
+                .createBuildWithZip(id, request, zipBytes, createdBy);
+
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
+     * 특정 버전의 빌드 목록 조회
+     *
+     * @param id 원본 버전 ID
+     * @return 빌드 목록 (build_version DESC)
+     */
+    @Override
+    @GetMapping("/versions/{id}/builds")
+    public ResponseEntity<ApiResponse<ReleaseVersionDto.BuildListResponse>> getBuildsByVersionId(
+            @PathVariable Long id) {
+
+        log.info("빌드 목록 조회 요청 - baseVersionId: {}", id);
+
+        ReleaseVersionDto.BuildListResponse response = releaseVersionService.getBuilds(id);
+
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
+     * 빌드 버전 삭제 (행 + 파일시스템)
+     *
+     * @param id 빌드 ReleaseVersion ID
+     */
+    @Override
+    @DeleteMapping("/builds/{id}")
+    public ResponseEntity<ApiResponse<Void>> deleteBuild(@PathVariable Long id) {
+        log.info("빌드 삭제 요청 - buildVersionId: {}", id);
+
+        // 기존 deleteVersion 이 isBuild() 분기를 통해 빌드 디렉토리 삭제까지 처리.
+        releaseVersionService.deleteVersion(id);
+
+        return ResponseEntity.ok(ApiResponse.success(null));
+    }
+
+    /**
+     * 빌드 ZIP 재업로드 (교체)
+     *
+     * @param id   빌드 ReleaseVersion ID
+     * @param file 새 ZIP 파일 (필수, web/engine/etc 루트만 허용)
+     * @return 업로드 결과 (uploadedFileCount 포함)
+     */
+    @Override
+    @PostMapping(value = "/builds/{id}/zip", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ApiResponse<ReleaseVersionDto.UploadBuildZipResponse>> replaceBuildZip(
+            @PathVariable Long id,
+            @RequestPart("file") MultipartFile file,
+            @RequestHeader("Authorization") String authorization) {
+
+        log.info("빌드 ZIP 재업로드 요청 - buildVersionId: {}, fileSize: {}",
+                id, file != null ? file.getSize() : 0);
+
+        if (file == null || file.isEmpty()) {
+            throw new com.ts.rm.global.exception.BusinessException(
+                    com.ts.rm.global.exception.ErrorCode.INVALID_INPUT_VALUE,
+                    "재업로드할 ZIP 파일이 필요합니다.");
+        }
+
+        String uploadedBy = SecurityUtil.getTokenInfo().email();
+        byte[] zipBytes;
+        try {
+            zipBytes = file.getBytes();
+        } catch (IOException e) {
+            log.error("업로드 파일 읽기 실패", e);
+            throw new com.ts.rm.global.exception.BusinessException(
+                    com.ts.rm.global.exception.ErrorCode.FILE_UPLOAD_FAILED,
+                    "업로드 파일 읽기 실패: " + e.getMessage());
+        }
+
+        ReleaseVersionDto.UploadBuildZipResponse response =
+                buildFileService.replaceBuildZip(id, zipBytes, uploadedBy);
 
         return ResponseEntity.ok(ApiResponse.success(response));
     }

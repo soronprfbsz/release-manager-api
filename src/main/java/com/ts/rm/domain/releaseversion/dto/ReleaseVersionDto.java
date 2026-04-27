@@ -112,7 +112,13 @@ public final class ReleaseVersionDto {
             @Schema(description = "핫픽스 여부", example = "false")
             Boolean isHotfix,
 
-            @Schema(description = "전체 버전 (핫픽스 포함, 예: 1.1.0 또는 1.1.0.1)", example = "1.1.0")
+            @Schema(description = "빌드 버전 (0이면 일반, 1+=빌드, 예: 260427)", example = "0")
+            Integer buildVersion,
+
+            @Schema(description = "빌드 여부", example = "false")
+            Boolean isBuild,
+
+            @Schema(description = "전체 버전 (핫픽스/빌드 포함, 예: 1.1.0 또는 1.1.0.1 또는 1.1.0.260427)", example = "1.1.0")
             String fullVersion,
 
             @Schema(description = "메이저.마이너", example = "1.1.x")
@@ -210,7 +216,13 @@ public final class ReleaseVersionDto {
             @Schema(description = "핫픽스 여부", example = "false")
             Boolean isHotfix,
 
-            @Schema(description = "전체 버전 (핫픽스 포함)", example = "1.1.0")
+            @Schema(description = "빌드 버전 (0이면 일반, 1+=빌드, 예: 260427)", example = "0")
+            Integer buildVersion,
+
+            @Schema(description = "빌드 여부", example = "false")
+            Boolean isBuild,
+
+            @Schema(description = "전체 버전 (핫픽스/빌드 포함)", example = "1.1.0")
             String fullVersion,
 
             @Schema(description = "메이저.마이너", example = "1.1.x")
@@ -349,7 +361,54 @@ public final class ReleaseVersionDto {
             List<String> fileCategories,
 
             @Schema(description = "핫픽스 버전 목록")
-            List<HotfixNode> hotfixes
+            List<HotfixNode> hotfixes,
+
+            @Schema(description = "빌드 버전 목록")
+            List<BuildNode> builds
+    ) {
+
+    }
+
+    /**
+     * 빌드 노드 (예: 1.1.0.260427) - 빌드는 자식을 가질 수 없음
+     */
+    @Schema(description = "빌드 노드")
+    public record BuildNode(
+            @Schema(description = "버전 ID", example = "30")
+            Long versionId,
+
+            @Schema(description = "빌드 버전 번호", example = "260427")
+            Integer buildVersion,
+
+            @Schema(description = "전체 버전 (빌드 포함)", example = "1.1.0.260427")
+            String fullVersion,
+
+            @Schema(description = "생성일시", example = "2026-04-27T10:30:00")
+            String createdAt,
+
+            @Schema(description = "생성자 이름", example = "홍길동")
+            String createdByName,
+
+            @Schema(description = "생성자 이메일", example = "jhlee@tscientific")
+            String createdByEmail,
+
+            @Schema(description = "생성자 아바타 스타일")
+            String createdByAvatarStyle,
+
+            @Schema(description = "생성자 아바타 시드")
+            String createdByAvatarSeed,
+
+            @Schema(description = "생성자 탈퇴 여부", example = "false")
+            Boolean isDeletedCreator,
+
+            @Schema(description = "코멘트", example = "WEB 빌드 업데이트")
+            String comment,
+
+            @Schema(description = "승인 여부 (빌드는 항상 true)", example = "true")
+            Boolean isApproved,
+
+            @Schema(description = "포함된 파일 카테고리 목록", example = "[\"WEB\", \"ENGINE\"]")
+            List<String> fileCategories
     ) {
 
     }
@@ -541,7 +600,10 @@ public final class ReleaseVersionDto {
             List<String> fileCategories,
 
             @Schema(description = "핫픽스 버전 목록")
-            List<HotfixNode> hotfixes
+            List<HotfixNode> hotfixes,
+
+            @Schema(description = "빌드 버전 목록")
+            List<BuildNode> builds
     ) {
 
     }
@@ -904,6 +966,119 @@ public final class ReleaseVersionDto {
 
             @Schema(description = "포함된 파일 카테고리 목록", example = "[\"DATABASE\", \"WEB\"]")
             List<String> fileCategories
+    ) {
+
+    }
+
+    // ========================================
+    // Build DTOs
+    // ========================================
+
+    /**
+     * 빌드 버전 생성 요청 (Multipart Form Data)
+     * <p>build_version 이 null 이면 서버가 오늘 날짜 YYMMDD 로 채웁니다 (Phase 2 에서 처리).
+     */
+    @Builder
+    @Schema(description = "빌드 버전 생성 요청")
+    public record CreateBuildRequest(
+            @Schema(description = "패치 노트 내용", example = "WEB 빌드 업데이트", required = true)
+            @NotBlank(message = "패치 노트 내용은 필수입니다")
+            @Size(max = 500, message = "패치 노트 내용은 500자 이하여야 합니다")
+            String comment,
+
+            @Schema(description = "빌드 버전 번호 (YYMMDD, 예: 260427). null 이면 서버가 오늘 날짜로 자동 채움", example = "260427")
+            Integer buildVersion
+    ) {
+    }
+
+    /**
+     * 빌드 버전 생성 응답
+     */
+    @Schema(description = "빌드 버전 생성 응답")
+    public record CreateBuildResponse(
+            @Schema(description = "빌드 버전 ID (신규 release_version_id)", example = "30")
+            Long buildVersionId,
+
+            @Schema(description = "기준 버전 (예: 1.1.0)", example = "1.1.0")
+            String version,
+
+            @Schema(description = "빌드 버전 번호 (예: 260427)", example = "260427")
+            Integer buildVersion,
+
+            @Schema(description = "전체 버전 (예: 1.1.0.260427)", example = "1.1.0.260427")
+            String fullVersion,
+
+            @Schema(description = "업로드된 파일 개수 (ZIP 미동봉 시 0)", example = "5")
+            Integer uploadedFileCount
+    ) {
+
+    }
+
+    /**
+     * 빌드 목록 조회 응답 (특정 버전의 빌드들)
+     */
+    @Schema(description = "빌드 목록 조회 응답")
+    public record BuildListResponse(
+            @Schema(description = "기준 버전 ID", example = "15")
+            Long releaseVersionId,
+
+            @Schema(description = "기준 버전 (예: 1.1.0)", example = "1.1.0")
+            String version,
+
+            @Schema(description = "빌드 목록")
+            List<BuildItem> builds
+    ) {
+
+    }
+
+    /**
+     * 빌드 항목
+     */
+    @Schema(description = "빌드 항목")
+    public record BuildItem(
+            @Schema(description = "빌드 버전 ID (release_version_id)", example = "30")
+            Long buildVersionId,
+
+            @Schema(description = "빌드 버전 번호 (예: 260427)", example = "260427")
+            Integer buildVersion,
+
+            @Schema(description = "기준 버전 (예: 1.1.0)", example = "1.1.0")
+            String version,
+
+            @Schema(description = "전체 버전 (예: 1.1.0.260427)", example = "1.1.0.260427")
+            String fullVersion,
+
+            @Schema(description = "승인 여부", example = "true")
+            Boolean isApproved,
+
+            @Schema(description = "생성일시", example = "2026-04-27T10:30:00")
+            String createdAt,
+
+            @Schema(description = "생성자 이메일", example = "jhlee@tscientific")
+            String createdByEmail,
+
+            @Schema(description = "생성자 이름", example = "홍길동")
+            String createdByName,
+
+            @Schema(description = "코멘트", example = "WEB 빌드 업데이트")
+            String comment
+    ) {
+
+    }
+
+    /**
+     * 빌드 ZIP 재업로드 응답 (기존 빌드의 파일을 교체)
+     */
+    @Schema(description = "빌드 ZIP 재업로드 응답")
+    public record UploadBuildZipResponse(
+            @Schema(description = "빌드 버전 ID", example = "30")
+            Long buildVersionId,
+
+            @Schema(description = "전체 버전 (예: 1.1.0.260427)", example = "1.1.0.260427")
+            String fullVersion,
+
+            @Schema(description = "업로드된 파일 개수", example = "5")
+            Integer uploadedFileCount
     ) {
 
     }

@@ -359,4 +359,18 @@ public class ReleaseVersionRepositoryImpl implements ReleaseVersionRepositoryCus
                         .and(rv.hotfixVersion.gt(0)))
                 .fetch();
     }
+
+    @Override
+    public Optional<Integer> findMaxBuildVersionByBaseId(Long buildBaseVersionId) {
+        QReleaseVersion rv = QReleaseVersion.releaseVersion;
+
+        Integer max = queryFactory
+                .select(rv.buildVersion.max())
+                .from(rv)
+                .where(rv.buildBaseVersion.releaseVersionId.eq(buildBaseVersionId))
+                .fetchOne();
+
+        // max() 자체는 결과가 없을 때 null 을 반환. Optional 로 감싸 호출자에 명시적으로 전달.
+        return Optional.ofNullable(max);
+    }
 }

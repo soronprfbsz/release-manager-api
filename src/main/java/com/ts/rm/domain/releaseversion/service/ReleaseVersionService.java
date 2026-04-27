@@ -18,10 +18,14 @@ import com.ts.rm.domain.releaseversion.util.VersionParser.VersionInfo;
 import com.ts.rm.global.account.AccountLookupService;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -186,9 +190,11 @@ public class ReleaseVersionService {
             releaseVersionRepository.delete(version);
             log.info("release_version 삭제 완료");
 
-            // 5. 파일 시스템 삭제 (핫픽스인 경우 hotfix 디렉토리만 삭제)
+            // 5. 파일 시스템 삭제 (핫픽스/빌드인 경우 해당 디렉토리만 삭제)
             if (version.isHotfix()) {
                 fileSystemService.deleteHotfixDirectory(version);
+            } else if (version.isBuild()) {
+                fileSystemService.deleteBuildDirectory(version);
             } else {
                 fileSystemService.deleteVersionDirectory(version);
             }
@@ -299,6 +305,8 @@ public class ReleaseVersionService {
                 response.version(),
                 response.hotfixVersion(),      // hotfixVersion
                 response.isHotfix(),           // isHotfix
+                response.buildVersion(),       // buildVersion
+                response.isBuild(),            // isBuild
                 response.fullVersion(),        // fullVersion
                 response.majorMinor(),
                 response.createdByEmail(),
@@ -330,12 +338,14 @@ public class ReleaseVersionService {
         List<ReleaseVersion> versions = releaseVersionRepository
                 .findAllByProject_ProjectIdAndReleaseTypeOrderByCreatedAtDesc(projectId, "STANDARD");
 
+        // 핫픽스 제외. base 버전과 빌드 버전(1.1.0.260427) 둘 다 포함하여
+        // 패치 from/to 셀렉터에서 구분 선택할 수 있게 함.
         return versions.stream()
-                .filter(v -> !v.isHotfix())  // 핫픽스 제외
+                .filter(v -> !v.isHotfix())
                 .map(v -> new ReleaseVersionDto.VersionSelectOption(
                         v.getReleaseVersionId(),  // versionId
-                        v.getVersion(),           // version
-                        v.getIsApproved()         // isApproved
+                        v.getFullVersion(),       // 빌드 인식: base="1.1.0", build="1.1.0.260427"
+                        v.getIsApproved()
                 ))
                 .toList();
     }
@@ -536,6 +546,176 @@ public class ReleaseVersionService {
                 projectId, releaseType, fromVersion, toVersion);
         List<ReleaseVersionDto.SimpleResponse> responses = mapper.toSimpleResponseList(versions);
         return enrichWithCategories(responses);
+    }
+
+    // ========================================
+    // Build 관련 메서드
+    // ========================================
+
+    /**
+     * 빌드 버전 충돌 시 retry 최대 횟수 (방어선)
+     */
+    static final int MAX_BUILD_VERSION_RETRY = 100;
+
+    /**
+     * 빌드 버전 생성
+     *
+     * <p>비즈니스 룰:
+     * <ul>
+     *   <li>핫픽스 버전 위에는 빌드를 생성할 수 없음 (Q3 결정)</li>
+     *   <li>빌드 버전 위에는 빌드를 생성할 수 없음 (단순화)</li>
+     *   <li>{@code buildVersion} 이 null/0 이면 오늘 날짜(yyMMdd) 로 자동 채움</li>
+     *   <li>같은 base 에 동일 build_version 이 이미 있으면 +1 후 재시도 (최대 100회)</li>
+     *   <li>빌드는 즉시 활성: {@code is_approved=true}, approver/approvedAt 자동 설정</li>
+     * </ul>
+     *
+     * @param baseVersionId  빌드 원본 버전 ID
+     * @param request        생성 요청 (comment, buildVersion?)
+     * @param createdByEmail 생성자 이메일
+     * @return 생성된 빌드 응답
+     */
+    @Transactional
+    public ReleaseVersionDto.CreateBuildResponse createBuild(
+            Long baseVersionId,
+            ReleaseVersionDto.CreateBuildRequest request,
+            String createdByEmail) {
+        log.info("빌드 생성 요청 - baseVersionId: {}, buildVersion: {}, createdByEmail: {}",
+                baseVersionId, request.buildVersion(), createdByEmail);
+
+        // 1. base 조회
+        ReleaseVersion baseVersion = findVersionById(baseVersionId);
+
+        // 2. 핫픽스/빌드 위 생성 거부
+        if (baseVersion.isHotfix()) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
+                    "핫픽스 버전 위에는 빌드를 생성할 수 없습니다.");
+        }
+        if (baseVersion.isBuild()) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
+                    "빌드 버전 위에는 빌드를 생성할 수 없습니다.");
+        }
+
+        // 3. 생성자 조회
+        Account creator = accountLookupService.findByEmail(createdByEmail);
+
+        // 4. 시작 buildVersion 결정 (null/0 이면 오늘 yyMMdd)
+        int candidate = (request.buildVersion() == null || request.buildVersion() <= 0)
+                ? todayYyMmDd()
+                : request.buildVersion();
+
+        // 5. 충돌 회피 retry (최대 MAX_BUILD_VERSION_RETRY)
+        for (int i = 0; i < MAX_BUILD_VERSION_RETRY; i++) {
+            // 사전 체크 (UI 흐름 상 충돌이 빈번하지 않음을 가정)
+            boolean exists = releaseVersionRepository
+                    .existsByBuildBaseVersion_ReleaseVersionIdAndBuildVersion(baseVersionId, candidate);
+            if (exists) {
+                candidate++;
+                continue;
+            }
+
+            try {
+                ReleaseVersion saved = saveBuildEntity(baseVersion, creator, candidate, request.comment(),
+                        createdByEmail);
+                fileSystemService.createBuildDirectoryStructure(saved, baseVersion);
+
+                log.info("빌드 생성 완료 - buildVersionId: {}, fullVersion: {}",
+                        saved.getReleaseVersionId(), saved.getFullVersion());
+
+                return new ReleaseVersionDto.CreateBuildResponse(
+                        saved.getReleaseVersionId(),
+                        baseVersion.getVersion(),
+                        saved.getBuildVersion(),
+                        saved.getFullVersion(),
+                        0  // 빌드만 생성 (파일 업로드 없음). createBuildWithZip 가 enrich.
+                );
+            } catch (DataIntegrityViolationException e) {
+                // 동시성 race: 다른 트랜잭션이 같은 build_version 을 선점한 경우
+                log.warn("빌드 저장 시 UNIQUE 충돌 발생 (build_version={}). +1 후 재시도", candidate);
+                candidate++;
+            }
+        }
+
+        throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                String.format("빌드 버전 충돌이 %d회 발생하여 생성을 중단했습니다.", MAX_BUILD_VERSION_RETRY));
+    }
+
+    /**
+     * 빌드 엔티티 저장 (saveAndFlush 로 UNIQUE 위반을 즉시 감지)
+     */
+    private ReleaseVersion saveBuildEntity(ReleaseVersion baseVersion, Account creator, int buildVersion,
+            String comment, String createdByEmail) {
+        LocalDateTime nowUtc = LocalDateTime.now(ZoneOffset.UTC);
+        ReleaseVersion build = ReleaseVersion.builder()
+                .project(baseVersion.getProject())
+                .releaseType(baseVersion.getReleaseType())
+                .customer(baseVersion.getCustomer())
+                .version(baseVersion.getVersion())
+                .majorVersion(baseVersion.getMajorVersion())
+                .minorVersion(baseVersion.getMinorVersion())
+                .patchVersion(baseVersion.getPatchVersion())
+                .hotfixVersion(0)
+                .buildVersion(buildVersion)
+                .buildBaseVersion(baseVersion)
+                .isApproved(true)
+                .approver(creator)
+                .approvedByEmail(createdByEmail)
+                .approvedAt(nowUtc)
+                .creator(creator)
+                .createdByEmail(createdByEmail)
+                .comment(comment)
+                .customMajorVersion(baseVersion.getCustomMajorVersion())
+                .customMinorVersion(baseVersion.getCustomMinorVersion())
+                .customPatchVersion(baseVersion.getCustomPatchVersion())
+                .customBaseVersion(baseVersion.getCustomBaseVersion())
+                .build();
+        return releaseVersionRepository.saveAndFlush(build);
+    }
+
+    /**
+     * 오늘 날짜를 yyMMdd 정수로 반환 (예: 260427)
+     *
+     * <p>package-private 으로 노출하여 테스트에서 검증 가능하도록 함.
+     */
+    static int todayYyMmDd() {
+        return Integer.parseInt(LocalDate.now().format(DateTimeFormatter.ofPattern("yyMMdd")));
+    }
+
+    /**
+     * 특정 버전의 빌드 목록 조회
+     *
+     * @param baseVersionId 빌드 원본 버전 ID
+     * @return 빌드 목록 응답 (build_version DESC)
+     */
+    public ReleaseVersionDto.BuildListResponse getBuilds(Long baseVersionId) {
+        log.info("빌드 목록 조회 - baseVersionId: {}", baseVersionId);
+
+        ReleaseVersion baseVersion = findVersionById(baseVersionId);
+        List<ReleaseVersion> builds = releaseVersionRepository
+                .findAllByBuildBaseVersion_ReleaseVersionIdOrderByBuildVersionDesc(baseVersionId);
+
+        List<ReleaseVersionDto.BuildItem> items = builds.stream()
+                .map(this::toBuildItem)
+                .toList();
+
+        return new ReleaseVersionDto.BuildListResponse(
+                baseVersionId,
+                baseVersion.getVersion(),
+                items
+        );
+    }
+
+    private ReleaseVersionDto.BuildItem toBuildItem(ReleaseVersion build) {
+        return new ReleaseVersionDto.BuildItem(
+                build.getReleaseVersionId(),
+                build.getBuildVersion(),
+                build.getVersion(),
+                build.getFullVersion(),
+                build.getIsApproved(),
+                build.getCreatedAt() != null ? build.getCreatedAt().toString() : null,
+                build.getCreatedByEmail(),
+                build.getCreatedByName(),
+                build.getComment()
+        );
     }
 
 }

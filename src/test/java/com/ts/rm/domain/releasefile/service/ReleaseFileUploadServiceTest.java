@@ -17,7 +17,6 @@ import com.ts.rm.domain.releasefile.enums.FileCategory;
 import com.ts.rm.domain.releasefile.mapper.ReleaseFileDtoMapper;
 import com.ts.rm.domain.releasefile.repository.ReleaseFileRepository;
 import com.ts.rm.domain.releaseversion.entity.ReleaseVersion;
-import com.ts.rm.domain.releaseversion.enums.ReleaseCategory;
 import com.ts.rm.domain.releaseversion.repository.ReleaseVersionRepository;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
@@ -65,7 +64,6 @@ class ReleaseFileUploadServiceTest {
         testVersion = ReleaseVersion.builder()
                 .releaseVersionId(1L)
                 .releaseType("STANDARD")
-                .releaseCategory(ReleaseCategory.PATCH)
                 .version("1.1.0")
                 .majorVersion(1)
                 .minorVersion(1)
@@ -113,7 +111,7 @@ class ReleaseFileUploadServiceTest {
 
         // then
         assertThat(checksum).isNotNull();
-        assertThat(checksum).hasSize(32); // MD5 해시는 32자리 16진수
+        assertThat(checksum).hasSize(64); // SHA-256 해시는 64자리 16진수
     }
 
     @Test

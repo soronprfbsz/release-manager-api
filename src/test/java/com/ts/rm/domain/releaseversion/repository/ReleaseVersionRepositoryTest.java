@@ -4,8 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ts.rm.domain.customer.entity.Customer;
 import com.ts.rm.domain.customer.repository.CustomerRepository;
+import com.ts.rm.domain.project.entity.Project;
+import com.ts.rm.domain.project.repository.ProjectRepository;
 import com.ts.rm.domain.releaseversion.entity.ReleaseVersion;
-import com.ts.rm.domain.releaseversion.enums.ReleaseCategory;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -25,6 +26,8 @@ import org.springframework.test.context.ActiveProfiles;
 @DisplayName("ReleaseVersionRepository 테스트")
 class ReleaseVersionRepositoryTest {
 
+    private static final String PROJECT_ID = "infraeye2";
+
     @Autowired
     private ReleaseVersionRepository releaseVersionRepository;
 
@@ -32,20 +35,28 @@ class ReleaseVersionRepositoryTest {
     private CustomerRepository customerRepository;
 
     @Autowired
+    private ProjectRepository projectRepository;
+
+    @Autowired
     private jakarta.persistence.EntityManager entityManager;
 
     private Customer testCustomer;
+    private Project testProject;
 
     @BeforeEach
     void setUp() {
-        // Customer 초기화
+        testProject = projectRepository.save(Project.builder()
+                .projectId(PROJECT_ID)
+                .projectName("Infraeye 2")
+                .build());
+
         testCustomer = Customer.builder()
                 .customerCode("company_a")
                 .customerName("A회사")
                 .description("테스트 고객사")
                 .isActive(true)
-                .createdBy("admin@tscientific")
-                .updatedBy("admin@tscientific")
+                .createdByEmail("admin@tscientific")
+                .updatedByEmail("admin@tscientific")
                 .build();
         testCustomer = customerRepository.save(testCustomer);
     }
@@ -55,13 +66,13 @@ class ReleaseVersionRepositoryTest {
     void save_Standard_Success() {
         // given
         ReleaseVersion version = ReleaseVersion.builder()
+                .project(testProject)
                 .releaseType("STANDARD")
-                .releaseCategory(ReleaseCategory.PATCH)
                 .version("1.1.0")
                 .majorVersion(1)
                 .minorVersion(1)
                 .patchVersion(0)
-                .createdBy("jhlee@tscientific")
+                .createdByEmail("jhlee@tscientific")
                 .comment("새로운 기능 추가")
                 .build();
 
@@ -82,16 +93,18 @@ class ReleaseVersionRepositoryTest {
     void save_Custom_Success() {
         // given
         ReleaseVersion version = ReleaseVersion.builder()
+                .project(testProject)
                 .releaseType("CUSTOM")
-                .releaseCategory(ReleaseCategory.PATCH)
                 .customer(testCustomer)
                 .version("1.0.0-custom")
                 .majorVersion(1)
                 .minorVersion(0)
                 .patchVersion(0)
-                .createdBy("admin@tscientific")
+                .createdByEmail("admin@tscientific")
                 .comment("고객사 맞춤 기능")
-                .customVersion("1.0.0-company_a")
+                .customMajorVersion(1)
+                .customMinorVersion(0)
+                .customPatchVersion(0)
                 .build();
 
         // when
@@ -157,27 +170,27 @@ class ReleaseVersionRepositoryTest {
     void findAllByCustomerIdOrderByCreatedAtDesc_Success() {
         // given
         ReleaseVersion customVersion1 = ReleaseVersion.builder()
+                .project(testProject)
                 .releaseType("CUSTOM")
-                .releaseCategory(ReleaseCategory.PATCH)
                 .customer(testCustomer)
                 .version("1.0.0")
                 .majorVersion(1)
                 .minorVersion(0)
                 .patchVersion(0)
-                .createdBy("admin@tscientific")
+                .createdByEmail("admin@tscientific")
                 .comment("첫번째 버전")
                 .build();
         releaseVersionRepository.save(customVersion1);
 
         ReleaseVersion customVersion2 = ReleaseVersion.builder()
+                .project(testProject)
                 .releaseType("CUSTOM")
-                .releaseCategory(ReleaseCategory.PATCH)
                 .customer(testCustomer)
                 .version("1.0.1")
                 .majorVersion(1)
                 .minorVersion(0)
                 .patchVersion(1)
-                .createdBy("admin@tscientific")
+                .createdByEmail("admin@tscientific")
                 .comment("두번째 버전")
                 .build();
         releaseVersionRepository.save(customVersion2);
@@ -226,14 +239,15 @@ class ReleaseVersionRepositoryTest {
         // given
         createAndSaveStandardVersions();
 
-        // when - fromVersion < version <= toVersion (from 제외, to 포함)
+        // when - fromVersion <= version <= toVersion (양 끝 포함)
         List<ReleaseVersion> versions = releaseVersionRepository
-                .findVersionsBetween("STANDARD", "1.1.0", "1.2.0");
+                .findVersionsBetween(PROJECT_ID, "STANDARD", "1.1.0", "1.2.0");
 
         // then
-        assertThat(versions).hasSize(2);
-        assertThat(versions.get(0).getVersion()).isEqualTo("1.1.1");
-        assertThat(versions.get(1).getVersion()).isEqualTo("1.2.0");
+        assertThat(versions).hasSize(3);
+        assertThat(versions.get(0).getVersion()).isEqualTo("1.1.0");
+        assertThat(versions.get(1).getVersion()).isEqualTo("1.1.1");
+        assertThat(versions.get(2).getVersion()).isEqualTo("1.2.0");
     }
 
     @Test
@@ -255,14 +269,14 @@ class ReleaseVersionRepositoryTest {
     void getVersionKey_Custom() {
         // given
         ReleaseVersion version = ReleaseVersion.builder()
+                .project(testProject)
                 .releaseType("CUSTOM")
-                .releaseCategory(ReleaseCategory.PATCH)
                 .customer(testCustomer)
                 .version("1.0.0")
                 .majorVersion(1)
                 .minorVersion(0)
                 .patchVersion(0)
-                .createdBy("admin@tscientific")
+                .createdByEmail("admin@tscientific")
                 .comment("커스텀 버전")
                 .build();
         ReleaseVersion saved = releaseVersionRepository.save(version);
@@ -278,13 +292,13 @@ class ReleaseVersionRepositoryTest {
 
     private ReleaseVersion createStandardVersion(String version, int major, int minor, int patch) {
         return ReleaseVersion.builder()
+                .project(testProject)
                 .releaseType("STANDARD")
-                .releaseCategory(ReleaseCategory.PATCH)
                 .version(version)
                 .majorVersion(major)
                 .minorVersion(minor)
                 .patchVersion(patch)
-                .createdBy("jhlee@tscientific")
+                .createdByEmail("jhlee@tscientific")
                 .comment("테스트 버전")
                 .build();
     }
