@@ -34,6 +34,11 @@ app:
   api-logging:
     enabled: true  # ApiLoggingFilter 테스트를 위해 활성화
 
+management:
+  health:
+    redis:
+      enabled: false
+
 # Logging Configuration
 logging:
   level:

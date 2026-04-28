@@ -18,6 +18,7 @@ import com.ts.rm.domain.auth.service.AuthService;
 import com.ts.rm.domain.refreshtoken.service.RefreshTokenService;
 import com.ts.rm.global.exception.GlobalExceptionHandler;
 import com.ts.rm.global.config.MessageConfig;
+import com.ts.rm.global.logging.service.ApiLogService;
 import com.ts.rm.global.security.jwt.JwtTokenProvider;
 import com.ts.rm.domain.common.service.CustomUserDetailsService;
 import com.ts.rm.global.filter.JwtAuthenticationFilter;
@@ -73,6 +74,9 @@ class AuthControllerTest {
 
     @MockitoBean
     private PasswordEncoder passwordEncoder;
+
+    @MockitoBean
+    private ApiLogService apiLogService;
 
     private SignUpRequest signUpRequest;
     private SignUpResponse signUpResponse;

@@ -15,6 +15,7 @@ import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
 import com.ts.rm.global.exception.GlobalExceptionHandler;
 import com.ts.rm.global.filter.JwtAuthenticationFilter;
+import com.ts.rm.global.logging.service.ApiLogService;
 import com.ts.rm.global.security.jwt.JwtTokenProvider;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -49,6 +50,9 @@ class PatchControllerTest {
 
     @MockitoBean
     private JwtAuthenticationFilter jwtAuthenticationFilter;
+
+    @MockitoBean
+    private ApiLogService apiLogService;
 
     @Test
     @DisplayName("DELETE /api/patches/{id} - 성공")
