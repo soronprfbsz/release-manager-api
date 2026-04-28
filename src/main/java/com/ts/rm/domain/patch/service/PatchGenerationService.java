@@ -557,6 +557,11 @@ public class PatchGenerationService {
             // 6. SQL 파일 복사 (base 버전의 ReleaseFile 기반 - 빌드는 buildSelection 단계에서 처리)
             copySqlFiles(betweenVersions, outputPath);
 
+            // ---- buildSelection 별도 단계 (spec §5.1 / Q-S2) ----
+            if (buildSelection != null && buildSelection.enabled()) {
+                applyBuildSelection(Paths.get(releaseBasePath, outputPath), buildSelection);
+            }
+
             // 7. 패치 스크립트 생성
             String assigneeEmail = assignee != null ? assignee.getEmail() : null;
             generatePatchScripts(fromVersion, toVersion, betweenVersions, outputPath, assigneeEmail);
@@ -930,64 +935,80 @@ public class PatchGenerationService {
         }
     }
 
-    // TODO(Task 9 / spec §5.4): buildSelection picker 입력 별도 단계에서 부분 복사로 재활용 예정
     /**
-     * 빌드 ZIP 산출물은 ReleaseFile row로 인덱싱하지 않으므로 파일시스템에서 직접 복사한다.
+     * picker 입력에 따라 빌드 디렉토리에서 web/, engine/{engineName}/, etc/ 를 outputDir 로 복사.
+     *
+     * <p>spec §5.1 / Q-S3: ETC 는 selectedBuildIds 의 합집합을 buildVersion 오름차순으로 순차 복사하여
+     * 같은 경로 충돌 시 큰 buildVersion 의 내용이 살아남게 한다.
      */
-    private int copyBuildFilesFromFileSystem(ReleaseVersion buildVersion, Path outputDir) throws IOException {
-        ReleaseVersion baseVersion = buildVersion.getBuildBaseVersion();
-        if (baseVersion == null) {
-            log.warn("빌드 원본 버전이 없어 파일 복사를 건너뜀: {}", buildVersion.getFullVersion());
-            return 0;
+    private void applyBuildSelection(Path outputDir, PatchDto.BuildSelection sel) throws IOException {
+        java.util.Set<Long> selectedBuildIds = new java.util.LinkedHashSet<>();
+
+        // a. WEB 부분 복사
+        if (sel.web() != null) {
+            ReleaseVersion bv = loadBuildVersion(sel.web().buildVersionId());
+            Path src = fileSystemService.resolveBuildBasePath(bv.getBuildBaseVersion(), bv.getBuildVersion()).resolve("web");
+            copyDirectoryReplaceExisting(src, outputDir.resolve("web"));
+            selectedBuildIds.add(bv.getReleaseVersionId());
         }
 
-        Path buildBasePath = fileSystemService.resolveBuildBasePath(baseVersion, buildVersion.getBuildVersion());
-        if (!Files.exists(buildBasePath)) {
-            log.warn("빌드 산출물 디렉토리가 없어 파일 복사를 건너뜀: {}", buildBasePath);
-            return 0;
+        // b. ENGINE 부분 복사
+        if (sel.engines() != null) {
+            for (PatchDto.SelectedEngine se : sel.engines()) {
+                ReleaseVersion bv = loadBuildVersion(se.buildVersionId());
+                Path src = fileSystemService.resolveBuildBasePath(bv.getBuildBaseVersion(), bv.getBuildVersion())
+                        .resolve("engine").resolve(se.engineName());
+                copyDirectoryReplaceExisting(src, outputDir.resolve("engine").resolve(se.engineName()));
+                selectedBuildIds.add(bv.getReleaseVersionId());
+            }
         }
 
-        final int[] copiedCount = {0};
-        try (var stream = Files.walk(buildBasePath)) {
-            stream
-                    .filter(Files::isRegularFile)
-                    .forEach(sourcePath -> {
-                        Path relativePath = buildBasePath.relativize(sourcePath);
-                        Path targetPath = outputDir.resolve(relativePath);
-                        try {
-                            Files.createDirectories(targetPath.getParent());
-                            Files.copy(sourcePath, targetPath, StandardCopyOption.REPLACE_EXISTING);
-                            copiedCount[0]++;
-                        } catch (IOException e) {
-                            throw new BuildFileCopyException(sourcePath, e);
-                        }
-                    });
-        } catch (BuildFileCopyException e) {
-            throw new IOException("빌드 파일 복사 실패: " + e.sourcePath, e);
+        // c. ETC 동행: buildVersion 오름차순 순차 복사 (REPLACE_EXISTING)
+        java.util.List<ReleaseVersion> sortedByBuildVersion = selectedBuildIds.stream()
+                .map(this::loadBuildVersion)
+                .sorted(java.util.Comparator.comparingInt(ReleaseVersion::getBuildVersion))
+                .toList();
+        for (ReleaseVersion bv : sortedByBuildVersion) {
+            Path src = fileSystemService.resolveBuildBasePath(bv.getBuildBaseVersion(), bv.getBuildVersion()).resolve("etc");
+            if (Files.isDirectory(src)) {
+                copyDirectoryReplaceExisting(src, outputDir.resolve("etc"));
+            }
         }
-
-        return copiedCount[0];
     }
 
-    // TODO(Task 9 / spec §5.4): builds-in-range 후보 검사와 검증 룰 (§4.3) 에서 재사용 예정
-    private boolean buildRootHasFiles(ReleaseVersion buildVersion, String rootName) {
-        ReleaseVersion baseVersion = buildVersion.getBuildBaseVersion();
-        if (baseVersion == null) {
-            return false;
-        }
+    private ReleaseVersion loadBuildVersion(Long buildVersionId) {
+        return releaseVersionRepository.findById(buildVersionId)
+                .filter(ReleaseVersion::isBuild)
+                .orElseThrow(() -> new BusinessException(
+                        ErrorCode.INVALID_INPUT_VALUE,
+                        "선택한 빌드 버전을 찾을 수 없습니다: " + buildVersionId));
+    }
 
-        Path rootPath = fileSystemService
-                .resolveBuildBasePath(baseVersion, buildVersion.getBuildVersion())
-                .resolve(rootName);
-        if (!Files.exists(rootPath)) {
-            return false;
+    /**
+     * source 디렉토리 전체를 target 으로 복사 (REPLACE_EXISTING).
+     * source 가 존재하지 않으면 no-op.
+     */
+    private void copyDirectoryReplaceExisting(Path source, Path target) throws IOException {
+        if (!Files.isDirectory(source)) {
+            return;
         }
-
-        try (var stream = Files.walk(rootPath)) {
-            return stream.anyMatch(Files::isRegularFile);
-        } catch (IOException e) {
-            log.warn("빌드 산출물 루트 확인 실패: {}", rootPath, e);
-            return false;
+        try (var stream = Files.walk(source)) {
+            stream.forEach(p -> {
+                try {
+                    Path rel = source.relativize(p);
+                    Path dst = target.resolve(rel.toString());
+                    if (Files.isDirectory(p)) {
+                        Files.createDirectories(dst);
+                    } else {
+                        Files.createDirectories(dst.getParent());
+                        Files.copy(p, dst, StandardCopyOption.REPLACE_EXISTING);
+                    }
+                } catch (IOException e) {
+                    throw new BuildFileCopyException(p, e);
+                }
+            });
+        } catch (BuildFileCopyException e) {
+            throw new IOException("빌드 파일 복사 실패: " + e.sourcePath, e);
         }
     }
 
