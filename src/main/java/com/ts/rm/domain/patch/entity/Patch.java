@@ -4,6 +4,7 @@ import com.ts.rm.domain.account.entity.Account;
 import com.ts.rm.domain.customer.entity.Customer;
 import com.ts.rm.domain.project.entity.Project;
 import com.ts.rm.domain.common.entity.BaseEntity;
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -12,9 +13,12 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -85,6 +89,42 @@ public class Patch extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "assignee_id")
     private Account assignee;
+
+    @Column(name = "is_build_only", nullable = false)
+    @Builder.Default
+    private Boolean isBuildOnly = false;
+
+    @Column(name = "is_build_included", nullable = false)
+    @Builder.Default
+    private Boolean isBuildIncluded = false;
+
+    @OneToMany(
+            mappedBy = "patch",
+            cascade = CascadeType.ALL,
+            orphanRemoval = true,
+            fetch = FetchType.LAZY
+    )
+    @Builder.Default
+    private List<PatchIncludedBuild> includedBuilds = new ArrayList<>();
+
+    @OneToMany(
+            mappedBy = "patch",
+            cascade = CascadeType.ALL,
+            orphanRemoval = true,
+            fetch = FetchType.LAZY
+    )
+    @Builder.Default
+    private List<PatchHotfixInRange> hotfixesInRange = new ArrayList<>();
+
+    public void addIncludedBuild(PatchIncludedBuild item) {
+        item.setPatch(this);
+        this.includedBuilds.add(item);
+    }
+
+    public void addHotfixInRange(PatchHotfixInRange item) {
+        item.setPatch(this);
+        this.hotfixesInRange.add(item);
+    }
 
     /**
      * 생성자 이름 반환 헬퍼 메서드
