@@ -1099,8 +1099,10 @@ public final class ReleaseVersionDto {
             LocalDateTime createdAt,
 
             @Schema(description = "후보 그룹 안에서 가장 최신인지 여부", example = "true")
-            boolean isLatest
-    ) {}
+            Boolean isLatest
+    ) {
+
+    }
 
     @Schema(description = "엔진 후보 그룹")
     public record EngineGroup(
@@ -1109,7 +1111,9 @@ public final class ReleaseVersionDto {
 
             @Schema(description = "이 엔진을 가진 빌드 후보들")
             List<BuildCandidate> candidates
-    ) {}
+    ) {
+
+    }
 
     @Schema(description = "범위 안의 핫픽스 메타정보")
     public record HotfixInRangeInfo(
@@ -1121,7 +1125,9 @@ public final class ReleaseVersionDto {
 
             @Schema(description = "핫픽스 버전 (4번째 자리)", example = "1")
             Integer hotfixVersion
-    ) {}
+    ) {
+
+    }
 
     @Schema(description = "패치 범위 안의 빌드 후보 응답")
     public record BuildsInRangeResponse(
@@ -1133,5 +1139,7 @@ public final class ReleaseVersionDto {
 
             @Schema(description = "범위 안의 핫픽스 메타정보 (없으면 빈 배열)")
             List<HotfixInRangeInfo> hotfixesInRange
-    ) {}
+    ) {
+
+    }
 }
