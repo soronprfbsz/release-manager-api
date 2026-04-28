@@ -87,7 +87,8 @@ class BuildsInRangeServiceTest {
         ReleaseVersion b1 = build(101L, base, 260427, LocalDateTime.of(2026, 4, 27, 12, 0));
         ReleaseVersion b2 = build(102L, base, 260428, LocalDateTime.of(2026, 4, 28, 12, 0));
 
-        Path d1 = tempDir.resolve("b1"); Path d2 = tempDir.resolve("b2");
+        Path d1 = tempDir.resolve("b1");
+        Path d2 = tempDir.resolve("b2");
         touchFile(d1.resolve("web/index.html"));
         touchFile(d1.resolve("engine/NC_SMS/x.jar"));
         touchFile(d2.resolve("web/index.html"));
@@ -108,7 +109,7 @@ class BuildsInRangeServiceTest {
         assertThat(resp.web().get(1).isLatest()).isFalse();
 
         assertThat(resp.engines()).extracting(ReleaseVersionDto.EngineGroup::engineName)
-                .containsExactlyInAnyOrder("NC_SMS", "NC_FAULT_MS", "UNKNOWN");
+                .containsExactly("NC_FAULT_MS", "NC_SMS", "UNKNOWN");
 
         ReleaseVersionDto.EngineGroup smsGroup = resp.engines().stream()
                 .filter(g -> g.engineName().equals("NC_SMS")).findFirst().orElseThrow();

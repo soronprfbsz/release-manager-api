@@ -40,6 +40,10 @@ public class BuildsInRangeService {
 
         List<ReleaseVersion> builds = releaseVersionRepository
                 .findBuildsInBaseRange(projectId, fromBaseId, toBaseId, customerId);
+        // Service 레벨에서도 build_version DESC 정렬을 한 번 더 보장 (isLatest 로직 안전망)
+        builds = builds.stream()
+                .sorted(Comparator.comparingInt(ReleaseVersion::getBuildVersion).reversed())
+                .toList();
 
         List<ReleaseVersionDto.BuildCandidate> webCandidates = new ArrayList<>();
         Map<String, List<ReleaseVersionDto.BuildCandidate>> engineMap = new LinkedHashMap<>();
@@ -101,8 +105,9 @@ public class BuildsInRangeService {
     }
 
     /**
-     * engine/ 디렉토리 안의 1단계 하위 디렉토리명 (정규 파일 1개 이상인 것만) 과,
-     * engine/ 직속 정규 파일이 있으면 UNKNOWN 을 함께 반환.
+     * engine/ 디렉토리 안의 1단계 하위 디렉토리명을 수집한다.
+     * 하위 디렉토리는 정규 파일이 1개 이상일 때만 포함하며,
+     * engine/ 직속 정규 파일이 있으면 UNKNOWN 그룹도 함께 반환.
      */
     private TreeSet<String> engineNamesInBuild(Path engineDir) {
         TreeSet<String> names = new TreeSet<>();
@@ -111,27 +116,23 @@ public class BuildsInRangeService {
         }
         try (var stream = Files.list(engineDir)) {
             stream.forEach(child -> {
-                if (Files.isDirectory(child) && hasFiles(child)) {
-                    names.add(child.getFileName().toString());
+                if (Files.isDirectory(child)) {
+                    if (hasFiles(child)) {
+                        names.add(child.getFileName().toString());
+                    }
+                } else if (Files.isRegularFile(child)) {
+                    names.add(UNKNOWN_ENGINE);
                 }
             });
         } catch (IOException e) {
             log.warn("engine 디렉토리 list 실패: {}", engineDir, e);
-        }
-        try (var stream = Files.list(engineDir)) {
-            boolean directFile = stream.anyMatch(Files::isRegularFile);
-            if (directFile) {
-                names.add(UNKNOWN_ENGINE);
-            }
-        } catch (IOException e) {
-            log.warn("engine 디렉토리 list 실패 (직속 파일): {}", engineDir, e);
         }
         return names;
     }
 
     /**
      * 입력 후보 리스트의 첫 항목에 isLatest=true 를 부여한 새 리스트를 반환.
-     * 입력은 build_version DESC 정렬되어 있다고 가정한다 (Repository 가 보장).
+     * 입력은 buildVersion DESC 로 정렬되어 있어야 한다. getBuildsInRange 가 이를 보장한다.
      */
     private List<ReleaseVersionDto.BuildCandidate> markLatestFirst(List<ReleaseVersionDto.BuildCandidate> input) {
         if (input.isEmpty()) {
