@@ -1082,4 +1082,56 @@ public final class ReleaseVersionDto {
     ) {
 
     }
+
+    // ========================================
+    // builds-in-range Response DTOs
+    // ========================================
+
+    @Schema(description = "빌드 후보 1건")
+    public record BuildCandidate(
+            @Schema(description = "빌드 버전 ID", example = "42")
+            Long buildVersionId,
+
+            @Schema(description = "전체 버전 문자열", example = "1.1.0.260428")
+            String fullVersion,
+
+            @Schema(description = "생성 시각")
+            LocalDateTime createdAt,
+
+            @Schema(description = "후보 그룹 안에서 가장 최신인지 여부", example = "true")
+            boolean isLatest
+    ) {}
+
+    @Schema(description = "엔진 후보 그룹")
+    public record EngineGroup(
+            @Schema(description = "엔진명 (engine/{engineName} 디렉토리명, 직속 파일이면 UNKNOWN)", example = "NC_SMS")
+            String engineName,
+
+            @Schema(description = "이 엔진을 가진 빌드 후보들")
+            List<BuildCandidate> candidates
+    ) {}
+
+    @Schema(description = "범위 안의 핫픽스 메타정보")
+    public record HotfixInRangeInfo(
+            @Schema(description = "핫픽스 버전 ID", example = "33")
+            Long versionId,
+
+            @Schema(description = "전체 버전 문자열", example = "1.0.0.1")
+            String fullVersion,
+
+            @Schema(description = "핫픽스 버전 (4번째 자리)", example = "1")
+            Integer hotfixVersion
+    ) {}
+
+    @Schema(description = "패치 범위 안의 빌드 후보 응답")
+    public record BuildsInRangeResponse(
+            @Schema(description = "WEB 후보 (없으면 빈 배열)")
+            List<BuildCandidate> web,
+
+            @Schema(description = "엔진별 후보 그룹 (엔진명 기준 정렬)")
+            List<EngineGroup> engines,
+
+            @Schema(description = "범위 안의 핫픽스 메타정보 (없으면 빈 배열)")
+            List<HotfixInRangeInfo> hotfixesInRange
+    ) {}
 }
