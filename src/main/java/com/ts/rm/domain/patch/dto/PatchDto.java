@@ -58,24 +58,108 @@ public final class PatchDto {
             @Schema(description = "패치 담당자 ID", example = "1")
             Long assigneeId,
 
-            @Schema(description = "패치 이름 (미입력 시 자동 생성: 날짜_fromversion_toversion)", example = "20251125_1.0.0_1.1.1")
+            @Schema(description = "패치 이름 (미입력 시 자동 생성)", example = "20251125_1.0.0_1.1.1")
             @Size(max = 100, message = "패치 이름은 100자 이하여야 합니다")
             String patchName,
 
-            @Schema(description = "WEB/ENGINE 빌드 파일의 모든 버전 포함 여부 (false: 마지막 버전만, true: 모든 버전)", example = "false", defaultValue = "false")
-            Boolean includeAllBuildVersions
-    ) {
-        /**
-         * WEB/ENGINE 빌드 파일의 모든 버전 포함 여부 반환 (null인 경우 false)
-         */
-        public boolean shouldIncludeAllBuildVersions() {
-            return Boolean.TRUE.equals(includeAllBuildVersions);
-        }
-    }
+            @Schema(description = "빌드 파일 선택 (null 또는 enabled=false 면 빌드 미포함)")
+            BuildSelection buildSelection
+    ) {}
+
+    @Builder
+    @Schema(description = "패치에 포함할 빌드 파일 선택")
+    public record BuildSelection(
+            @Schema(description = "토글 ON 여부 (false 면 빌드 미포함)", example = "true")
+            boolean enabled,
+
+            @Schema(description = "WEB 선택 (null 이면 WEB 미포함)")
+            SelectedWeb web,
+
+            @Schema(description = "엔진별 선택 (미포함 엔진은 배열에서 제외)")
+            java.util.List<SelectedEngine> engines
+    ) {}
+
+    @Schema(description = "WEB 빌드 선택")
+    public record SelectedWeb(
+            @Schema(description = "선택한 빌드 버전 ID", example = "42")
+            @jakarta.validation.constraints.NotNull(message = "WEB buildVersionId 는 필수입니다")
+            Long buildVersionId
+    ) {}
+
+    @Schema(description = "엔진 빌드 선택")
+    public record SelectedEngine(
+            @Schema(description = "엔진명", example = "NC_SMS")
+            @NotBlank(message = "engineName 은 필수입니다")
+            String engineName,
+
+            @Schema(description = "선택한 빌드 버전 ID", example = "42")
+            @jakarta.validation.constraints.NotNull(message = "engine buildVersionId 는 필수입니다")
+            Long buildVersionId
+    ) {}
 
     // ========================================
     // Response DTOs
     // ========================================
+
+    @Schema(description = "패치에 실제 포함된 빌드 정보 (응답)")
+    public record IncludedBuilds(
+            @Schema(description = "WEB 포함 정보 (없으면 null)")
+            IncludedWeb web,
+
+            @Schema(description = "엔진별 포함 정보")
+            java.util.List<IncludedEngine> engines
+    ) {}
+
+    @Schema(description = "패치에 포함된 WEB 빌드 정보")
+    public record IncludedWeb(
+            @Schema(description = "빌드 버전 ID", example = "42")
+            Long buildVersionId,
+
+            @Schema(description = "전체 버전 문자열", example = "1.1.0.260428")
+            String fullVersion
+    ) {}
+
+    @Schema(description = "패치에 포함된 엔진 빌드 정보")
+    public record IncludedEngine(
+            @Schema(description = "엔진명", example = "NC_SMS")
+            String engineName,
+
+            @Schema(description = "빌드 버전 ID", example = "42")
+            Long buildVersionId,
+
+            @Schema(description = "전체 버전 문자열", example = "1.1.0.260428")
+            String fullVersion
+    ) {}
+
+    @Schema(description = "범위 안의 핫픽스 메타정보 (응답)")
+    public record HotfixInRangeInfo(
+            @Schema(description = "핫픽스 버전 ID", example = "33")
+            Long versionId,
+
+            @Schema(description = "전체 버전 문자열", example = "1.0.0.1")
+            String fullVersion
+    ) {}
+
+    @Schema(description = "패치 생성 응답")
+    public record GenerateResponse(
+            @Schema(description = "생성된 패치 ID", example = "1")
+            Long patchId,
+
+            @Schema(description = "패치 이름")
+            String patchName,
+
+            @Schema(description = "출력 경로")
+            String outputPath,
+
+            @Schema(description = "Build-only 패치 여부 (from == to)", example = "false")
+            boolean isBuildOnly,
+
+            @Schema(description = "범위 안의 핫픽스 (별도 적용 안내용, 비어있으면 빈 배열)")
+            java.util.List<HotfixInRangeInfo> hotfixesInRange,
+
+            @Schema(description = "패치에 실제 포함된 빌드 정보")
+            IncludedBuilds includedBuilds
+    ) {}
 
     /**
      * 패치 일괄 삭제 결과

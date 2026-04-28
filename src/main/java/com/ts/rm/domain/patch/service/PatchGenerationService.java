@@ -6,6 +6,7 @@ import com.ts.rm.domain.customer.entity.Customer;
 import com.ts.rm.domain.customer.entity.CustomerProject;
 import com.ts.rm.domain.customer.repository.CustomerProjectRepository;
 import com.ts.rm.domain.customer.repository.CustomerRepository;
+import com.ts.rm.domain.patch.dto.PatchDto;
 import com.ts.rm.domain.patch.entity.Patch;
 import com.ts.rm.domain.patch.entity.PatchHistory;
 import com.ts.rm.domain.patch.repository.PatchHistoryRepository;
@@ -69,22 +70,22 @@ public class PatchGenerationService {
     /**
      * 패치 생성 (버전 문자열 기반) - 표준 버전용
      *
-     * @param projectId    프로젝트 ID
-     * @param releaseType  릴리즈 타입 (STANDARD/CUSTOM)
-     * @param customerId   고객사 ID (CUSTOM인 경우)
-     * @param fromVersion  From 버전 (예: 1.0.0)
-     * @param toVersion    To 버전 (예: 1.1.1)
-     * @param createdByEmail    생성자
-     * @param description  설명 (선택)
-     * @param assigneeId   패치 담당자 ID (선택)
-     * @param patchName    패치 이름 (선택, 미입력 시 자동 생성)
-     * @param includeAllBuildVersions WEB/ENGINE 모든 버전 포함 여부 (false: 마지막 버전만)
+     * @param projectId      프로젝트 ID
+     * @param releaseType    릴리즈 타입 (STANDARD/CUSTOM)
+     * @param customerId     고객사 ID (CUSTOM인 경우)
+     * @param fromVersion    From 버전 (예: 1.0.0)
+     * @param toVersion      To 버전 (예: 1.1.1)
+     * @param createdByEmail 생성자
+     * @param description    설명 (선택)
+     * @param assigneeId     패치 담당자 ID (선택)
+     * @param patchName      패치 이름 (선택, 미입력 시 자동 생성)
+     * @param buildSelection 빌드 파일 선택 (null 이면 빌드 미포함)
      * @return 생성된 패치
      */
     @Transactional
     public Patch generatePatchByVersion(String projectId, String releaseType, Long customerId,
             String fromVersion, String toVersion, String createdByEmail, String description,
-            Long assigneeId, String patchName, boolean includeAllBuildVersions) {
+            Long assigneeId, String patchName, PatchDto.BuildSelection buildSelection) {
 
         // 버전 조회 (프로젝트 내에서, 핫픽스 제외, 빌드 인식)
         ParsedInputVersion fromParsed = parseInputVersion(fromVersion);
@@ -105,7 +106,7 @@ public class PatchGenerationService {
                         "To 버전을 찾을 수 없습니다: " + toVersion));
 
         return generatePatch(projectId, from.getReleaseVersionId(), to.getReleaseVersionId(),
-                customerId, createdByEmail, description, assigneeId, patchName, includeAllBuildVersions);
+                customerId, createdByEmail, description, assigneeId, patchName, buildSelection);
     }
 
     /**
@@ -257,8 +258,8 @@ public class PatchGenerationService {
             // 5. 출력 디렉토리 생성 (커스텀 패치용)
             String outputPath = createCustomOutputDirectory(resolvedPatchName, projectId, customer.getCustomerCode());
 
-            // 6. SQL 파일 복사 (커스텀 패치는 기본적으로 WEB/ENGINE 마지막 버전만 포함)
-            copySqlFiles(betweenVersions, outputPath, false);
+            // 6. SQL 파일 복사 (커스텀 패치는 base 버전의 ReleaseFile 기반)
+            copySqlFiles(betweenVersions, outputPath);
 
             // 7. 패치 스크립트 생성
             String assigneeEmail = assignee != null ? assignee.getEmail() : null;
@@ -475,21 +476,21 @@ public class PatchGenerationService {
     /**
      * 패치 생성 (버전 ID 기반)
      *
-     * @param projectId     프로젝트 ID
-     * @param fromVersionId From 버전 ID
-     * @param toVersionId   To 버전 ID
-     * @param customerId    고객사 ID (선택)
-     * @param createdByEmail     생성자
-     * @param description   설명 (선택)
-     * @param assigneeId    패치 담당자 ID (선택)
-     * @param patchName     패치 이름 (선택, 미입력 시 자동 생성)
-     * @param includeAllBuildVersions WEB/ENGINE 모든 버전 포함 여부 (false: 마지막 버전만)
+     * @param projectId      프로젝트 ID
+     * @param fromVersionId  From 버전 ID
+     * @param toVersionId    To 버전 ID
+     * @param customerId     고객사 ID (선택)
+     * @param createdByEmail 생성자
+     * @param description    설명 (선택)
+     * @param assigneeId     패치 담당자 ID (선택)
+     * @param patchName      패치 이름 (선택, 미입력 시 자동 생성)
+     * @param buildSelection 빌드 파일 선택 (null 이면 빌드 미포함)
      * @return 생성된 패치
      */
     @Transactional
     public Patch generatePatch(String projectId, Long fromVersionId, Long toVersionId, Long customerId,
             String createdByEmail, String description, Long assigneeId, String patchName,
-            boolean includeAllBuildVersions) {
+            PatchDto.BuildSelection buildSelection) {
         try {
             // 프로젝트 조회
             Project project = projectRepository.findById(projectId)
@@ -553,8 +554,8 @@ public class PatchGenerationService {
             // 5. 출력 디렉토리 생성 (패치 이름으로)
             String outputPath = createOutputDirectory(resolvedPatchName, projectId);
 
-            // 6. SQL 파일 복사 (WEB/ENGINE은 includeAllBuildVersions에 따라 마지막 버전만 또는 모든 버전 포함)
-            copySqlFiles(betweenVersions, outputPath, includeAllBuildVersions);
+            // 6. SQL 파일 복사 (base 버전의 ReleaseFile 기반 - 빌드는 buildSelection 단계에서 처리)
+            copySqlFiles(betweenVersions, outputPath);
 
             // 7. 패치 스크립트 생성
             String assigneeEmail = assignee != null ? assignee.getEmail() : null;
@@ -817,37 +818,28 @@ public class PatchGenerationService {
 
     /**
      * 모든 파일 복사 (버전별 디렉토리 구조 유지)
-     * <p>⚠️ WEB 카테고리는 해당 파일이 있는 마지막 버전만 포함됩니다.
-     * <p>⚠️ ENGINE 카테고리는 sub_category(NC_SMS, NC_FAULT_MS 등)별로 각각 마지막 버전만 포함됩니다.
      *
-     * @param versions 복사할 버전 목록
+     * <p>빌드 버전은 versions[] 루프에서 skip 한다. 빌드 파일 복사는 buildSelection 별도 단계에서 처리.
+     * <p>⚠️ WEB 카테고리는 해당 파일이 있는 마지막 base 버전만 포함됩니다.
+     * <p>⚠️ ENGINE 카테고리는 sub_category(NC_SMS, NC_FAULT_MS 등)별로 각각 마지막 base 버전만 포함됩니다.
+     *
+     * @param versions   복사할 버전 목록
      * @param outputPath 출력 경로
-     * @param includeAllBuildVersions WEB/ENGINE 모든 버전 포함 여부 (false: 마지막 버전만)
      */
-    private void copySqlFiles(List<ReleaseVersion> versions, String outputPath, boolean includeAllBuildVersions) {
+    private void copySqlFiles(List<ReleaseVersion> versions, String outputPath) {
         try {
             Path outputDir = Paths.get(releaseBasePath, outputPath);
 
-            // WEB은 카테고리 전체에서 마지막 버전, ENGINE은 sub_category별 마지막 버전 파악
+            // ENGINE: sub_category → 해당 sub_category 파일이 있는 마지막 base 버전 ID
             Long lastVersionIdForWeb = null;
-            Long lastVersionIdForEngineAll = null;
-            // ENGINE: sub_category → 해당 sub_category 파일이 있는 마지막 버전 ID
             Map<String, Long> lastVersionIdByEngineSubCategory = new HashMap<>();
 
-            if (!includeAllBuildVersions && !versions.isEmpty()) {
-                // 모든 버전의 파일을 역순으로 조회하여 마지막 버전 찾기
+            if (!versions.isEmpty()) {
+                // 모든 버전의 파일을 역순으로 조회하여 마지막 base 버전 찾기
                 for (int i = versions.size() - 1; i >= 0; i--) {
                     ReleaseVersion v = versions.get(i);
-
                     if (v.isBuild()) {
-                        if (lastVersionIdForWeb == null && buildRootHasFiles(v, "web")) {
-                            lastVersionIdForWeb = v.getReleaseVersionId();
-                            log.info("WEB 카테고리는 빌드 버전 {}의 파일시스템 산출물만 포함됩니다.", v.getFullVersion());
-                        }
-                        if (lastVersionIdForEngineAll == null && buildRootHasFiles(v, "engine")) {
-                            lastVersionIdForEngineAll = v.getReleaseVersionId();
-                            log.info("ENGINE 카테고리는 빌드 버전 {}의 파일시스템 산출물만 포함됩니다.", v.getFullVersion());
-                        }
+                        continue;  // 빌드는 picker 입력 단계에서 별도 처리
                     }
 
                     List<ReleaseFile> files = releaseFileRepository
@@ -876,10 +868,7 @@ public class PatchGenerationService {
 
             for (ReleaseVersion version : versions) {
                 if (version.isBuild()) {
-                    int copiedCount = copyBuildFilesFromFileSystem(version, outputDir);
-                    log.info("빌드 버전 {} 파일시스템 산출물 복사 완료 - {}개",
-                            version.getFullVersion(), copiedCount);
-                    continue;
+                    continue;  // 빌드는 picker 입력 단계에서 별도 처리 (§5.3 Q-S2)
                 }
 
                 // 모든 파일 조회
@@ -896,11 +885,11 @@ public class PatchGenerationService {
                 int skippedBuildCount = 0;
 
                 for (ReleaseFile file : files) {
-                    // WEB/ENGINE 카테고리 필터링
-                    if (!includeAllBuildVersions && file.getFileCategory() != null) {
+                    // WEB/ENGINE 카테고리 필터링 (base 버전 기반)
+                    if (file.getFileCategory() != null) {
                         boolean shouldSkip = false;
 
-                        // WEB: 마지막 버전이 아니면 건너뛰기
+                        // WEB: 마지막 base 버전이 아니면 건너뛰기
                         if (file.getFileCategory() == FileCategory.WEB) {
                             if (lastVersionIdForWeb == null
                                     || !version.getReleaseVersionId().equals(lastVersionIdForWeb)) {
@@ -908,18 +897,13 @@ public class PatchGenerationService {
                             }
                         }
 
-                        // ENGINE: 해당 sub_category의 마지막 버전이 아니면 건너뛰기
+                        // ENGINE: 해당 sub_category의 마지막 base 버전이 아니면 건너뛰기
                         if (file.getFileCategory() == FileCategory.ENGINE) {
-                            if (lastVersionIdForEngineAll != null
-                                    && !version.getReleaseVersionId().equals(lastVersionIdForEngineAll)) {
+                            String subCategory = file.getSubCategory() != null ? file.getSubCategory() : "ETC";
+                            Long lastVersionId = lastVersionIdByEngineSubCategory.get(subCategory);
+                            if (lastVersionId == null
+                                    || !version.getReleaseVersionId().equals(lastVersionId)) {
                                 shouldSkip = true;
-                            } else {
-                                String subCategory = file.getSubCategory() != null ? file.getSubCategory() : "ETC";
-                                Long lastVersionId = lastVersionIdByEngineSubCategory.get(subCategory);
-                                if (lastVersionId == null
-                                        || !version.getReleaseVersionId().equals(lastVersionId)) {
-                                    shouldSkip = true;
-                                }
                             }
                         }
 

@@ -47,30 +47,48 @@ public class PatchService {
 
     /**
      * 패치 생성 (버전 문자열 기반) - 위임
-     *
-     * @param includeAllBuildVersions WEB/ENGINE 모든 버전 포함 여부 (false: 마지막 버전만)
      */
     @Transactional
     public Patch generatePatchByVersion(String projectId, String releaseType, Long customerId,
             String fromVersion, String toVersion, String createdByEmail, String description,
-            Long engineerId, String patchName, boolean includeAllBuildVersions) {
+            Long engineerId, String patchName, PatchDto.BuildSelection buildSelection) {
         return patchGenerationService.generatePatchByVersion(
                 projectId, releaseType, customerId, fromVersion, toVersion,
-                createdByEmail, description, engineerId, patchName, includeAllBuildVersions);
+                createdByEmail, description, engineerId, patchName, buildSelection);
     }
 
     /**
      * 패치 생성 (버전 ID 기반) - 위임
-     *
-     * @param includeAllBuildVersions WEB/ENGINE 모든 버전 포함 여부 (false: 마지막 버전만)
      */
     @Transactional
     public Patch generatePatch(String projectId, Long fromVersionId, Long toVersionId, Long customerId,
             String createdByEmail, String description, Long engineerId, String patchName,
-            boolean includeAllBuildVersions) {
+            PatchDto.BuildSelection buildSelection) {
         return patchGenerationService.generatePatch(
                 projectId, fromVersionId, toVersionId, customerId,
-                createdByEmail, description, engineerId, patchName, includeAllBuildVersions);
+                createdByEmail, description, engineerId, patchName, buildSelection);
+    }
+
+    /**
+     * buildSelection 의 spec §4.3 검증 룰을 검사한다.
+     *
+     * @param selection  요청에서 받은 buildSelection (null 가능)
+     * @param sameBase   from.id == to.id 여부 (Build-only 케이스)
+     * @throws BusinessException INVALID_INPUT_VALUE 룰에 위배되면
+     */
+    public static void validateBuildSelection(PatchDto.BuildSelection selection, boolean sameBase) {
+        boolean enabled = selection != null && selection.enabled();
+        boolean pickerEmpty = selection == null
+                || selection.web() == null && (selection.engines() == null || selection.engines().isEmpty());
+
+        if (enabled && pickerEmpty) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
+                    "빌드 미포함이면 토글을 OFF 로 두십시오");
+        }
+        if (sameBase && (!enabled || pickerEmpty)) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
+                    "동일 버전 패치는 최소 1개 이상의 빌드 선택이 필요합니다");
+        }
     }
 
     /**

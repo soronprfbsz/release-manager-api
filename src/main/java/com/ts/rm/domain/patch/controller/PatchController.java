@@ -46,9 +46,9 @@ public class PatchController implements PatchControllerDocs {
     public ApiResponse<PatchDto.DetailResponse> generatePatch(
             @Valid @RequestBody PatchDto.GenerateRequest request) {
 
-        log.info("패치 생성 요청 - Project: {}, From: {}, To: {}, Type: {}, PatchName: {}, IncludeAllBuildVersions: {}",
+        log.info("패치 생성 요청 - Project: {}, From: {}, To: {}, Type: {}, PatchName: {}, BuildSelection: {}",
                 request.projectId(), request.fromVersion(), request.toVersion(), request.type(),
-                request.patchName(), request.shouldIncludeAllBuildVersions());
+                request.patchName(), request.buildSelection());
 
         Patch patch = patchService.generatePatchByVersion(
                 request.projectId(),
@@ -60,7 +60,7 @@ public class PatchController implements PatchControllerDocs {
                 request.description(),
                 request.assigneeId(),
                 request.patchName(),
-                request.shouldIncludeAllBuildVersions()
+                request.buildSelection()
         );
 
         PatchDto.DetailResponse response = patchDtoMapper.toDetailResponse(patch);

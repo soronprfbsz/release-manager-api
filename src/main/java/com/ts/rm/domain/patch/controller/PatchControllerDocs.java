@@ -28,8 +28,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 public interface PatchControllerDocs {
 
     @Operation(
-            summary = "표준 패치 생성",
-            description = "표준 릴리즈 버전 범위(From ~ To)에 대한 누적 패치를 생성합니다.",
+            summary = "패치 생성",
+            description = "from..to 사이의 누적 DB 패치를 생성하고, buildSelection.enabled=true 인 경우 "
+                    + "선택된 WEB/엔진 빌드와 함께 ETC 동행을 처리한다. 핫픽스는 누적 DB 시퀀스에 미포함.",
             responses = @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "200",
                     description = "성공",
