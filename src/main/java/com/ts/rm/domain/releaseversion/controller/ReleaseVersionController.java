@@ -2,6 +2,7 @@ package com.ts.rm.domain.releaseversion.controller;
 
 import com.ts.rm.domain.releaseversion.dto.ReleaseVersionDto;
 import com.ts.rm.domain.releaseversion.service.BuildFileService;
+import com.ts.rm.domain.releaseversion.service.BuildsInRangeService;
 import com.ts.rm.domain.releaseversion.service.ReleaseVersionService;
 import com.ts.rm.domain.releaseversion.service.ReleaseVersionTreeService;
 import com.ts.rm.domain.releaseversion.service.ReleaseVersionUploadService;
@@ -25,6 +26,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -43,6 +45,7 @@ public class ReleaseVersionController implements ReleaseVersionControllerDocs {
     private final ReleaseVersionUploadService uploadService;
     private final ReleaseVersionTreeService treeService;
     private final BuildFileService buildFileService;
+    private final BuildsInRangeService buildsInRangeService;
 
     /**
      * 표준 릴리즈 버전 생성 (ZIP 파일 업로드)
@@ -472,5 +475,28 @@ public class ReleaseVersionController implements ReleaseVersionControllerDocs {
                 log.warn("임시 ZIP 정리 실패: {}", tempZip, e);
             }
         }
+    }
+
+    /**
+     * 빌드 후보 조회 (range)
+     *
+     * @param projectId     프로젝트 ID
+     * @param fromVersionId 시작 base 버전 ID (포함)
+     * @param toVersionId   종료 base 버전 ID (포함)
+     * @param customerId    고객사 ID (커스텀인 경우, 선택)
+     * @return 빌드 후보 및 hotfixesInRange 메타정보
+     */
+    @Override
+    @GetMapping("/versions/builds-in-range")
+    public ResponseEntity<ApiResponse<ReleaseVersionDto.BuildsInRangeResponse>> getBuildsInRange(
+            @RequestParam String projectId,
+            @RequestParam Long fromVersionId,
+            @RequestParam Long toVersionId,
+            @RequestParam(required = false) Long customerId) {
+        log.info("GET /api/releases/versions/builds-in-range - projectId: {}, range: {}..{}, customerId: {}",
+                projectId, fromVersionId, toVersionId, customerId);
+        ReleaseVersionDto.BuildsInRangeResponse response =
+                buildsInRangeService.getBuildsInRange(projectId, fromVersionId, toVersionId, customerId);
+        return ResponseEntity.ok(ApiResponse.success(response));
     }
 }

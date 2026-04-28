@@ -884,6 +884,28 @@ public interface ReleaseVersionControllerDocs {
             @RequestHeader("Authorization") String authorization
     );
 
+    @Operation(
+            summary = "빌드 후보 조회 (range)",
+            description = "패치 범위 (fromVersionId..toVersionId) 안의 빌드 디렉토리를 walk 하여 "
+                    + "WEB / ENGINE 후보와 hotfixesInRange 메타정보를 반환합니다. "
+                    + "별도 인덱스 없이 빌드 디렉토리의 web/, engine/{engineName}/, engine 직속 파일 "
+                    + "존재 여부로 후보를 만듭니다.",
+            responses = @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "성공",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = BuildsInRangeApiResponse.class)
+                    )
+            )
+    )
+    ResponseEntity<ApiResponse<ReleaseVersionDto.BuildsInRangeResponse>> getBuildsInRange(
+            @Parameter(description = "프로젝트 ID", required = true) String projectId,
+            @Parameter(description = "시작 base 버전 ID (포함)", required = true) Long fromVersionId,
+            @Parameter(description = "종료 base 버전 ID (포함)", required = true) Long toVersionId,
+            @Parameter(description = "고객사 ID (커스텀인 경우)") Long customerId
+    );
+
     /**
      * Swagger 스키마용 wrapper 클래스 - 빌드 생성 응답
      */
@@ -906,5 +928,17 @@ public interface ReleaseVersionControllerDocs {
 
         @Schema(description = "빌드 목록")
         public ReleaseVersionDto.BuildListResponse data;
+    }
+
+    /**
+     * Swagger 스키마용 wrapper 클래스 - 빌드 후보 range 조회 응답
+     */
+    @Schema(description = "빌드 후보 range 조회 API 응답")
+    class BuildsInRangeApiResponse {
+        @Schema(description = "응답 상태", example = "success")
+        public String status;
+
+        @Schema(description = "빌드 후보 range 조회 결과")
+        public ReleaseVersionDto.BuildsInRangeResponse data;
     }
 }
