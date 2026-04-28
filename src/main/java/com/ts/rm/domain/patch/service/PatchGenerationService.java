@@ -572,8 +572,11 @@ public class PatchGenerationService {
             copySqlFiles(betweenVersions, outputPath);
 
             // ---- buildSelection 별도 단계 (spec §5.1 / Q-S2) ----
+            Map<Long, ReleaseVersion> selectedBuilds;
             if (buildSelection != null && buildSelection.enabled()) {
-                applyBuildSelection(Paths.get(releaseBasePath, outputPath), buildSelection);
+                selectedBuilds = applyBuildSelection(Paths.get(releaseBasePath, outputPath), buildSelection);
+            } else {
+                selectedBuilds = Map.of();
             }
 
             // 7. 패치 스크립트 생성
@@ -621,7 +624,7 @@ public class PatchGenerationService {
                     .findHotfixesInBaseRange(projectId, fromVersionId, toVersionId, customerId).stream()
                     .map(h -> new PatchDto.HotfixInRangeInfo(h.getReleaseVersionId(), h.getFullVersion()))
                     .toList();
-            PatchDto.IncludedBuilds includedBuilds = buildIncludedBuilds(buildSelection);
+            PatchDto.IncludedBuilds includedBuilds = buildIncludedBuilds(buildSelection, selectedBuilds);
 
             return new GenerateResult(saved, isBuildOnly, hotfixes, includedBuilds);
 
@@ -635,24 +638,29 @@ public class PatchGenerationService {
     }
 
     /**
-     * buildSelection 에 따라 응답용 IncludedBuilds 를 구성한다.
+     * 응답 보강용 IncludedBuilds 생성. selectedBuilds 캐시 (applyBuildSelection 결과) 를 활용해
+     * loadBuildVersion 중복 호출을 피한다.
      *
-     * @param sel 빌드 선택 (null 또는 enabled=false 면 WEB/engines 모두 비어있는 객체 반환)
+     * @param sel           빌드 선택 (null 또는 enabled=false 면 WEB/engines 모두 비어있는 객체 반환)
+     * @param selectedBuilds applyBuildSelection 이 반환한 buildVersionId → ReleaseVersion 캐시
      * @return IncludedBuilds
      */
-    private PatchDto.IncludedBuilds buildIncludedBuilds(PatchDto.BuildSelection sel) {
+    private PatchDto.IncludedBuilds buildIncludedBuilds(PatchDto.BuildSelection sel,
+                                                        Map<Long, ReleaseVersion> selectedBuilds) {
         if (sel == null || !sel.enabled()) {
             return new PatchDto.IncludedBuilds(null, List.of());
         }
         PatchDto.IncludedWeb web = null;
         if (sel.web() != null) {
-            ReleaseVersion bv = loadBuildVersion(sel.web().buildVersionId());
+            ReleaseVersion bv = selectedBuilds.get(sel.web().buildVersionId());
+            if (bv == null) bv = loadBuildVersion(sel.web().buildVersionId());
             web = new PatchDto.IncludedWeb(bv.getReleaseVersionId(), bv.getFullVersion());
         }
         List<PatchDto.IncludedEngine> engines = new ArrayList<>();
         if (sel.engines() != null) {
             for (PatchDto.SelectedEngine se : sel.engines()) {
-                ReleaseVersion bv = loadBuildVersion(se.buildVersionId());
+                ReleaseVersion bv = selectedBuilds.get(se.buildVersionId());
+                if (bv == null) bv = loadBuildVersion(se.buildVersionId());
                 engines.add(new PatchDto.IncludedEngine(se.engineName(), bv.getReleaseVersionId(), bv.getFullVersion()));
             }
         }
@@ -987,13 +995,17 @@ public class PatchGenerationService {
      *
      * <p>spec §5.1 / Q-S3: ETC 는 selectedBuildIds 의 합집합을 buildVersion 오름차순으로 순차 복사하여
      * 같은 경로 충돌 시 큰 buildVersion 의 내용이 살아남게 한다.
+     *
+     * <p>반환 selectedBuilds map 은 buildIncludedBuilds / persistIncludedBuilds 가
+     * 동일한 ReleaseVersion 객체를 재사용할 수 있도록 호출자에게 노출한다.
+     *
+     * @return buildVersionId → ReleaseVersion 매핑 (insertion order 유지).
      */
-    private void applyBuildSelection(Path outputDir, PatchDto.BuildSelection sel) throws IOException {
+    private Map<Long, ReleaseVersion> applyBuildSelection(Path outputDir, PatchDto.BuildSelection sel) throws IOException {
         log.info("picker 복사 시작 - WEB: {}, ENGINE: {}",
                 sel.web() == null ? "(없음)" : sel.web().buildVersionId(),
                 sel.engines() == null ? List.of() : sel.engines());
 
-        // a/b 단계에서 로드한 ReleaseVersion 을 캐시하여 c 단계의 N+1 DB 조회 방지
         Map<Long, ReleaseVersion> selectedBuilds = new LinkedHashMap<>();
 
         // a. WEB 부분 복사
@@ -1027,6 +1039,8 @@ public class PatchGenerationService {
                 copyDirectoryReplaceExisting(src, outputDir.resolve("etc"));
             }
         }
+
+        return selectedBuilds;
     }
 
     private ReleaseVersion loadBuildVersion(Long buildVersionId) {
