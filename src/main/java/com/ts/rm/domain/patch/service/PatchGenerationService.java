@@ -18,6 +18,7 @@ import com.ts.rm.domain.releasefile.enums.FileCategory;
 import com.ts.rm.domain.releasefile.repository.ReleaseFileRepository;
 import com.ts.rm.domain.releaseversion.entity.ReleaseVersion;
 import com.ts.rm.domain.releaseversion.repository.ReleaseVersionRepository;
+import com.ts.rm.domain.releaseversion.service.ReleaseVersionFileSystemService;
 import com.ts.rm.global.account.AccountLookupService;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
@@ -60,6 +61,7 @@ public class PatchGenerationService {
     private final ScriptGenerator mariaDBScriptGenerator;
     private final ScriptGenerator crateDBScriptGenerator;
     private final AccountLookupService accountLookupService;
+    private final ReleaseVersionFileSystemService fileSystemService;
 
     @Value("${app.release.base-path:data/release-manager}")
     private String releaseBasePath;
@@ -828,6 +830,7 @@ public class PatchGenerationService {
 
             // WEB은 카테고리 전체에서 마지막 버전, ENGINE은 sub_category별 마지막 버전 파악
             Long lastVersionIdForWeb = null;
+            Long lastVersionIdForEngineAll = null;
             // ENGINE: sub_category → 해당 sub_category 파일이 있는 마지막 버전 ID
             Map<String, Long> lastVersionIdByEngineSubCategory = new HashMap<>();
 
@@ -835,6 +838,17 @@ public class PatchGenerationService {
                 // 모든 버전의 파일을 역순으로 조회하여 마지막 버전 찾기
                 for (int i = versions.size() - 1; i >= 0; i--) {
                     ReleaseVersion v = versions.get(i);
+
+                    if (v.isBuild()) {
+                        if (lastVersionIdForWeb == null && buildRootHasFiles(v, "web")) {
+                            lastVersionIdForWeb = v.getReleaseVersionId();
+                            log.info("WEB 카테고리는 빌드 버전 {}의 파일시스템 산출물만 포함됩니다.", v.getFullVersion());
+                        }
+                        if (lastVersionIdForEngineAll == null && buildRootHasFiles(v, "engine")) {
+                            lastVersionIdForEngineAll = v.getReleaseVersionId();
+                            log.info("ENGINE 카테고리는 빌드 버전 {}의 파일시스템 산출물만 포함됩니다.", v.getFullVersion());
+                        }
+                    }
 
                     List<ReleaseFile> files = releaseFileRepository
                             .findAllByReleaseVersion_ReleaseVersionIdOrderByExecutionOrderAsc(v.getReleaseVersionId());
@@ -861,6 +875,13 @@ public class PatchGenerationService {
             }
 
             for (ReleaseVersion version : versions) {
+                if (version.isBuild()) {
+                    int copiedCount = copyBuildFilesFromFileSystem(version, outputDir);
+                    log.info("빌드 버전 {} 파일시스템 산출물 복사 완료 - {}개",
+                            version.getFullVersion(), copiedCount);
+                    continue;
+                }
+
                 // 모든 파일 조회
                 List<ReleaseFile> files = releaseFileRepository
                         .findAllByReleaseVersion_ReleaseVersionIdOrderByExecutionOrderAsc(
@@ -889,11 +910,16 @@ public class PatchGenerationService {
 
                         // ENGINE: 해당 sub_category의 마지막 버전이 아니면 건너뛰기
                         if (file.getFileCategory() == FileCategory.ENGINE) {
-                            String subCategory = file.getSubCategory() != null ? file.getSubCategory() : "ETC";
-                            Long lastVersionId = lastVersionIdByEngineSubCategory.get(subCategory);
-                            if (lastVersionId == null
-                                    || !version.getReleaseVersionId().equals(lastVersionId)) {
+                            if (lastVersionIdForEngineAll != null
+                                    && !version.getReleaseVersionId().equals(lastVersionIdForEngineAll)) {
                                 shouldSkip = true;
+                            } else {
+                                String subCategory = file.getSubCategory() != null ? file.getSubCategory() : "ETC";
+                                Long lastVersionId = lastVersionIdByEngineSubCategory.get(subCategory);
+                                if (lastVersionId == null
+                                        || !version.getReleaseVersionId().equals(lastVersionId)) {
+                                    shouldSkip = true;
+                                }
                             }
                         }
 
@@ -917,6 +943,74 @@ public class PatchGenerationService {
         } catch (Exception e) {
             throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
                     "파일 복사 실패: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 빌드 ZIP 산출물은 ReleaseFile row로 인덱싱하지 않으므로 파일시스템에서 직접 복사한다.
+     */
+    private int copyBuildFilesFromFileSystem(ReleaseVersion buildVersion, Path outputDir) throws IOException {
+        ReleaseVersion baseVersion = buildVersion.getBuildBaseVersion();
+        if (baseVersion == null) {
+            log.warn("빌드 원본 버전이 없어 파일 복사를 건너뜀: {}", buildVersion.getFullVersion());
+            return 0;
+        }
+
+        Path buildBasePath = fileSystemService.resolveBuildBasePath(baseVersion, buildVersion.getBuildVersion());
+        if (!Files.exists(buildBasePath)) {
+            log.warn("빌드 산출물 디렉토리가 없어 파일 복사를 건너뜀: {}", buildBasePath);
+            return 0;
+        }
+
+        final int[] copiedCount = {0};
+        try (var stream = Files.walk(buildBasePath)) {
+            stream
+                    .filter(Files::isRegularFile)
+                    .forEach(sourcePath -> {
+                        Path relativePath = buildBasePath.relativize(sourcePath);
+                        Path targetPath = outputDir.resolve(relativePath);
+                        try {
+                            Files.createDirectories(targetPath.getParent());
+                            Files.copy(sourcePath, targetPath, StandardCopyOption.REPLACE_EXISTING);
+                            copiedCount[0]++;
+                        } catch (IOException e) {
+                            throw new BuildFileCopyException(sourcePath, e);
+                        }
+                    });
+        } catch (BuildFileCopyException e) {
+            throw new IOException("빌드 파일 복사 실패: " + e.sourcePath, e);
+        }
+
+        return copiedCount[0];
+    }
+
+    private boolean buildRootHasFiles(ReleaseVersion buildVersion, String rootName) {
+        ReleaseVersion baseVersion = buildVersion.getBuildBaseVersion();
+        if (baseVersion == null) {
+            return false;
+        }
+
+        Path rootPath = fileSystemService
+                .resolveBuildBasePath(baseVersion, buildVersion.getBuildVersion())
+                .resolve(rootName);
+        if (!Files.exists(rootPath)) {
+            return false;
+        }
+
+        try (var stream = Files.walk(rootPath)) {
+            return stream.anyMatch(Files::isRegularFile);
+        } catch (IOException e) {
+            log.warn("빌드 산출물 루트 확인 실패: {}", rootPath, e);
+            return false;
+        }
+    }
+
+    private static class BuildFileCopyException extends RuntimeException {
+        private final Path sourcePath;
+
+        private BuildFileCopyException(Path sourcePath, IOException cause) {
+            super(cause);
+            this.sourcePath = sourcePath;
         }
     }
 

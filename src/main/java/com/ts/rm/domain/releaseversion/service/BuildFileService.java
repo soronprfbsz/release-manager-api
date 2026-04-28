@@ -1,7 +1,6 @@
 package com.ts.rm.domain.releaseversion.service;
 
 import com.ts.rm.domain.releasefile.entity.ReleaseFile;
-import com.ts.rm.domain.releasefile.enums.FileCategory;
 import com.ts.rm.domain.releasefile.repository.ReleaseFileRepository;
 import com.ts.rm.domain.releaseversion.dto.ReleaseVersionDto;
 import com.ts.rm.domain.releaseversion.entity.ReleaseVersion;
@@ -9,17 +8,13 @@ import com.ts.rm.domain.releaseversion.repository.ReleaseVersionRepository;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
 import com.ts.rm.global.file.BuildZipValidator;
-import com.ts.rm.global.file.FileChecksumUtil;
 import com.ts.rm.global.file.ZipExtractUtil;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,7 +26,6 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>빌드 버전 검증 (build_version &gt; 0 인 ReleaseVersion 만 허용)</li>
  *   <li>업로드된 ZIP 의 루트 디렉토리 검증 (web/, engine/, etc/ 만)</li>
  *   <li>지정된 빌드 베이스 경로 아래에 ZIP 압축 해제</li>
- *   <li>각 추출 파일에 대응하는 {@link ReleaseFile} 엔티티 생성/저장</li>
  * </ul>
  *
  * <p>버전 자체의 생성은 {@link ReleaseVersionService#createBuild} 가 담당하며 본 서비스는
@@ -48,16 +42,13 @@ public class BuildFileService {
     private final ReleaseVersionFileSystemService fileSystemService;
     private final ReleaseVersionService releaseVersionService;
 
-    @Value("${app.release.base-path:data/release-manager}")
-    private String baseReleasePath;
-
     /**
      * 빌드 ZIP 업로드 결과
      *
      * @param buildVersionId 빌드 버전 ID
-     * @param createdFiles   생성된 ReleaseFile 행
+     * @param uploadedFileCount 추출된 파일 수
      */
-    public record UploadResult(Long buildVersionId, List<ReleaseFile> createdFiles) {}
+    public record UploadResult(Long buildVersionId, int uploadedFileCount) {}
 
     /**
      * 빌드 버전 생성과 ZIP 업로드를 한 번에 처리하는 오케스트레이터.
@@ -95,7 +86,7 @@ public class BuildFileService {
         int uploadedCount = 0;
         if (zipPath != null) {
             UploadResult uploadResult = uploadBuildZip(buildResponse.buildVersionId(), zipPath, createdByEmail);
-            uploadedCount = uploadResult.createdFiles().size();
+            uploadedCount = uploadResult.uploadedFileCount();
         }
 
         // 3. 파일 개수가 enrich 된 응답 반환
@@ -111,9 +102,8 @@ public class BuildFileService {
     /**
      * 빌드 ZIP 재업로드 (교체 시맨틱).
      *
-     * <p>기존 빌드의 ReleaseFile rows + 빌드 디렉토리 산출물을 모두 삭제한 뒤
-     * 새 ZIP 으로 다시 업로드한다. 동일 트랜잭션에서 수행되므로 신규 업로드가 실패하면
-     * 삭제도 롤백된다.
+     * <p>기존 빌드 디렉토리 산출물을 삭제한 뒤 새 ZIP 으로 다시 업로드한다.
+     * 과거 빌드에서 생성된 ReleaseFile rows 가 있으면 호환성을 위해 함께 정리한다.
      *
      * @param buildVersionId 업로드 대상 빌드 버전 ID
      * @param zipPath        새 ZIP 파일 경로 (null 불가)
@@ -155,7 +145,7 @@ public class BuildFileService {
         return new ReleaseVersionDto.UploadBuildZipResponse(
                 buildVersionId,
                 build.getFullVersion(),
-                result.createdFiles().size()
+                result.uploadedFileCount()
         );
     }
 
@@ -167,7 +157,6 @@ public class BuildFileService {
      *   <li>buildVersionId 로 빌드 행 조회 + 빌드 여부 검증</li>
      *   <li>{@link BuildZipValidator#validate} 로 ZIP 루트 구조 검증 (web/engine/etc 만)</li>
      *   <li>ZIP 을 빌드 디렉토리 아래에 압축 해제</li>
-     *   <li>추출된 각 파일에 대해 ReleaseFile 행 생성 (file_category 는 루트 디렉토리에서 결정)</li>
      * </ol>
      *
      * @param buildVersionId 업로드 대상 빌드 버전 ID (build_version &gt; 0 이어야 함)
@@ -216,104 +205,12 @@ public class BuildFileService {
 
         if (extracted.isEmpty()) {
             log.warn("빌드 ZIP 에서 추출된 파일이 없음 - buildVersionId: {}", buildVersionId);
-            return new UploadResult(buildVersionId, List.of());
+            return new UploadResult(buildVersionId, 0);
         }
 
-        // 4. ReleaseFile 행 생성
-        int maxOrder = releaseFileRepository
-                .findAllByReleaseVersion_ReleaseVersionIdOrderByExecutionOrderAsc(buildVersionId)
-                .stream()
-                .mapToInt(ReleaseFile::getExecutionOrder)
-                .max()
-                .orElse(0);
-        int order = maxOrder + 1;
-
-        Path baseRoot = Paths.get(baseReleasePath).toAbsolutePath().normalize();
-        List<ReleaseFile> created = new ArrayList<>();
-
-        for (ZipExtractUtil.ExtractedFileInfo info : extracted) {
-            String topLevel = topLevelOf(info.relativePath());
-            FileCategory category = mapTopLevelToCategory(topLevel);
-            if (category == null) {
-                // BuildZipValidator 가 이미 막아준 케이스라 도달 불가하지만 안전망
-                log.warn("알 수 없는 루트 디렉토리: {} (skip)", topLevel);
-                continue;
-            }
-
-            String relativeFromBase = relativizeFromBase(baseRoot, info.absolutePath());
-            String checksum;
-            try {
-                checksum = FileChecksumUtil.calculateChecksum(info.absolutePath());
-            } catch (IOException e) {
-                log.warn("체크섬 계산 실패 (계속 진행): {}", info.absolutePath(), e);
-                checksum = null;
-            }
-
-            ReleaseFile file = ReleaseFile.builder()
-                    .releaseVersion(build)
-                    .fileType(determineFileType(info.fileName()))
-                    .fileCategory(category)
-                    .subCategory(null)
-                    .fileName(info.fileName())
-                    .filePath(relativeFromBase)
-                    .fileSize(info.fileSize())
-                    .checksum(checksum)
-                    .executionOrder(order++)
-                    .description(uploadedByEmail != null
-                            ? uploadedByEmail + " 가 빌드 ZIP 으로 업로드"
-                            : "빌드 ZIP 업로드")
-                    .build();
-
-            created.add(releaseFileRepository.save(file));
-        }
-
-        log.info("빌드 ZIP 업로드 완료 - buildVersionId: {}, 추가된 파일 수: {}",
-                buildVersionId, created.size());
-        return new UploadResult(buildVersionId, created);
-    }
-
-    /**
-     * 추출된 파일의 baseReleasePath 기준 상대 경로를 반환.
-     *
-     * <p>예: {@code /app/data/.../builds/260427/web/foo.war} → {@code versions/.../builds/260427/web/foo.war}
-     */
-    private String relativizeFromBase(Path baseRoot, Path absolute) {
-        Path absNormalized = absolute.toAbsolutePath().normalize();
-        if (absNormalized.startsWith(baseRoot)) {
-            return baseRoot.relativize(absNormalized).toString().replace('\\', '/');
-        }
-        // baseRoot 기준이 아닌 경우 (드물지만) 안전하게 절대 경로 그대로 저장
-        log.warn("base 경로 밖에 위치한 파일: {} (baseRoot={})", absNormalized, baseRoot);
-        return absNormalized.toString().replace('\\', '/');
-    }
-
-    /**
-     * ZIP 내부 상대 경로의 최상위 디렉토리명 반환 (예: "web/sub/foo.war" → "web").
-     */
-    private String topLevelOf(String zipRelativePath) {
-        if (zipRelativePath == null) return "";
-        String normalized = zipRelativePath.replace('\\', '/');
-        int slash = normalized.indexOf('/');
-        return slash < 0 ? normalized : normalized.substring(0, slash);
-    }
-
-    /**
-     * 루트 디렉토리명 → FileCategory 매핑.
-     */
-    private FileCategory mapTopLevelToCategory(String topLevel) {
-        if ("web".equals(topLevel)) return FileCategory.WEB;
-        if ("engine".equals(topLevel)) return FileCategory.ENGINE;
-        if ("etc".equals(topLevel)) return FileCategory.ETC;
-        return null;
-    }
-
-    /**
-     * 파일 확장자 기반 fileType 결정 (대문자, 확장자 없으면 "OTHER").
-     */
-    private String determineFileType(String fileName) {
-        if (fileName == null) return "OTHER";
-        int dot = fileName.lastIndexOf('.');
-        if (dot < 0 || dot == fileName.length() - 1) return "OTHER";
-        return fileName.substring(dot + 1).toUpperCase();
+        int uploadedFileCount = extracted.size();
+        log.info("빌드 ZIP 업로드 완료 - buildVersionId: {}, 추출된 파일 수: {} (ReleaseFile row 저장 생략)",
+                buildVersionId, uploadedFileCount);
+        return new UploadResult(buildVersionId, uploadedFileCount);
     }
 }

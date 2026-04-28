@@ -865,7 +865,7 @@ public interface ReleaseVersionControllerDocs {
 
     @Operation(
             summary = "빌드 ZIP 재업로드 (교체)",
-            description = "기존 빌드의 파일/ReleaseFile 행을 모두 삭제하고 새 ZIP 으로 교체합니다.\n\n"
+            description = "기존 빌드 디렉토리 산출물을 삭제하고 새 ZIP 으로 교체합니다.\n\n"
                     + "**제약사항**:\n"
                     + "- 빌드 버전(build_version > 0) 에만 사용 가능\n"
                     + "- ZIP 루트는 web/, engine/, etc/ 만 허용 (대소문자 구분)\n"

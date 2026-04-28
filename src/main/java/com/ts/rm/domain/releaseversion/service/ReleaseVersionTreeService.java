@@ -11,6 +11,9 @@ import com.ts.rm.domain.releaseversion.repository.ReleaseVersionHierarchyReposit
 import com.ts.rm.domain.releaseversion.repository.ReleaseVersionRepository;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +36,7 @@ public class ReleaseVersionTreeService {
     private final ReleaseVersionRepository releaseVersionRepository;
     private final ReleaseVersionHierarchyRepository hierarchyRepository;
     private final ReleaseFileRepository releaseFileRepository;
+    private final ReleaseVersionFileSystemService fileSystemService;
 
     /**
      * 표준 릴리즈 버전 트리 조회 (프로젝트별)
@@ -596,6 +600,14 @@ public class ReleaseVersionTreeService {
      * @return 파일 트리 응답
      */
     public ReleaseVersionDto.FileTreeResponse getVersionFileTree(Long versionId, ReleaseVersion version) {
+        if (version.isBuild()) {
+            return new ReleaseVersionDto.FileTreeResponse(
+                    version.getReleaseVersionId(),
+                    version.getFullVersion(),
+                    buildBuildFileTreeFromFileSystem(version)
+            );
+        }
+
         // 모든 파일 조회 (relativePath 순으로 정렬)
         List<ReleaseFile> files = releaseFileRepository.findAllByReleaseVersion_ReleaseVersionIdOrderByExecutionOrderAsc(versionId);
 
@@ -607,6 +619,84 @@ public class ReleaseVersionTreeService {
                 version.getVersion(),
                 rootNode
         );
+    }
+
+    private ReleaseVersionDto.FileTreeNode buildBuildFileTreeFromFileSystem(ReleaseVersion buildVersion) {
+        ReleaseVersion baseVersion = buildVersion.getBuildBaseVersion();
+        if (baseVersion == null) {
+            log.warn("빌드 원본 버전이 없어 파일 트리를 비워 반환: {}", buildVersion.getFullVersion());
+            return ReleaseVersionDto.FileTreeNode.directory("", "", new ArrayList<>());
+        }
+
+        Path buildBasePath = fileSystemService.resolveBuildBasePath(baseVersion, buildVersion.getBuildVersion());
+        if (!Files.exists(buildBasePath)) {
+            log.warn("빌드 산출물 디렉토리가 없어 파일 트리를 비워 반환: {}", buildBasePath);
+            return ReleaseVersionDto.FileTreeNode.directory("", "", new ArrayList<>());
+        }
+
+        Map<String, FileTreeNode> nodeMap = new java.util.HashMap<>();
+        List<ReleaseVersionDto.FileTreeNode> rootChildren = new ArrayList<>();
+
+        try (var stream = Files.walk(buildBasePath)) {
+            stream
+                    .filter(Files::isRegularFile)
+                    .forEach(filePath -> addFileSystemFileNode(buildBasePath, filePath, nodeMap, rootChildren));
+        } catch (IOException e) {
+            log.error("빌드 파일 트리 생성 실패: {}", buildBasePath, e);
+            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                    "빌드 파일 트리 생성 실패: " + e.getMessage());
+        }
+
+        return ReleaseVersionDto.FileTreeNode.directory("", "", rootChildren);
+    }
+
+    private void addFileSystemFileNode(Path buildBasePath, Path filePath, Map<String, FileTreeNode> nodeMap,
+            List<ReleaseVersionDto.FileTreeNode> rootChildren) {
+        String relativePath = buildBasePath.relativize(filePath).toString().replace('\\', '/');
+        String[] parts = relativePath.split("/");
+        StringBuilder currentPath = new StringBuilder();
+        List<ReleaseVersionDto.FileTreeNode> currentChildren = rootChildren;
+
+        for (int i = 0; i < parts.length; i++) {
+            String part = parts[i];
+            if (part.isEmpty()) {
+                continue;
+            }
+            if (currentPath.length() > 0) {
+                currentPath.append("/");
+            }
+            currentPath.append(part);
+            String pathKey = currentPath.toString();
+            boolean isFile = (i == parts.length - 1);
+
+            if (isFile) {
+                Long size = null;
+                try {
+                    size = Files.size(filePath);
+                } catch (IOException e) {
+                    log.warn("빌드 파일 크기 조회 실패: {}", filePath, e);
+                }
+                currentChildren.add(ReleaseVersionDto.FileTreeNode.file(
+                        part,
+                        pathKey,
+                        size,
+                        null,
+                        filePath.toString().replace('\\', '/')
+                ));
+            } else if (!nodeMap.containsKey(pathKey)) {
+                List<ReleaseVersionDto.FileTreeNode> newChildren = new ArrayList<>();
+                ReleaseVersionDto.FileTreeNode dirNode = ReleaseVersionDto.FileTreeNode.directory(
+                        part,
+                        pathKey,
+                        newChildren
+                );
+                nodeMap.put(pathKey, dirNode);
+                currentChildren.add(dirNode);
+                currentChildren = newChildren;
+            } else {
+                currentChildren = nodeMap.get(pathKey).children();
+            }
+        }
     }
 
     /**
