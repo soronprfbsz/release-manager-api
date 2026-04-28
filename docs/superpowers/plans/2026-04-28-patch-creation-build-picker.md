@@ -1,134 +1,592 @@
-# 패치 생성 빌드 picker 재설계 구현 계획
+# 패치 생성 빌드 picker 재설계 구현 계획 (v2)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 패치 생성 폼에 WEB 1개·엔진별 1개씩 선택 가능한 인라인 컴팩트 picker 를 도입하고, 데이터 모델·API·UI 를 그에 맞게 재배선한다.
+**Goal:** 빌드 디렉토리를 진실의 원천으로 두는 새 전제 (commit `00ee8f8`) 위에서, 패치 생성 폼에 WEB 1개·엔진별 1개씩 선택 가능한 인라인 컴팩트 picker 와 builds-in-range API · `buildSelection` 입출력 · `PatchGenerationService` 재배선을 도입한다.
 
-**Architecture:** 빌드 ZIP 업로드 시 ENGINE 의 `sub_category` 를 자동 저장하여 진실의 원천을 회복한 뒤, 신규 `builds-in-range` API 로 picker 후보를 제공한다. 패치 생성 입력은 `buildSelection` 으로 명시화되고, 누적 DB 시퀀스에서 핫픽스를 분리한다. 프론트엔드는 인라인 picker + 자동 preselect + 일괄 액션을 제공한다.
+**Architecture:** `builds-in-range` API 는 빌드 디렉토리를 walk 하여 후보를 집계하고, `PatchGenerationService` 는 versions[] 루프에서 빌드를 skip 한 뒤 별도 단계에서 picker 입력만으로 `web/{engineName}/etc` 부분 복사를 수행한다. ETC 동행은 `selectedBuildIds` 오름차순 + REPLACE_EXISTING 으로 처리한다.
 
 **Tech Stack:** Spring Boot 3.5.6 / Java 17 / JPA + QueryDSL / MapStruct / JUnit 5 + Mockito (BE) — React 19 + TypeScript / Vite / TanStack Query / shadcn-ui / Playwright (FE).
 
-**연관 문서:** `docs/superpowers/specs/2026-04-28-patch-creation-build-picker-design.md`
+**연관 문서:** `release-manager-api/docs/superpowers/specs/2026-04-28-patch-creation-build-picker-design.md` (commit `7d18caf`).
+
+**적용 범위:** 표준 패치 흐름 (`POST /api/patches/standard`, `PatchCreateForm`, `PatchGenerateFormCard`) 만. 커스텀 패치 (`POST /api/patches/custom`, `CustomPatchCreateForm`, `CustomPatchGenerateFormCard`) 는 현재 빌드 포함 분기 자체가 없어 변경하지 않음 (필요 시 후속 과제).
+
+**WSL 환경 우회 패턴:** WSL 의 Java 는 21만 설치. 빌드 검증은 build.gradle 의 `JavaLanguageVersion.of(17)` 을 임시 21 로 바꿨다가 원복하는 패턴 사용. 매 검증 step 의 명령 블록에 그대로 포함되어 있다.
 
 ---
 
 ## 파일 구조
 
-### 백엔드 — 변경
+### 백엔드 — 변경 / 신규
 
 | 경로 | 책임 |
 | --- | --- |
-| `src/main/java/com/ts/rm/domain/releaseversion/service/BuildFileService.java` | `extractEngineName` 헬퍼 + ZIP 추출 시 `subCategory` 저장 |
-| `src/main/java/com/ts/rm/domain/releaseversion/repository/ReleaseVersionRepositoryCustom.java` (+Impl) | `findBuildsInBaseRange` 쿼리 |
-| `src/main/java/com/ts/rm/domain/releaseversion/dto/ReleaseVersionDto.java` | `BuildsInRangeResponse`, `EngineGroup`, `BuildCandidate` |
-| `src/main/java/com/ts/rm/domain/releaseversion/service/ReleaseVersionService.java` | `getBuildsInRange` 메서드 |
+| `src/main/java/com/ts/rm/domain/releaseversion/dto/ReleaseVersionDto.java` | `BuildCandidate`, `EngineGroup`, `HotfixInRangeInfo`, `BuildsInRangeResponse` 추가 |
+| `src/main/java/com/ts/rm/domain/releaseversion/repository/ReleaseVersionRepositoryCustom.java` (+Impl) | `findBuildsInBaseRange`, `findHotfixesInBaseRange` 신규 |
+| `src/main/java/com/ts/rm/domain/releaseversion/service/BuildsInRangeService.java` | **신규** — 디렉토리 walk 기반 후보 집계 |
 | `src/main/java/com/ts/rm/domain/releaseversion/controller/ReleaseVersionController.java` (+Docs) | `GET /api/releases/versions/builds-in-range` |
-| `src/main/java/com/ts/rm/domain/releasefile/repository/ReleaseFileRepositoryCustom.java` (+Impl) | 빌드별 카테고리 + sub_category 집계 쿼리 |
-| `src/main/java/com/ts/rm/domain/patch/dto/PatchDto.java` | `GenerateRequest` 필드 변경, `BuildSelection`/`SelectedEngine` types, response 필드 추가 |
-| `src/main/java/com/ts/rm/domain/patch/controller/PatchController.java` (+Docs) | 새 입력으로 호출 시그니처 재배선 |
-| `src/main/java/com/ts/rm/domain/patch/service/PatchService.java` | `generatePatchByVersion` 시그니처 변경 (buildSelection 인자) |
-| `src/main/java/com/ts/rm/domain/patch/service/PatchGenerationService.java` | 빌드 파일 포함 분기 재설계, 핫픽스 제외, ETC 동행, 응답 필드 채움 |
+| `src/main/java/com/ts/rm/domain/patch/dto/PatchDto.java` | `BuildSelection`, `SelectedEngine`, `IncludedBuilds`, `HotfixInRangeInfo`, `GenerateRequest` 변경, `GenerateResponse` 신설 |
+| `src/main/java/com/ts/rm/domain/patch/controller/PatchController.java` (+Docs) | 새 입력으로 호출 + 새 응답 |
+| `src/main/java/com/ts/rm/domain/patch/service/PatchService.java` | `generatePatchByVersion` / `generatePatch` 시그니처 변경 + 검증 룰 |
+| `src/main/java/com/ts/rm/domain/patch/service/PatchGenerationService.java` | 자동 통째 복사 분기 폐기, picker 입력 별도 단계, ETC 동행 오름차순, 응답 채움 |
 
 ### 프론트엔드 — 변경 / 신규
 
 | 경로 | 책임 |
 | --- | --- |
-| `src/entities/releases/release/model/types.ts` | `BuildCandidate`, `EngineGroup`, `BuildsInRangeResponse` 추가 |
+| `src/entities/releases/release/model/types.ts` | `BuildCandidate`, `EngineGroup`, `HotfixInRangeInfo`, `BuildsInRangeResponse` 추가 |
 | `src/entities/releases/release/api/releaseApi.ts` | `getBuildsInRange` 호출 |
 | `src/entities/releases/release/queries/releaseQueries.ts` | `useBuildsInRange` 훅 |
 | `src/entities/patches/patch/model/types.ts` | `BuildSelection`, `SelectedEngine`, `GenerateRequest` 확장, response 필드 추가 |
 | `src/features/patches/patch-management/model/types.ts` | `PatchCreateFormData` 에 `buildSelection` 추가 |
 | `src/features/patches/patch-management/ui/BuildPickerSection.tsx` | **신규** — 컴팩트 picker (WEB radio + ENGINE 행) |
 | `src/features/patches/patch-management/ui/PatchCreateForm.tsx` | 폼에 picker 통합 + 검증 + build-only 인디케이터 |
-| `src/features/patches/patch-management/ui/PatchGenerateFormCard.tsx` | 동일 패턴 적용(또는 PatchCreateForm 으로 일원화) |
+| `src/features/patches/patch-management/ui/PatchGenerateFormCard.tsx` | 동일 패턴 적용 |
 | `src/pages/patches/PatchesPage.tsx` | `getVersionsFromTree` base 만 노출, 핫픽스 안내 toast |
-
-### 운영 자료
-
-| 경로 | 비고 |
-| --- | --- |
-| `docs/superpowers/plans/2026-04-28-patch-creation-build-picker.md` | (이 문서) |
-| (운영 DB) | 수동 SQL 백필 — 본 plan Task 21 의 SQL 그대로 |
 
 ---
 
-## Phase 1 — 데이터 모델 정정 (sub_category)
+## Phase 1 — 백엔드: `builds-in-range` API
 
-### Task 1: BuildFileService — `extractEngineName` 헬퍼 + 단위 테스트
+### Task 1: ReleaseVersionDto 응답 record 추가
 
 **Files:**
-- Modify: `release-manager-api/src/main/java/com/ts/rm/domain/releaseversion/service/BuildFileService.java`
-- Modify: `release-manager-api/src/test/java/com/ts/rm/domain/releaseversion/service/BuildFileServiceTest.java`
+- Modify: `release-manager-api/src/main/java/com/ts/rm/domain/releaseversion/dto/ReleaseVersionDto.java`
 
-- [ ] **Step 1: 실패할 테스트 추가**
+> 단순 record 추가 — TDD 제외 (CLAUDE.md "TDD 제외 대상: 단순 DTO/Entity").
 
-`BuildFileServiceTest.java` 의 `class BuildFileServiceTest { ... }` 안에 추가:
+- [ ] **Step 1: ReleaseVersionDto 클래스 마지막 닫는 중괄호 위에 다음 record 들 추가**
 
 ```java
-@Test
-@DisplayName("extractEngineName: engine/{engineName}/... 에서 두 번째 토큰을 반환")
-void extractEngineName_normalCase() {
-    assertThat(BuildFileService.extractEngineName("engine/NC_SMS/lib/foo.jar"))
-            .isEqualTo("NC_SMS");
-}
+    // ========================================
+    // builds-in-range Response DTOs
+    // ========================================
 
-@Test
-@DisplayName("extractEngineName: engine 직속 파일이면 UNKNOWN")
-void extractEngineName_directFile_returnsUnknown() {
-    assertThat(BuildFileService.extractEngineName("engine/foo.jar"))
-            .isEqualTo("UNKNOWN");
-}
+    @Schema(description = "빌드 후보 1건")
+    public record BuildCandidate(
+            @Schema(description = "빌드 버전 ID", example = "42")
+            Long buildVersionId,
 
-@Test
-@DisplayName("extractEngineName: engine 단독 prefix 라면 UNKNOWN")
-void extractEngineName_engineOnly_returnsUnknown() {
-    assertThat(BuildFileService.extractEngineName("engine/"))
-            .isEqualTo("UNKNOWN");
-}
+            @Schema(description = "전체 버전 문자열", example = "1.1.0.260428")
+            String fullVersion,
 
-@Test
-@DisplayName("extractEngineName: 백슬래시 ZIP 도 처리")
-void extractEngineName_backslash_handled() {
-    assertThat(BuildFileService.extractEngineName("engine\\NC_INV\\bin\\app.exe"))
-            .isEqualTo("NC_INV");
-}
+            @Schema(description = "생성 시각")
+            LocalDateTime createdAt,
+
+            @Schema(description = "후보 그룹 안에서 가장 최신인지 여부", example = "true")
+            boolean isLatest
+    ) {}
+
+    @Schema(description = "엔진 후보 그룹")
+    public record EngineGroup(
+            @Schema(description = "엔진명 (engine/{engineName} 디렉토리명, 직속 파일이면 UNKNOWN)", example = "NC_SMS")
+            String engineName,
+
+            @Schema(description = "이 엔진을 가진 빌드 후보들")
+            List<BuildCandidate> candidates
+    ) {}
+
+    @Schema(description = "범위 안의 핫픽스 메타정보")
+    public record HotfixInRangeInfo(
+            @Schema(description = "핫픽스 버전 ID", example = "33")
+            Long versionId,
+
+            @Schema(description = "전체 버전 문자열", example = "1.0.0.1")
+            String fullVersion,
+
+            @Schema(description = "핫픽스 버전 (4번째 자리)", example = "1")
+            Integer hotfixVersion
+    ) {}
+
+    @Schema(description = "패치 범위 안의 빌드 후보 응답")
+    public record BuildsInRangeResponse(
+            @Schema(description = "WEB 후보 (없으면 빈 배열)")
+            List<BuildCandidate> web,
+
+            @Schema(description = "엔진별 후보 그룹 (엔진명 기준 정렬)")
+            List<EngineGroup> engines,
+
+            @Schema(description = "범위 안의 핫픽스 메타정보 (없으면 빈 배열)")
+            List<HotfixInRangeInfo> hotfixesInRange
+    ) {}
 ```
 
-- [ ] **Step 2: 테스트 실패 확인**
+- [ ] **Step 2: 컴파일 검증**
 
 ```
 cd release-manager-api
 sed -i 's/languageVersion = JavaLanguageVersion.of(17)/languageVersion = JavaLanguageVersion.of(21)/' build.gradle
-./gradlew test --tests "com.ts.rm.domain.releaseversion.service.BuildFileServiceTest" 2>&1 | tail -30
+./gradlew compileJava 2>&1 | tail -10
+sed -i 's/languageVersion = JavaLanguageVersion.of(21)/languageVersion = JavaLanguageVersion.of(17)/' build.gradle
+grep -n "languageVersion" build.gradle | head -1
+```
+
+기대: `BUILD SUCCESSFUL`. line 14 = `JavaLanguageVersion.of(17)`.
+
+- [ ] **Step 3: 커밋**
+
+```
+git -C release-manager-api add src/main/java/com/ts/rm/domain/releaseversion/dto/ReleaseVersionDto.java
+git -C release-manager-api commit -m "feat: builds-in-range 응답용 DTO record 추가
+
+BuildCandidate, EngineGroup, HotfixInRangeInfo, BuildsInRangeResponse 4개
+record 를 ReleaseVersionDto 에 추가. 후속 task 에서 Repository / Service /
+Controller 가 사용한다."
+```
+
+---
+
+### Task 2: ReleaseVersionRepository — 빌드/핫픽스 범위 조회 + 단위 테스트
+
+**Files:**
+- Modify: `release-manager-api/src/main/java/com/ts/rm/domain/releaseversion/repository/ReleaseVersionRepositoryCustom.java`
+- Modify: `release-manager-api/src/main/java/com/ts/rm/domain/releaseversion/repository/ReleaseVersionRepositoryImpl.java`
+- Test: 통합 테스트는 Phase 5 e2e 에서 다룸 (이 단계는 컴파일 + 컨트랙트 명세까지)
+
+- [ ] **Step 1: Custom 인터페이스에 메서드 시그니처 추가**
+
+`ReleaseVersionRepositoryCustom.java` 의 `findVersionsBetweenExcludingHotfixes` 시그니처 직후에 추가:
+
+```java
+    /**
+     * 두 base 버전 사이의 빌드 행 (build_version > 0) 조회.
+     *
+     * <p>표준 패치는 customerId 가 null. 커스텀 패치는 해당 고객사의 빌드만 반환한다.
+     * 결과는 build_version DESC 정렬.
+     *
+     * @param projectId    프로젝트 ID
+     * @param fromBaseId   시작 base 버전 ID (포함)
+     * @param toBaseId     종료 base 버전 ID (포함)
+     * @param customerId   고객사 ID (null = 표준)
+     * @return 빌드 ReleaseVersion 목록 (build_version DESC)
+     */
+    List<ReleaseVersion> findBuildsInBaseRange(String projectId, Long fromBaseId, Long toBaseId, Long customerId);
+
+    /**
+     * 두 base 버전 사이의 핫픽스 행 (hotfix_version > 0) 조회.
+     *
+     * @param projectId    프로젝트 ID
+     * @param fromBaseId   시작 base 버전 ID (포함)
+     * @param toBaseId     종료 base 버전 ID (포함)
+     * @param customerId   고객사 ID (null = 표준)
+     * @return 핫픽스 ReleaseVersion 목록 (hotfix_version ASC)
+     */
+    List<ReleaseVersion> findHotfixesInBaseRange(String projectId, Long fromBaseId, Long toBaseId, Long customerId);
+```
+
+- [ ] **Step 2: 컴파일 실패 확인**
+
+```
+cd release-manager-api
+sed -i 's/languageVersion = JavaLanguageVersion.of(17)/languageVersion = JavaLanguageVersion.of(21)/' build.gradle
+./gradlew compileJava 2>&1 | tail -15
 sed -i 's/languageVersion = JavaLanguageVersion.of(21)/languageVersion = JavaLanguageVersion.of(17)/' build.gradle
 ```
 
-기대: 컴파일 에러(`extractEngineName` 가 BuildFileService 에 없음).
+기대: 컴파일 에러 (`ReleaseVersionRepositoryImpl` 가 새 메서드를 구현하지 않음).
 
-- [ ] **Step 3: BuildFileService 에 헬퍼 추가**
+- [ ] **Step 3: Impl 에 QueryDSL 구현 추가**
 
-`BuildFileService.java` 의 `topLevelOf(String zipRelativePath)` 메서드 직전에 추가:
+`ReleaseVersionRepositoryImpl.java` 의 `findVersionsBetweenExcludingHotfixes` 메서드 직후에 추가 (`QReleaseVersion` 별칭은 기존 패턴 그대로 사용):
 
 ```java
+    @Override
+    public List<ReleaseVersion> findBuildsInBaseRange(String projectId, Long fromBaseId, Long toBaseId, Long customerId) {
+        QReleaseVersion rv = QReleaseVersion.releaseVersion;
+
+        BooleanExpression projectMatch = rv.project.projectId.eq(projectId);
+        BooleanExpression isBuild = rv.buildVersion.gt(0);
+        BooleanExpression baseRange = rv.buildBaseVersion.releaseVersionId.goe(fromBaseId)
+                .and(rv.buildBaseVersion.releaseVersionId.loe(toBaseId));
+        BooleanExpression customerMatch = (customerId == null)
+                ? rv.customer.isNull()
+                : rv.customer.customerId.eq(customerId);
+
+        return queryFactory
+                .selectFrom(rv)
+                .where(projectMatch, isBuild, baseRange, customerMatch)
+                .orderBy(rv.buildVersion.desc())
+                .fetch();
+    }
+
+    @Override
+    public List<ReleaseVersion> findHotfixesInBaseRange(String projectId, Long fromBaseId, Long toBaseId, Long customerId) {
+        QReleaseVersion rv = QReleaseVersion.releaseVersion;
+
+        BooleanExpression projectMatch = rv.project.projectId.eq(projectId);
+        BooleanExpression isHotfix = rv.hotfixVersion.gt(0);
+        BooleanExpression baseRange = rv.hotfixBaseVersion.releaseVersionId.goe(fromBaseId)
+                .and(rv.hotfixBaseVersion.releaseVersionId.loe(toBaseId));
+        BooleanExpression customerMatch = (customerId == null)
+                ? rv.customer.isNull()
+                : rv.customer.customerId.eq(customerId);
+
+        return queryFactory
+                .selectFrom(rv)
+                .where(projectMatch, isHotfix, baseRange, customerMatch)
+                .orderBy(rv.hotfixVersion.asc())
+                .fetch();
+    }
+```
+
+> Q 클래스 import 가 필요하면 `com.querydsl.core.types.dsl.BooleanExpression`, `com.ts.rm.domain.releaseversion.entity.QReleaseVersion` 을 추가한다 (Impl 의 다른 메서드도 같은 패턴).
+
+- [ ] **Step 4: 컴파일 통과 확인**
+
+```
+sed -i 's/languageVersion = JavaLanguageVersion.of(17)/languageVersion = JavaLanguageVersion.of(21)/' build.gradle
+./gradlew compileJava 2>&1 | tail -10
+sed -i 's/languageVersion = JavaLanguageVersion.of(21)/languageVersion = JavaLanguageVersion.of(17)/' build.gradle
+grep -n "languageVersion" build.gradle | head -1
+```
+
+기대: `BUILD SUCCESSFUL`.
+
+- [ ] **Step 5: 커밋**
+
+```
+git -C release-manager-api add src/main/java/com/ts/rm/domain/releaseversion/repository/ReleaseVersionRepositoryCustom.java src/main/java/com/ts/rm/domain/releaseversion/repository/ReleaseVersionRepositoryImpl.java
+git -C release-manager-api commit -m "feat: ReleaseVersionRepository 에 빌드/핫픽스 범위 조회 추가
+
+findBuildsInBaseRange (build_version > 0, build_version DESC) 와
+findHotfixesInBaseRange (hotfix_version > 0, hotfix_version ASC) 두 메서드를
+QueryDSL 로 구현. customerId null 이면 표준, 값이 있으면 해당 고객사 필터.
+후속 BuildsInRangeService 가 호출한다."
+```
+
+---
+
+### Task 3: BuildsInRangeService — 디렉토리 walk 기반 후보 집계
+
+**Files:**
+- Create: `release-manager-api/src/main/java/com/ts/rm/domain/releaseversion/service/BuildsInRangeService.java`
+- Create: `release-manager-api/src/test/java/com/ts/rm/domain/releaseversion/service/BuildsInRangeServiceTest.java`
+
+- [ ] **Step 1: 실패할 테스트 추가**
+
+`BuildsInRangeServiceTest.java` 신규 생성:
+
+```java
+package com.ts.rm.domain.releaseversion.service;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.BDDMockito.given;
+
+import com.ts.rm.domain.project.entity.Project;
+import com.ts.rm.domain.releaseversion.dto.ReleaseVersionDto;
+import com.ts.rm.domain.releaseversion.entity.ReleaseVersion;
+import com.ts.rm.domain.releaseversion.repository.ReleaseVersionRepository;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.util.List;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.io.TempDir;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+@ExtendWith(MockitoExtension.class)
+@DisplayName("BuildsInRangeService 테스트")
+class BuildsInRangeServiceTest {
+
+    @Mock ReleaseVersionRepository releaseVersionRepository;
+    @Mock ReleaseVersionFileSystemService fileSystemService;
+
+    @InjectMocks BuildsInRangeService service;
+
+    @TempDir Path tempDir;
+
+    private Project project(String id) {
+        Project p = new Project();
+        p.setProjectId(id);
+        return p;
+    }
+
+    private ReleaseVersion build(Long id, ReleaseVersion base, int buildVersion, LocalDateTime createdAt) {
+        ReleaseVersion v = new ReleaseVersion();
+        v.setReleaseVersionId(id);
+        v.setBuildBaseVersion(base);
+        v.setBuildVersion(buildVersion);
+        v.setCreatedAt(createdAt);
+        v.setProject(base.getProject());
+        v.setMajorVersion(base.getMajorVersion());
+        v.setMinorVersion(base.getMinorVersion());
+        v.setPatchVersion(base.getPatchVersion());
+        return v;
+    }
+
+    private ReleaseVersion base(Long id) {
+        ReleaseVersion v = new ReleaseVersion();
+        v.setReleaseVersionId(id);
+        v.setProject(project("p"));
+        v.setMajorVersion(1);
+        v.setMinorVersion(1);
+        v.setPatchVersion(0);
+        v.setBuildVersion(0);
+        v.setHotfixVersion(0);
+        return v;
+    }
+
+    private void touchFile(Path file) throws IOException {
+        Files.createDirectories(file.getParent());
+        Files.writeString(file, "x");
+    }
+
+    @Test
+    @DisplayName("빌드 0개면 web/engines/hotfixesInRange 모두 빈 배열")
+    void empty_returnsAllEmpty() {
+        given(releaseVersionRepository.findBuildsInBaseRange("p", 1L, 9L, null)).willReturn(List.of());
+        given(releaseVersionRepository.findHotfixesInBaseRange("p", 1L, 9L, null)).willReturn(List.of());
+
+        ReleaseVersionDto.BuildsInRangeResponse resp = service.getBuildsInRange("p", 1L, 9L, null);
+
+        assertThat(resp.web()).isEmpty();
+        assertThat(resp.engines()).isEmpty();
+        assertThat(resp.hotfixesInRange()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("web/, engine/{engineName}/, engine 직속 파일이 모두 후보로 분류됨")
+    void scansBuildDirectoryAndGroupsCandidates() throws IOException {
+        ReleaseVersion base = base(10L);
+        ReleaseVersion b1 = build(101L, base, 260427, LocalDateTime.of(2026, 4, 27, 12, 0));
+        ReleaseVersion b2 = build(102L, base, 260428, LocalDateTime.of(2026, 4, 28, 12, 0));
+
+        Path d1 = tempDir.resolve("b1"); Path d2 = tempDir.resolve("b2");
+        touchFile(d1.resolve("web/index.html"));
+        touchFile(d1.resolve("engine/NC_SMS/x.jar"));
+        touchFile(d2.resolve("web/index.html"));
+        touchFile(d2.resolve("engine/NC_SMS/x.jar"));
+        touchFile(d2.resolve("engine/NC_FAULT_MS/y.jar"));
+        touchFile(d2.resolve("engine/loose.jar"));
+
+        given(releaseVersionRepository.findBuildsInBaseRange("p", 10L, 10L, null)).willReturn(List.of(b2, b1));
+        given(releaseVersionRepository.findHotfixesInBaseRange("p", 10L, 10L, null)).willReturn(List.of());
+        given(fileSystemService.resolveBuildBasePath(base, 260427)).willReturn(d1);
+        given(fileSystemService.resolveBuildBasePath(base, 260428)).willReturn(d2);
+
+        ReleaseVersionDto.BuildsInRangeResponse resp = service.getBuildsInRange("p", 10L, 10L, null);
+
+        // WEB: b2 가 최신 (build_version DESC 그대로)
+        assertThat(resp.web()).extracting(ReleaseVersionDto.BuildCandidate::buildVersionId)
+                .containsExactly(102L, 101L);
+        assertThat(resp.web().get(0).isLatest()).isTrue();
+        assertThat(resp.web().get(1).isLatest()).isFalse();
+
+        // ENGINE 그룹: NC_SMS, NC_FAULT_MS, UNKNOWN (engine 직속 파일)
+        assertThat(resp.engines()).extracting(ReleaseVersionDto.EngineGroup::engineName)
+                .containsExactlyInAnyOrder("NC_SMS", "NC_FAULT_MS", "UNKNOWN");
+
+        // NC_SMS 는 b1, b2 모두 보유
+        ReleaseVersionDto.EngineGroup smsGroup = resp.engines().stream()
+                .filter(g -> g.engineName().equals("NC_SMS")).findFirst().orElseThrow();
+        assertThat(smsGroup.candidates()).extracting(ReleaseVersionDto.BuildCandidate::buildVersionId)
+                .containsExactly(102L, 101L);
+
+        // NC_FAULT_MS 는 b2 만
+        ReleaseVersionDto.EngineGroup faultGroup = resp.engines().stream()
+                .filter(g -> g.engineName().equals("NC_FAULT_MS")).findFirst().orElseThrow();
+        assertThat(faultGroup.candidates()).extracting(ReleaseVersionDto.BuildCandidate::buildVersionId)
+                .containsExactly(102L);
+
+        // UNKNOWN 도 b2 만
+        ReleaseVersionDto.EngineGroup unknownGroup = resp.engines().stream()
+                .filter(g -> g.engineName().equals("UNKNOWN")).findFirst().orElseThrow();
+        assertThat(unknownGroup.candidates()).extracting(ReleaseVersionDto.BuildCandidate::buildVersionId)
+                .containsExactly(102L);
+    }
+
+    @Test
+    @DisplayName("engine/{engineName}/ 디렉토리는 있지만 정규 파일이 0개면 후보에서 제외")
+    void emptyEngineDirectory_excluded() throws IOException {
+        ReleaseVersion base = base(20L);
+        ReleaseVersion b1 = build(201L, base, 260427, LocalDateTime.of(2026, 4, 27, 12, 0));
+        Path d1 = tempDir.resolve("b1");
+        Files.createDirectories(d1.resolve("engine/NC_EMPTY"));
+        touchFile(d1.resolve("engine/NC_FILLED/x.jar"));
+
+        given(releaseVersionRepository.findBuildsInBaseRange("p", 20L, 20L, null)).willReturn(List.of(b1));
+        given(releaseVersionRepository.findHotfixesInBaseRange("p", 20L, 20L, null)).willReturn(List.of());
+        given(fileSystemService.resolveBuildBasePath(base, 260427)).willReturn(d1);
+
+        ReleaseVersionDto.BuildsInRangeResponse resp = service.getBuildsInRange("p", 20L, 20L, null);
+
+        assertThat(resp.engines()).extracting(ReleaseVersionDto.EngineGroup::engineName)
+                .containsExactly("NC_FILLED");
+    }
+}
+```
+
+- [ ] **Step 2: 테스트 실패 확인 (BuildsInRangeService 가 아직 없음)**
+
+```
+cd release-manager-api
+sed -i 's/languageVersion = JavaLanguageVersion.of(17)/languageVersion = JavaLanguageVersion.of(21)/' build.gradle
+./gradlew test --tests "com.ts.rm.domain.releaseversion.service.BuildsInRangeServiceTest" 2>&1 | tail -25
+sed -i 's/languageVersion = JavaLanguageVersion.of(21)/languageVersion = JavaLanguageVersion.of(17)/' build.gradle
+```
+
+기대: 컴파일 에러 (`BuildsInRangeService` 가 없음).
+
+- [ ] **Step 3: BuildsInRangeService 구현**
+
+`BuildsInRangeService.java` 신규 생성:
+
+```java
+package com.ts.rm.domain.releaseversion.service;
+
+import com.ts.rm.domain.releaseversion.dto.ReleaseVersionDto;
+import com.ts.rm.domain.releaseversion.entity.ReleaseVersion;
+import com.ts.rm.domain.releaseversion.repository.ReleaseVersionRepository;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeSet;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 /**
- * ZIP 내부 상대 경로에서 엔진명을 추출한다.
+ * 패치 범위 안의 빌드 후보를 빌드 디렉토리에서 직접 walk 하여 집계하는 서비스.
  *
- * <p>표준 경로는 {@code engine/{engineName}/...} 형식이며 두 번째 토큰을 엔진명으로 본다.
- * 두 번째 토큰이 없거나(예: {@code engine/foo.jar}, {@code engine/}) 그 토큰이 비어있으면
- * {@code "UNKNOWN"} 을 반환하여 운영자가 사후 보정할 수 있도록 한다.
- *
- * @param zipRelativePath ZIP 내부 상대 경로 (예: {@code engine/NC_SMS/lib/foo.jar})
- * @return 엔진명 또는 {@code "UNKNOWN"}
+ * <p>빌드 산출물의 진실의 원천은 빌드 디렉토리이며 (commit 00ee8f8), 본 서비스는
+ * ReleaseFile 인덱스를 거치지 않고 디렉토리 안의 web/, engine/{engineName}/, engine 직속
+ * 파일 존재 여부로 후보를 만든다.
  */
-static String extractEngineName(String zipRelativePath) {
-    if (zipRelativePath == null) return "UNKNOWN";
-    String normalized = zipRelativePath.replace('\\', '/');
-    int firstSlash = normalized.indexOf('/');
-    if (firstSlash < 0) return "UNKNOWN";
-    String afterFirst = normalized.substring(firstSlash + 1);
-    int secondSlash = afterFirst.indexOf('/');
-    String token = secondSlash < 0 ? afterFirst : afterFirst.substring(0, secondSlash);
-    return token.isBlank() ? "UNKNOWN" : token;
+@Slf4j
+@Service
+@RequiredArgsConstructor
+@Transactional(readOnly = true)
+public class BuildsInRangeService {
+
+    private static final String UNKNOWN_ENGINE = "UNKNOWN";
+
+    private final ReleaseVersionRepository releaseVersionRepository;
+    private final ReleaseVersionFileSystemService fileSystemService;
+
+    public ReleaseVersionDto.BuildsInRangeResponse getBuildsInRange(
+            String projectId, Long fromBaseId, Long toBaseId, Long customerId) {
+
+        List<ReleaseVersion> builds = releaseVersionRepository
+                .findBuildsInBaseRange(projectId, fromBaseId, toBaseId, customerId);
+
+        List<ReleaseVersionDto.BuildCandidate> webCandidates = new ArrayList<>();
+        // engineName -> List<BuildCandidate>. LinkedHashMap 으로 첫 등장 순서를 유지하지 않고,
+        // 마지막에 engineName 사전순으로 다시 정렬한다.
+        Map<String, List<ReleaseVersionDto.BuildCandidate>> engineMap = new LinkedHashMap<>();
+
+        for (ReleaseVersion bv : builds) {
+            Path buildBasePath = fileSystemService.resolveBuildBasePath(
+                    bv.getBuildBaseVersion(), bv.getBuildVersion());
+            if (!Files.isDirectory(buildBasePath)) {
+                continue;
+            }
+
+            ReleaseVersionDto.BuildCandidate candidate = new ReleaseVersionDto.BuildCandidate(
+                    bv.getReleaseVersionId(),
+                    bv.getFullVersion(),
+                    bv.getCreatedAt(),
+                    false  // isLatest 는 정렬 후 첫 항목에만 true
+            );
+
+            if (hasFiles(buildBasePath.resolve("web"))) {
+                webCandidates.add(candidate);
+            }
+
+            for (String engineName : engineNamesInBuild(buildBasePath.resolve("engine"))) {
+                engineMap.computeIfAbsent(engineName, k -> new ArrayList<>()).add(candidate);
+            }
+        }
+
+        List<ReleaseVersionDto.BuildCandidate> webSorted = markLatestFirst(webCandidates);
+
+        List<String> sortedEngineNames = new ArrayList<>(engineMap.keySet());
+        sortedEngineNames.sort(Comparator.naturalOrder());
+        List<ReleaseVersionDto.EngineGroup> engineGroups = new ArrayList<>();
+        for (String name : sortedEngineNames) {
+            engineGroups.add(new ReleaseVersionDto.EngineGroup(name, markLatestFirst(engineMap.get(name))));
+        }
+
+        List<ReleaseVersionDto.HotfixInRangeInfo> hotfixes = releaseVersionRepository
+                .findHotfixesInBaseRange(projectId, fromBaseId, toBaseId, customerId).stream()
+                .map(h -> new ReleaseVersionDto.HotfixInRangeInfo(
+                        h.getReleaseVersionId(), h.getFullVersion(), h.getHotfixVersion()))
+                .toList();
+
+        return new ReleaseVersionDto.BuildsInRangeResponse(webSorted, engineGroups, hotfixes);
+    }
+
+    /**
+     * 디렉토리 안에 정규 파일이 1개 이상 있는지 검사 (any subdirectory depth).
+     */
+    private boolean hasFiles(Path dir) {
+        if (!Files.isDirectory(dir)) {
+            return false;
+        }
+        try (var stream = Files.walk(dir)) {
+            return stream.anyMatch(Files::isRegularFile);
+        } catch (IOException e) {
+            log.warn("디렉토리 walk 실패 (false 로 처리): {}", dir, e);
+            return false;
+        }
+    }
+
+    /**
+     * engine/ 디렉토리 안의 1단계 하위 디렉토리명 (정규 파일 1개 이상인 것만) 과,
+     * engine/ 직속 정규 파일이 있으면 UNKNOWN 을 함께 반환.
+     */
+    private TreeSet<String> engineNamesInBuild(Path engineDir) {
+        TreeSet<String> names = new TreeSet<>();
+        if (!Files.isDirectory(engineDir)) {
+            return names;
+        }
+        try (var stream = Files.list(engineDir)) {
+            stream.forEach(child -> {
+                if (Files.isDirectory(child) && hasFiles(child)) {
+                    names.add(child.getFileName().toString());
+                }
+            });
+        } catch (IOException e) {
+            log.warn("engine 디렉토리 list 실패: {}", engineDir, e);
+        }
+        try (var stream = Files.list(engineDir)) {
+            boolean directFile = stream.anyMatch(Files::isRegularFile);
+            if (directFile) {
+                names.add(UNKNOWN_ENGINE);
+            }
+        } catch (IOException e) {
+            log.warn("engine 디렉토리 list 실패 (직속 파일): {}", engineDir, e);
+        }
+        return names;
+    }
+
+    /**
+     * 입력 후보 리스트의 첫 항목에 isLatest=true 를 부여한 새 리스트를 반환.
+     * 입력은 build_version DESC 정렬되어 있다고 가정한다 (Repository 가 보장).
+     */
+    private List<ReleaseVersionDto.BuildCandidate> markLatestFirst(List<ReleaseVersionDto.BuildCandidate> input) {
+        if (input.isEmpty()) {
+            return List.of();
+        }
+        List<ReleaseVersionDto.BuildCandidate> out = new ArrayList<>(input.size());
+        for (int i = 0; i < input.size(); i++) {
+            ReleaseVersionDto.BuildCandidate c = input.get(i);
+            out.add(new ReleaseVersionDto.BuildCandidate(
+                    c.buildVersionId(), c.fullVersion(), c.createdAt(), i == 0));
+        }
+        return out;
+    }
 }
 ```
 
@@ -136,1609 +594,1258 @@ static String extractEngineName(String zipRelativePath) {
 
 ```
 sed -i 's/languageVersion = JavaLanguageVersion.of(17)/languageVersion = JavaLanguageVersion.of(21)/' build.gradle
-./gradlew test --tests "com.ts.rm.domain.releaseversion.service.BuildFileServiceTest" 2>&1 | tail -20
+./gradlew test --tests "com.ts.rm.domain.releaseversion.service.BuildsInRangeServiceTest" 2>&1 | tail -15
 sed -i 's/languageVersion = JavaLanguageVersion.of(21)/languageVersion = JavaLanguageVersion.of(17)/' build.gradle
-grep -n "languageVersion" build.gradle
+grep -n "languageVersion" build.gradle | head -1
 ```
 
-기대: `BUILD SUCCESSFUL`, line 14 = `languageVersion = JavaLanguageVersion.of(17)`.
+기대: 모든 테스트 PASS, line 14 = `JavaLanguageVersion.of(17)`.
 
 - [ ] **Step 5: 커밋**
 
 ```
-git -C release-manager-api add src/main/java/com/ts/rm/domain/releaseversion/service/BuildFileService.java src/test/java/com/ts/rm/domain/releaseversion/service/BuildFileServiceTest.java
-git -C release-manager-api commit -m "feat: BuildFileService 에 extractEngineName 헬퍼 추가
+git -C release-manager-api add src/main/java/com/ts/rm/domain/releaseversion/service/BuildsInRangeService.java src/test/java/com/ts/rm/domain/releaseversion/service/BuildsInRangeServiceTest.java
+git -C release-manager-api commit -m "feat: BuildsInRangeService 신설 (디렉토리 walk 기반 후보 집계)
 
-ZIP 의 engine/{engineName}/... 패턴에서 엔진명을 안전하게 추출. 두 번째
-토큰이 없거나 비어있으면 'UNKNOWN' 반환. 후속 sub_category 자동 저장에서
-사용된다."
+빌드 디렉토리의 web/, engine/{engineName}/, engine 직속 파일 존재 여부로
+WEB / ENGINE 후보를 만들고 hotfixesInRange 를 분리 반환. 별도 인덱스 없이
+디렉토리만 보고 후보를 만들어 빌드 산출물의 진실의 원천 = 디렉토리 원칙을
+구현 측에서도 일관 적용."
 ```
 
 ---
 
-### Task 2: BuildFileService — 빌드 ZIP 추출 시 `subCategory` 저장
-
-**Files:**
-- Modify: `release-manager-api/src/main/java/com/ts/rm/domain/releaseversion/service/BuildFileService.java` (line 245~260 부근)
-- Modify: `release-manager-api/src/test/java/com/ts/rm/domain/releaseversion/service/BuildFileServiceTest.java`
-
-- [ ] **Step 1: 실패할 테스트 추가**
-
-`BuildFileServiceTest.java` 의 `uploadBuildZip_valid_extractsAndPersists` 다음에 추가:
-
-```java
-@Test
-@DisplayName("정상: ENGINE 파일은 sub_category 에 engineName 이 저장됨")
-void uploadBuildZip_engineFile_persistsSubCategory() throws IOException {
-    ReleaseVersion base = buildBase();
-    ReleaseVersion buildVer = build(99L, base, 260427);
-    Path buildDir = tempDir.resolve("versions/p/standard/1.1.x/1.1.0/builds/260427");
-
-    given(releaseVersionRepository.findById(99L)).willReturn(Optional.of(buildVer));
-    given(fileSystemService.resolveBuildBasePath(base, 260427)).willReturn(buildDir);
-    given(releaseFileRepository.findAllByReleaseVersion_ReleaseVersionIdOrderByExecutionOrderAsc(99L))
-            .willReturn(Collections.emptyList());
-    given(releaseFileRepository.save(any(ReleaseFile.class)))
-            .willAnswer(inv -> inv.getArgument(0));
-
-    Path zip = makeZip(
-            "web/foo.war",
-            "engine/NC_SMS/lib/x.jar",
-            "engine/NC_FAULT_MS/cfg/y.cfg",
-            "engine/loose.jar",
-            "etc/note.txt"
-    );
-
-    BuildFileService.UploadResult result = buildFileService.uploadBuildZip(99L, zip, "u@x");
-
-    var bySubCategory = result.createdFiles().stream()
-            .collect(java.util.stream.Collectors.groupingBy(
-                    rf -> String.valueOf(rf.getSubCategory()),
-                    java.util.stream.Collectors.mapping(ReleaseFile::getFileCategory, java.util.stream.Collectors.toList())
-            ));
-
-    // WEB 은 sub_category null
-    assertThat(bySubCategory.get("null"))
-            .containsExactlyInAnyOrder(FileCategory.WEB, FileCategory.ETC);
-
-    // ENGINE 은 엔진명별로 분리됨
-    assertThat(bySubCategory.get("NC_SMS")).containsExactly(FileCategory.ENGINE);
-    assertThat(bySubCategory.get("NC_FAULT_MS")).containsExactly(FileCategory.ENGINE);
-    // engine 직속 파일은 UNKNOWN
-    assertThat(bySubCategory.get("UNKNOWN")).containsExactly(FileCategory.ENGINE);
-}
-```
-
-- [ ] **Step 2: 테스트 실패 확인**
-
-```
-cd release-manager-api
-sed -i 's/languageVersion = JavaLanguageVersion.of(17)/languageVersion = JavaLanguageVersion.of(21)/' build.gradle
-./gradlew test --tests "com.ts.rm.domain.releaseversion.service.BuildFileServiceTest.uploadBuildZip_engineFile_persistsSubCategory" 2>&1 | tail -25
-sed -i 's/languageVersion = JavaLanguageVersion.of(21)/languageVersion = JavaLanguageVersion.of(17)/' build.gradle
-```
-
-기대: FAIL — sub_category 가 모두 null (현재 코드).
-
-- [ ] **Step 3: BuildFileService.uploadBuildZip 의 ReleaseFile 생성 부분 수정**
-
-`BuildFileService.java` 의 `uploadBuildZip` 메서드 안 ReleaseFile.builder() 호출(현 line 245~260 부근) 을 다음과 같이 변경:
-
-```java
-            String topLevel = topLevelOf(info.relativePath());
-            FileCategory category = mapTopLevelToCategory(topLevel);
-            if (category == null) {
-                // BuildZipValidator 가 이미 막아준 케이스라 도달 불가하지만 안전망
-                log.warn("알 수 없는 루트 디렉토리: {} (skip)", topLevel);
-                continue;
-            }
-
-            // ENGINE 만 sub_category 저장 (WEB/ETC 는 null)
-            String subCategory = (category == FileCategory.ENGINE)
-                    ? extractEngineName(info.relativePath())
-                    : null;
-
-            String relativeFromBase = relativizeFromBase(baseRoot, info.absolutePath());
-            String checksum;
-            try {
-                checksum = FileChecksumUtil.calculateChecksum(info.absolutePath());
-            } catch (IOException e) {
-                log.warn("체크섬 계산 실패 (계속 진행): {}", info.absolutePath(), e);
-                checksum = null;
-            }
-
-            ReleaseFile file = ReleaseFile.builder()
-                    .releaseVersion(build)
-                    .fileType(determineFileType(info.fileName()))
-                    .fileCategory(category)
-                    .subCategory(subCategory)
-                    .fileName(info.fileName())
-                    .filePath(relativeFromBase)
-                    .fileSize(info.fileSize())
-                    .checksum(checksum)
-                    .executionOrder(order++)
-                    .description(uploadedByEmail != null
-                            ? uploadedByEmail + " 가 빌드 ZIP 으로 업로드"
-                            : "빌드 ZIP 업로드")
-                    .build();
-```
-
-- [ ] **Step 4: 테스트 통과 + 회귀 확인**
-
-```
-sed -i 's/languageVersion = JavaLanguageVersion.of(17)/languageVersion = JavaLanguageVersion.of(21)/' build.gradle
-./gradlew test --tests "com.ts.rm.domain.releaseversion.service.BuildFileServiceTest" 2>&1 | tail -15
-sed -i 's/languageVersion = JavaLanguageVersion.of(21)/languageVersion = JavaLanguageVersion.of(17)/' build.gradle
-grep -n "languageVersion" build.gradle
-```
-
-기대: 모든 BuildFileServiceTest 통과, line 14 = `JavaLanguageVersion.of(17)`.
-
-- [ ] **Step 5: 커밋**
-
-```
-git -C release-manager-api add src/main/java/com/ts/rm/domain/releaseversion/service/BuildFileService.java src/test/java/com/ts/rm/domain/releaseversion/service/BuildFileServiceTest.java
-git -C release-manager-api commit -m "feat: 빌드 ZIP 업로드 시 ENGINE 의 sub_category 자동 저장
-
-engine/{engineName}/... 의 두 번째 토큰을 ReleaseFile.sub_category 에
-저장하여 NC_SMS/NC_FAULT_MS 등 엔진별 식별이 가능해짐. PatchGeneration
-의 sub_category 분기 로직이 의도대로 동작하기 위한 데이터 모델 정정."
-```
-
----
-
-## Phase 2 — `builds-in-range` API
-
-### Task 3: ReleaseVersionRepository 에 빌드 범위 조회 + 단위 테스트
-
-**Files:**
-- Modify: `release-manager-api/src/main/java/com/ts/rm/domain/releaseversion/repository/ReleaseVersionRepositoryCustom.java`
-- Modify: `release-manager-api/src/main/java/com/ts/rm/domain/releaseversion/repository/ReleaseVersionRepositoryImpl.java`
-- Test: 통합 테스트는 Phase 6 e2e 에서 다룸 (이 단계는 컴파일까지)
-
-- [ ] **Step 1: Custom 인터페이스에 메서드 시그니처 추가**
-
-`ReleaseVersionRepositoryCustom.java` 에 추가:
-
-```java
-/**
- * 표준/커스텀 base 버전 범위 안에 있는 빌드(build_version > 0) 를 조회.
- *
- * <p>경계 포함(from <= base <= to). 핫픽스 행은 제외.
- * customerCode 가 null 이면 STANDARD, 그렇지 않으면 해당 고객사 CUSTOM 범위.
- *
- * @param projectId       프로젝트 ID
- * @param releaseType     "STANDARD" 또는 "CUSTOM"
- * @param customerCode    CUSTOM 의 경우 고객사 코드, STANDARD 면 null
- * @param fromVersion     base from (예: "1.0.0")
- * @param toVersion       base to   (예: "1.1.0")
- * @return 해당 범위의 빌드 버전 목록 (build_version DESC, 같으면 patch DESC)
- */
-List<ReleaseVersion> findBuildsInBaseRange(
-        String projectId, String releaseType, String customerCode,
-        String fromVersion, String toVersion);
-```
-
-상단 import 에 `import java.util.List;` 가 없으면 추가.
-
-- [ ] **Step 2: Impl 구현**
-
-`ReleaseVersionRepositoryImpl.java` 에 메서드 구현 추가:
-
-```java
-@Override
-public List<ReleaseVersion> findBuildsInBaseRange(
-        String projectId, String releaseType, String customerCode,
-        String fromVersion, String toVersion) {
-    QReleaseVersion rv = QReleaseVersion.releaseVersion;
-    com.querydsl.core.types.dsl.BooleanExpression cond = rv.project.projectId.eq(projectId)
-            .and(rv.releaseType.eq(releaseType))
-            .and(rv.buildVersion.gt(0))
-            .and(rv.hotfixVersion.eq(0))
-            .and(rv.version.goe(fromVersion))
-            .and(rv.version.loe(toVersion));
-    if (customerCode != null) {
-        cond = cond.and(rv.customer.customerCode.eq(customerCode));
-    } else {
-        cond = cond.and(rv.customer.isNull());
-    }
-    return queryFactory
-            .selectFrom(rv)
-            .leftJoin(rv.creator).fetchJoin()
-            .where(cond)
-            .orderBy(rv.buildVersion.desc(), rv.patchVersion.desc())
-            .fetch();
-}
-```
-
-> 주의: `rv.version.goe/loe` 는 문자열 비교라 `1.10.0 < 1.2.0` 같은 사전식 함정이 있다. 본 메서드는 같은 major.minor 베이스 안의 빌드 범위 정렬에는 적합하지만, 본 plan Phase 2/3 에서는 호출 측이 `from <= base <= to` 의 base 시퀀스를 별도로 산출(예: PatchGenerationService 의 기존 `findVersionsBetweenExcludingHotfixes`) 한 후 그 결과의 첫/끝 base 버전 문자열을 인자로 넘긴다. 시멘틱 검증은 Task 5 의 서비스에서 수행.
-
-- [ ] **Step 3: 컴파일 확인**
-
-```
-cd release-manager-api
-sed -i 's/languageVersion = JavaLanguageVersion.of(17)/languageVersion = JavaLanguageVersion.of(21)/' build.gradle
-./gradlew compileJava 2>&1 | tail -10
-sed -i 's/languageVersion = JavaLanguageVersion.of(21)/languageVersion = JavaLanguageVersion.of(17)/' build.gradle
-grep -n "languageVersion" build.gradle
-```
-
-기대: `BUILD SUCCESSFUL`.
-
-- [ ] **Step 4: 커밋**
-
-```
-git -C release-manager-api add src/main/java/com/ts/rm/domain/releaseversion/repository/ReleaseVersionRepositoryCustom.java src/main/java/com/ts/rm/domain/releaseversion/repository/ReleaseVersionRepositoryImpl.java
-git -C release-manager-api commit -m "feat: ReleaseVersionRepository 에 base 범위 빌드 조회 추가
-
-findBuildsInBaseRange — STANDARD/CUSTOM, 핫픽스 제외, build_version DESC.
-builds-in-range API 와 패치 생성 시 빌드 후보 산출에 사용."
-```
-
----
-
-### Task 4: ReleaseFileRepository 에 빌드별 카테고리/엔진 집계
-
-**Files:**
-- Modify: `release-manager-api/src/main/java/com/ts/rm/domain/releasefile/repository/ReleaseFileRepositoryCustom.java`
-- Modify: `release-manager-api/src/main/java/com/ts/rm/domain/releasefile/repository/ReleaseFileRepositoryImpl.java`
-
-본 메서드는 “버전 ID 들을 받아 각 버전이 어떤 카테고리/엔진을 갖는지” 알려주는 집계용. picker 가 “해당 빌드에 web 파일 있나? engine NC_SMS 있나?” 를 알아야 후보 노출 여부를 결정.
-
-- [ ] **Step 1: Custom 인터페이스 시그니처 추가**
-
-`ReleaseFileRepositoryCustom.java` 에 추가:
-
-```java
-/**
- * 빌드 버전 ID 목록에 대해 각 버전이 보유한 (file_category, sub_category) 쌍을 반환.
- *
- * <p>picker 의 후보 노출 여부 결정에 사용.
- * 결과는 (versionId, category, subCategory) 튜플의 리스트.
- *
- * @param versionIds 빌드 버전 ID 목록
- * @return 각 버전의 카테고리/sub_category 쌍 (중복 제거)
- */
-List<BuildCategoryRow> findBuildCategoryRows(List<Long> versionIds);
-
-/**
- * 빌드별 카테고리 row.
- */
-record BuildCategoryRow(
-        Long versionId,
-        com.ts.rm.domain.releasefile.enums.FileCategory category,
-        String subCategory  // ENGINE 만 의미. 그 외 null.
-) {}
-```
-
-- [ ] **Step 2: Impl 구현**
-
-`ReleaseFileRepositoryImpl.java` 에 추가 (기존 메서드들 옆):
-
-```java
-@Override
-public List<BuildCategoryRow> findBuildCategoryRows(List<Long> versionIds) {
-    if (versionIds == null || versionIds.isEmpty()) return java.util.List.of();
-    QReleaseFile rf = QReleaseFile.releaseFile;
-    return queryFactory
-            .select(com.querydsl.core.types.Projections.constructor(BuildCategoryRow.class,
-                    rf.releaseVersion.releaseVersionId, rf.fileCategory, rf.subCategory))
-            .from(rf)
-            .where(rf.releaseVersion.releaseVersionId.in(versionIds))
-            .groupBy(rf.releaseVersion.releaseVersionId, rf.fileCategory, rf.subCategory)
-            .fetch();
-}
-```
-
-- [ ] **Step 3: 컴파일 확인**
-
-```
-cd release-manager-api
-sed -i 's/languageVersion = JavaLanguageVersion.of(17)/languageVersion = JavaLanguageVersion.of(21)/' build.gradle
-./gradlew compileJava 2>&1 | tail -10
-sed -i 's/languageVersion = JavaLanguageVersion.of(21)/languageVersion = JavaLanguageVersion.of(17)/' build.gradle
-grep -n "languageVersion" build.gradle
-```
-
-기대: `BUILD SUCCESSFUL`.
-
-- [ ] **Step 4: 커밋**
-
-```
-git -C release-manager-api add src/main/java/com/ts/rm/domain/releasefile/repository/ReleaseFileRepositoryCustom.java src/main/java/com/ts/rm/domain/releasefile/repository/ReleaseFileRepositoryImpl.java
-git -C release-manager-api commit -m "feat: ReleaseFileRepository 에 빌드별 (category, sub_category) 집계 추가
-
-findBuildCategoryRows — picker 후보 노출 여부 결정용. 각 빌드가 어떤
-카테고리/엔진 파일을 보유했는지 GROUP BY 로 산출."
-```
-
----
-
-### Task 5: ReleaseVersionDto — `BuildsInRangeResponse` 타입
-
-**Files:**
-- Modify: `release-manager-api/src/main/java/com/ts/rm/domain/releaseversion/dto/ReleaseVersionDto.java`
-
-- [ ] **Step 1: 타입 추가**
-
-`ReleaseVersionDto.java` 의 마지막 inner class/record 다음에 추가:
-
-```java
-@Schema(description = "빌드 후보 항목")
-public record BuildCandidate(
-        @Schema(description = "빌드 ReleaseVersion ID")
-        Long buildVersionId,
-        @Schema(description = "전체 버전 (예: 1.1.0.260428)")
-        String fullVersion,
-        @Schema(description = "빌드 버전 정수 (예: 260428)")
-        int buildVersion,
-        @Schema(description = "생성일시 ISO-8601")
-        String createdAt,
-        @Schema(description = "그룹 내 최신 여부")
-        boolean isLatest
-) {}
-
-@Schema(description = "엔진 그룹 (engineName, 후보 목록)")
-public record EngineGroup(
-        @Schema(description = "엔진명 (예: NC_SMS, UNKNOWN 가능)")
-        String engineName,
-        @Schema(description = "후보 목록 (build_version DESC)")
-        java.util.List<BuildCandidate> candidates
-) {}
-
-@Schema(description = "범위 내 핫픽스 정보 (다운로드 안내용)")
-public record HotfixInRange(
-        @Schema(description = "핫픽스 버전 ID") Long versionId,
-        @Schema(description = "전체 버전 (예: 1.0.0.1)") String fullVersion,
-        @Schema(description = "핫픽스 번호") int hotfixVersion
-) {}
-
-@Schema(description = "버전 범위 안의 빌드 후보 응답")
-public record BuildsInRangeResponse(
-        @Schema(description = "WEB 빌드 후보 (build_version DESC)")
-        java.util.List<BuildCandidate> web,
-        @Schema(description = "엔진별 빌드 후보 그룹")
-        java.util.List<EngineGroup> engines,
-        @Schema(description = "범위 안의 핫픽스 (별도 다운로드 안내)")
-        java.util.List<HotfixInRange> hotfixesInRange
-) {}
-```
-
-- [ ] **Step 2: 컴파일 확인**
-
-```
-cd release-manager-api
-sed -i 's/languageVersion = JavaLanguageVersion.of(17)/languageVersion = JavaLanguageVersion.of(21)/' build.gradle
-./gradlew compileJava 2>&1 | tail -10
-sed -i 's/languageVersion = JavaLanguageVersion.of(21)/languageVersion = JavaLanguageVersion.of(17)/' build.gradle
-grep -n "languageVersion" build.gradle
-```
-
-기대: `BUILD SUCCESSFUL`.
-
-- [ ] **Step 3: 커밋**
-
-```
-git -C release-manager-api add src/main/java/com/ts/rm/domain/releaseversion/dto/ReleaseVersionDto.java
-git -C release-manager-api commit -m "feat: ReleaseVersionDto 에 BuildsInRangeResponse 타입 추가
-
-builds-in-range API 응답 모델. WEB 후보, ENGINE 그룹(engineName +
-candidates), 핫픽스 안내."
-```
-
----
-
-### Task 6: ReleaseVersionService — `getBuildsInRange` 메서드 + 테스트
-
-**Files:**
-- Modify: `release-manager-api/src/main/java/com/ts/rm/domain/releaseversion/repository/ReleaseVersionRepositoryCustom.java` (`findHotfixesInBaseRange` 추가)
-- Modify: `release-manager-api/src/main/java/com/ts/rm/domain/releaseversion/repository/ReleaseVersionRepositoryImpl.java` (구현)
-- Modify: `release-manager-api/src/main/java/com/ts/rm/domain/releaseversion/service/ReleaseVersionService.java`
-- Test: `release-manager-api/src/test/java/com/ts/rm/domain/releaseversion/service/ReleaseVersionBuildServiceTest.java` (기존 파일 사용)
-
-- [ ] **Step 1: 핫픽스 범위 조회 Custom 메서드 추가** (테스트 mock 의 의존)
-
-`ReleaseVersionRepositoryCustom.java` 에 추가:
-
-```java
-/**
- * base 버전 범위 안의 핫픽스(hotfix_version > 0) 행 조회.
- */
-List<ReleaseVersion> findHotfixesInBaseRange(
-        String projectId, String releaseType, String customerCode,
-        String fromVersion, String toVersion);
-```
-
-`ReleaseVersionRepositoryImpl.java` 에 구현:
-
-```java
-@Override
-public List<ReleaseVersion> findHotfixesInBaseRange(
-        String projectId, String releaseType, String customerCode,
-        String fromVersion, String toVersion) {
-    QReleaseVersion rv = QReleaseVersion.releaseVersion;
-    com.querydsl.core.types.dsl.BooleanExpression cond = rv.project.projectId.eq(projectId)
-            .and(rv.releaseType.eq(releaseType))
-            .and(rv.hotfixVersion.gt(0))
-            .and(rv.version.goe(fromVersion))
-            .and(rv.version.loe(toVersion));
-    if (customerCode != null) {
-        cond = cond.and(rv.customer.customerCode.eq(customerCode));
-    } else {
-        cond = cond.and(rv.customer.isNull());
-    }
-    return queryFactory
-            .selectFrom(rv)
-            .where(cond)
-            .orderBy(rv.version.asc(), rv.hotfixVersion.asc())
-            .fetch();
-}
-```
-
-- [ ] **Step 2: 실패할 서비스 테스트 추가**
-
-`ReleaseVersionBuildServiceTest.java` 에 추가 (필요시 새 메서드 안에서 mock 설정):
-
-```java
-@Test
-@DisplayName("getBuildsInRange: WEB/ENGINE 그룹 + 최신 플래그 + 핫픽스 정보")
-void getBuildsInRange_groupsByEngine_andMarksLatest() {
-    String projectId = "p";
-    String fromVersion = "1.0.0";
-    String toVersion  = "1.1.0";
-
-    ReleaseVersion baseFrom = ReleaseVersion.builder()
-            .releaseVersionId(1L).version("1.0.0").buildVersion(0).hotfixVersion(0)
-            .releaseType("STANDARD").build();
-    ReleaseVersion baseTo = ReleaseVersion.builder()
-            .releaseVersionId(2L).version("1.1.0").buildVersion(0).hotfixVersion(0)
-            .releaseType("STANDARD").build();
-    ReleaseVersion build1 = ReleaseVersion.builder()
-            .releaseVersionId(10L).version("1.1.0").buildVersion(260427).hotfixVersion(0)
-            .releaseType("STANDARD").buildBaseVersion(baseTo)
-            .createdAt(java.time.LocalDateTime.now()).build();
-    ReleaseVersion build2 = ReleaseVersion.builder()
-            .releaseVersionId(11L).version("1.1.0").buildVersion(260428).hotfixVersion(0)
-            .releaseType("STANDARD").buildBaseVersion(baseTo)
-            .createdAt(java.time.LocalDateTime.now()).build();
-    ReleaseVersion hotfix = ReleaseVersion.builder()
-            .releaseVersionId(20L).version("1.0.0").hotfixVersion(1).buildVersion(0)
-            .releaseType("STANDARD").build();
-
-    given(releaseVersionRepository.findBuildsInBaseRange(
-            projectId, "STANDARD", null, fromVersion, toVersion))
-            .willReturn(java.util.List.of(build2, build1));  // DESC 순
-    given(releaseVersionRepository.findHotfixesInBaseRange(
-            projectId, "STANDARD", null, fromVersion, toVersion))
-            .willReturn(java.util.List.of(hotfix));
-    given(releaseFileRepository.findBuildCategoryRows(java.util.List.of(11L, 10L)))
-            .willReturn(java.util.List.of(
-                    new com.ts.rm.domain.releasefile.repository.ReleaseFileRepositoryCustom.BuildCategoryRow(
-                            11L, com.ts.rm.domain.releasefile.enums.FileCategory.WEB, null),
-                    new com.ts.rm.domain.releasefile.repository.ReleaseFileRepositoryCustom.BuildCategoryRow(
-                            11L, com.ts.rm.domain.releasefile.enums.FileCategory.ENGINE, "NC_SMS"),
-                    new com.ts.rm.domain.releasefile.repository.ReleaseFileRepositoryCustom.BuildCategoryRow(
-                            10L, com.ts.rm.domain.releasefile.enums.FileCategory.WEB, null),
-                    new com.ts.rm.domain.releasefile.repository.ReleaseFileRepositoryCustom.BuildCategoryRow(
-                            10L, com.ts.rm.domain.releasefile.enums.FileCategory.ENGINE, "NC_FAULT_MS")
-            ));
-
-    var resp = releaseVersionService.getBuildsInRange(
-            projectId, "STANDARD", null, fromVersion, toVersion);
-
-    // WEB 후보: 두 빌드 모두 web 보유. 첫 항목(11L) 이 isLatest.
-    assertThat(resp.web()).extracting("buildVersionId").containsExactly(11L, 10L);
-    assertThat(resp.web().get(0).isLatest()).isTrue();
-    assertThat(resp.web().get(1).isLatest()).isFalse();
-
-    // ENGINE 그룹: NC_SMS = [11L], NC_FAULT_MS = [10L]
-    var bySrc = resp.engines().stream()
-            .collect(java.util.stream.Collectors.toMap(
-                    com.ts.rm.domain.releaseversion.dto.ReleaseVersionDto.EngineGroup::engineName,
-                    g -> g));
-    assertThat(bySrc).containsKeys("NC_SMS", "NC_FAULT_MS");
-    assertThat(bySrc.get("NC_SMS").candidates()).extracting("buildVersionId").containsExactly(11L);
-    assertThat(bySrc.get("NC_SMS").candidates().get(0).isLatest()).isTrue();
-    assertThat(bySrc.get("NC_FAULT_MS").candidates()).extracting("buildVersionId").containsExactly(10L);
-
-    // 핫픽스
-    assertThat(resp.hotfixesInRange()).extracting("versionId").containsExactly(20L);
-}
-```
-
-- [ ] **Step 3: 테스트 실패 확인**
-
-```
-cd release-manager-api
-sed -i 's/languageVersion = JavaLanguageVersion.of(17)/languageVersion = JavaLanguageVersion.of(21)/' build.gradle
-./gradlew test --tests "com.ts.rm.domain.releaseversion.service.ReleaseVersionBuildServiceTest.getBuildsInRange_groupsByEngine_andMarksLatest" 2>&1 | tail -20
-sed -i 's/languageVersion = JavaLanguageVersion.of(21)/languageVersion = JavaLanguageVersion.of(17)/' build.gradle
-```
-
-기대: 컴파일 에러 (`getBuildsInRange` 메서드 없음).
-
-- [ ] **Step 4: ReleaseVersionService 에 메서드 구현**
-
-`ReleaseVersionService.java` 의 마지막 메서드 다음에 추가:
-
-```java
-/**
- * 패치 생성 picker 용 — base 버전 범위 안의 빌드 후보 + 핫픽스 안내.
- */
-public ReleaseVersionDto.BuildsInRangeResponse getBuildsInRange(
-        String projectId, String releaseType, String customerCode,
-        String fromVersion, String toVersion) {
-
-    List<ReleaseVersion> builds = releaseVersionRepository.findBuildsInBaseRange(
-            projectId, releaseType, customerCode, fromVersion, toVersion);
-    List<ReleaseVersion> hotfixes = releaseVersionRepository.findHotfixesInBaseRange(
-            projectId, releaseType, customerCode, fromVersion, toVersion);
-
-    if (builds.isEmpty()) {
-        return new ReleaseVersionDto.BuildsInRangeResponse(
-                List.of(),
-                List.of(),
-                hotfixes.stream()
-                        .map(h -> new ReleaseVersionDto.HotfixInRange(
-                                h.getReleaseVersionId(), h.getFullVersion(), h.getHotfixVersion()))
-                        .toList()
-        );
-    }
-
-    java.util.List<Long> buildIds = builds.stream()
-            .map(ReleaseVersion::getReleaseVersionId)
-            .toList();
-    var rows = releaseFileRepository.findBuildCategoryRows(buildIds);
-
-    java.util.Set<Long> webBuildIds = rows.stream()
-            .filter(r -> r.category() == com.ts.rm.domain.releasefile.enums.FileCategory.WEB)
-            .map(r -> r.versionId())
-            .collect(java.util.stream.Collectors.toSet());
-
-    // engineName -> ordered list of buildVersionId (build_version DESC 보존)
-    java.util.Map<String, java.util.List<Long>> engineToBuildIds = new java.util.LinkedHashMap<>();
-    for (ReleaseVersion b : builds) {
-        for (var r : rows) {
-            if (!r.versionId().equals(b.getReleaseVersionId())) continue;
-            if (r.category() != com.ts.rm.domain.releasefile.enums.FileCategory.ENGINE) continue;
-            String engineName = r.subCategory() == null ? "UNKNOWN" : r.subCategory();
-            engineToBuildIds.computeIfAbsent(engineName, k -> new java.util.ArrayList<>())
-                    .add(b.getReleaseVersionId());
-        }
-    }
-
-    // builds 의 순서가 DESC 이므로 buildId -> ReleaseVersion 매핑
-    java.util.Map<Long, ReleaseVersion> byId = builds.stream()
-            .collect(java.util.stream.Collectors.toMap(
-                    ReleaseVersion::getReleaseVersionId, b -> b));
-
-    java.util.List<ReleaseVersionDto.BuildCandidate> webCandidates = new java.util.ArrayList<>();
-    boolean firstWeb = true;
-    for (ReleaseVersion b : builds) {
-        if (!webBuildIds.contains(b.getReleaseVersionId())) continue;
-        webCandidates.add(toBuildCandidate(b, firstWeb));
-        firstWeb = false;
-    }
-
-    java.util.List<ReleaseVersionDto.EngineGroup> engineGroups = new java.util.ArrayList<>();
-    // 엔진명 알파벳 정렬(UNKNOWN 은 가장 뒤)
-    java.util.List<String> engineNames = new java.util.ArrayList<>(engineToBuildIds.keySet());
-    engineNames.sort((a, b) -> {
-        if ("UNKNOWN".equals(a) && !"UNKNOWN".equals(b)) return 1;
-        if ("UNKNOWN".equals(b) && !"UNKNOWN".equals(a)) return -1;
-        return a.compareTo(b);
-    });
-    for (String engineName : engineNames) {
-        java.util.List<Long> ids = engineToBuildIds.get(engineName);
-        java.util.List<ReleaseVersionDto.BuildCandidate> cands = new java.util.ArrayList<>();
-        boolean first = true;
-        for (Long id : ids) {
-            cands.add(toBuildCandidate(byId.get(id), first));
-            first = false;
-        }
-        engineGroups.add(new ReleaseVersionDto.EngineGroup(engineName, cands));
-    }
-
-    java.util.List<ReleaseVersionDto.HotfixInRange> hotfixInfo = hotfixes.stream()
-            .map(h -> new ReleaseVersionDto.HotfixInRange(
-                    h.getReleaseVersionId(), h.getFullVersion(), h.getHotfixVersion()))
-            .toList();
-
-    return new ReleaseVersionDto.BuildsInRangeResponse(webCandidates, engineGroups, hotfixInfo);
-}
-
-private ReleaseVersionDto.BuildCandidate toBuildCandidate(ReleaseVersion b, boolean isLatest) {
-    return new ReleaseVersionDto.BuildCandidate(
-            b.getReleaseVersionId(),
-            b.getFullVersion(),
-            b.getBuildVersion(),
-            b.getCreatedAt() != null ? b.getCreatedAt().toString() : null,
-            isLatest
-    );
-}
-```
-
-- [ ] **Step 5: 테스트 통과 확인**
-
-```
-sed -i 's/languageVersion = JavaLanguageVersion.of(17)/languageVersion = JavaLanguageVersion.of(21)/' build.gradle
-./gradlew test --tests "com.ts.rm.domain.releaseversion.service.ReleaseVersionBuildServiceTest" 2>&1 | tail -15
-sed -i 's/languageVersion = JavaLanguageVersion.of(21)/languageVersion = JavaLanguageVersion.of(17)/' build.gradle
-grep -n "languageVersion" build.gradle
-```
-
-기대: `BUILD SUCCESSFUL` + `getBuildsInRange_groupsByEngine_andMarksLatest` 통과.
-
-- [ ] **Step 6: 커밋**
-
-```
-git -C release-manager-api add src/main/java/com/ts/rm/domain/releaseversion/repository/ReleaseVersionRepositoryCustom.java src/main/java/com/ts/rm/domain/releaseversion/repository/ReleaseVersionRepositoryImpl.java src/main/java/com/ts/rm/domain/releaseversion/service/ReleaseVersionService.java src/test/java/com/ts/rm/domain/releaseversion/service/ReleaseVersionBuildServiceTest.java
-git -C release-manager-api commit -m "feat: getBuildsInRange — picker 후보 + 핫픽스 안내 응답 산출
-
-ReleaseVersionService.getBuildsInRange. WEB 그룹/ENGINE 그룹별 후보를
-build_version DESC, 첫 항목에 isLatest=true. 'UNKNOWN' 엔진은 정렬상
-가장 뒤. 동시에 같은 범위의 핫픽스 메타정보를 hotfixesInRange 로 반환."
-```
-
----
-
-### Task 7: ReleaseVersionController — `GET builds-in-range` 엔드포인트
+### Task 4: ReleaseVersionController — `GET /api/releases/versions/builds-in-range`
 
 **Files:**
 - Modify: `release-manager-api/src/main/java/com/ts/rm/domain/releaseversion/controller/ReleaseVersionController.java`
 - Modify: `release-manager-api/src/main/java/com/ts/rm/domain/releaseversion/controller/ReleaseVersionControllerDocs.java`
 
-- [ ] **Step 1: ControllerDocs 에 시그니처 추가**
+> Controller 자체는 단순 위임이라 별도 Controller 단위 테스트는 작성하지 않음 (Service 단에서 검증). 통합 e2e 는 Phase 5.
 
-`ReleaseVersionControllerDocs.java` 에 추가 (다른 메서드들 옆):
+- [ ] **Step 1: ControllerDocs 에 메서드 시그니처 추가**
 
-```java
-@Operation(summary = "범위 내 빌드 후보 조회",
-        description = "패치 생성 picker 용. base from..to 범위의 빌드 후보를 WEB/ENGINE 그룹으로 반환. "
-                + "같은 범위의 핫픽스 정보(별도 다운로드 안내용)도 함께 반환.")
-ResponseEntity<ApiResponse<ReleaseVersionDto.BuildsInRangeResponse>> getBuildsInRange(
-        @Parameter(description = "프로젝트 ID") String projectId,
-        @Parameter(description = "릴리즈 타입 (STANDARD/CUSTOM)") String releaseType,
-        @Parameter(description = "고객사 코드 (CUSTOM 시 필수)") String customerCode,
-        @Parameter(description = "From base 버전 (예: 1.0.0)") String fromVersion,
-        @Parameter(description = "To base 버전 (예: 1.1.0)") String toVersion
-);
-```
-
-- [ ] **Step 2: Controller 구현 추가**
-
-`ReleaseVersionController.java` 의 다른 GET 매핑들 옆에 추가:
+`ReleaseVersionControllerDocs.java` 의 적절한 위치 (다른 GET 엔드포인트 docs 와 같은 그룹) 에 추가:
 
 ```java
-@Override
-@GetMapping("/versions/builds-in-range")
-public ResponseEntity<ApiResponse<ReleaseVersionDto.BuildsInRangeResponse>> getBuildsInRange(
-        @org.springframework.web.bind.annotation.RequestParam String projectId,
-        @org.springframework.web.bind.annotation.RequestParam String releaseType,
-        @org.springframework.web.bind.annotation.RequestParam(required = false) String customerCode,
-        @org.springframework.web.bind.annotation.RequestParam String fromVersion,
-        @org.springframework.web.bind.annotation.RequestParam String toVersion) {
-    log.info("빌드 범위 조회 - projectId: {}, type: {}, customer: {}, {} -> {}",
-            projectId, releaseType, customerCode, fromVersion, toVersion);
-    var response = releaseVersionService.getBuildsInRange(
-            projectId, releaseType.toUpperCase(), customerCode, fromVersion, toVersion);
-    return ResponseEntity.ok(ApiResponse.success(response));
-}
+    @Operation(
+            summary = "빌드 후보 조회 (range)",
+            description = "패치 범위 (fromVersionId..toVersionId) 안의 빌드 디렉토리를 walk 하여 "
+                    + "WEB / ENGINE 후보와 hotfixesInRange 메타정보를 반환합니다. "
+                    + "별도 인덱스 없이 빌드 디렉토리의 web/, engine/{engineName}/, engine 직속 파일 "
+                    + "존재 여부로 후보를 만듭니다."
+    )
+    @GetMapping("/builds-in-range")
+    ResponseEntity<ApiResponse<ReleaseVersionDto.BuildsInRangeResponse>> getBuildsInRange(
+            @Parameter(description = "프로젝트 ID", required = true) @RequestParam String projectId,
+            @Parameter(description = "시작 base 버전 ID (포함)", required = true) @RequestParam Long fromVersionId,
+            @Parameter(description = "종료 base 버전 ID (포함)", required = true) @RequestParam Long toVersionId,
+            @Parameter(description = "고객사 ID (커스텀인 경우)") @RequestParam(required = false) Long customerId
+    );
 ```
 
-- [ ] **Step 3: 컴파일 + 테스트**
+> import 추가: `org.springframework.web.bind.annotation.GetMapping`, `org.springframework.web.bind.annotation.RequestParam` (이미 다른 docs 시그니처에서 사용 중이면 생략).
+
+- [ ] **Step 2: Controller 에 의존성 + 핸들러 추가**
+
+`ReleaseVersionController.java` 클래스 필드에 `BuildsInRangeService` 주입을 추가하고 핸들러를 추가:
+
+```java
+    private final BuildsInRangeService buildsInRangeService;
+
+    @Override
+    @GetMapping("/builds-in-range")
+    public ResponseEntity<ApiResponse<ReleaseVersionDto.BuildsInRangeResponse>> getBuildsInRange(
+            @RequestParam String projectId,
+            @RequestParam Long fromVersionId,
+            @RequestParam Long toVersionId,
+            @RequestParam(required = false) Long customerId) {
+        log.info("GET /api/releases/versions/builds-in-range - projectId: {}, range: {}..{}, customerId: {}",
+                projectId, fromVersionId, toVersionId, customerId);
+        ReleaseVersionDto.BuildsInRangeResponse response =
+                buildsInRangeService.getBuildsInRange(projectId, fromVersionId, toVersionId, customerId);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+```
+
+> `@RequiredArgsConstructor` 가 이미 클래스에 붙어 있다면 final 필드 추가만으로 의존성 주입이 됨 (기존 패턴).
+
+- [ ] **Step 3: 컴파일 + 빠른 회귀 검증**
 
 ```
 cd release-manager-api
 sed -i 's/languageVersion = JavaLanguageVersion.of(17)/languageVersion = JavaLanguageVersion.of(21)/' build.gradle
 ./gradlew compileJava 2>&1 | tail -10
+./gradlew test --tests "com.ts.rm.domain.releaseversion.service.BuildsInRangeServiceTest" 2>&1 | tail -10
 sed -i 's/languageVersion = JavaLanguageVersion.of(21)/languageVersion = JavaLanguageVersion.of(17)/' build.gradle
-grep -n "languageVersion" build.gradle
+grep -n "languageVersion" build.gradle | head -1
 ```
 
-기대: `BUILD SUCCESSFUL`.
+기대: 컴파일 + 기존 테스트 PASS.
 
 - [ ] **Step 4: 커밋**
 
 ```
 git -C release-manager-api add src/main/java/com/ts/rm/domain/releaseversion/controller/ReleaseVersionController.java src/main/java/com/ts/rm/domain/releaseversion/controller/ReleaseVersionControllerDocs.java
-git -C release-manager-api commit -m "feat: GET /api/releases/versions/builds-in-range 추가
+git -C release-manager-api commit -m "feat: GET /api/releases/versions/builds-in-range 엔드포인트 추가
 
-패치 생성 picker 의 빌드 후보 + 핫픽스 안내를 반환. 쿼리 파라미터는
-projectId/releaseType/customerCode/fromVersion/toVersion."
+BuildsInRangeService 를 위임 호출하고 ApiResponse 로 래핑.
+Swagger 문서화는 ReleaseVersionControllerDocs 에 작성."
 ```
 
 ---
 
-## Phase 3 — 패치 생성 입출력 / 비즈니스 로직 재배선
+## Phase 2 — 백엔드: 패치 생성 입출력
 
-### Task 8: PatchDto — `GenerateRequest` 에 `BuildSelection`, response 필드 추가
+### Task 5: PatchDto 변경 — `BuildSelection`, `IncludedBuilds`, `GenerateRequest` 재배선
 
 **Files:**
 - Modify: `release-manager-api/src/main/java/com/ts/rm/domain/patch/dto/PatchDto.java`
 
-- [ ] **Step 1: 입력/응답 타입 추가 + GenerateRequest 변경**
+> 단순 record 변경 — TDD 제외.
 
-`PatchDto.java` 의 `GenerateRequest` 를 다음과 같이 변경:
+- [ ] **Step 1: GenerateRequest 변경 + 신규 record 추가**
 
-```java
-@Builder
-@Schema(description = "패치 생성 요청")
-public record GenerateRequest(
-        @Schema(description = "프로젝트 ID", example = "infraeye2")
-        @NotBlank @Size(max = 50)
-        String projectId,
-
-        @Schema(description = "릴리즈 타입", example = "standard")
-        @NotBlank
-        String type,
-
-        @Schema(description = "고객사 ID (커스텀인 경우)", example = "1")
-        Long customerId,
-
-        @Schema(description = "시작 base 버전", example = "1.0.0")
-        @NotBlank
-        @Pattern(regexp = "^\\d+\\.\\d+\\.\\d+$", message = "버전 형식이 올바르지 않습니다 (예: 1.0.0)")
-        String fromVersion,
-
-        @Schema(description = "종료 base 버전", example = "1.1.0")
-        @NotBlank
-        @Pattern(regexp = "^\\d+\\.\\d+\\.\\d+$", message = "버전 형식이 올바르지 않습니다 (예: 1.0.0)")
-        String toVersion,
-
-        @Schema(description = "생성자 이메일")
-        @NotBlank @Size(max = 100)
-        String createdByEmail,
-
-        @Schema(description = "설명")
-        String description,
-
-        @Schema(description = "패치 담당자 ID")
-        Long assigneeId,
-
-        @Schema(description = "패치 이름 (미입력 시 자동)")
-        @Size(max = 100)
-        String patchName,
-
-        @Schema(description = "빌드 파일 선택. null/disabled=DB only 패치.")
-        BuildSelection buildSelection
-) {}
-
-@Builder
-@Schema(description = "빌드 파일 선택")
-public record BuildSelection(
-        @Schema(description = "선택 활성 여부 (false 면 DB only)")
-        boolean enabled,
-        @Schema(description = "WEB 빌드 (null = 포함 안 함)")
-        WebSelection web,
-        @Schema(description = "엔진별 선택 (포함 안 함 엔진은 배열에서 제외)")
-        java.util.List<EngineSelection> engines
-) {}
-
-public record WebSelection(
-        @NotNull Long buildVersionId
-) {}
-
-public record EngineSelection(
-        @NotBlank @Size(max = 100) String engineName,
-        @NotNull Long buildVersionId
-) {}
-
-@Schema(description = "패치 결과의 빌드 동행 정보")
-public record IncludedBuildsInfo(
-        WebSelection web,
-        java.util.List<EngineSelection> engines
-) {}
-
-@Schema(description = "범위 내 핫픽스 (별도 다운로드 안내용)")
-public record HotfixInRange(
-        Long versionId,
-        String fullVersion,
-        int hotfixVersion
-) {}
-```
-
-또한 `DetailResponse` 에 다음 필드를 추가 (말미에 `// 신규` 주석으로):
+`PatchDto.java` 의 기존 `GenerateRequest` 를 다음으로 교체:
 
 ```java
-@Schema(description = "Build-only 여부")
-boolean isBuildOnly,
-@Schema(description = "범위 내 핫픽스 (별도 다운로드 필요)")
-java.util.List<HotfixInRange> hotfixesInRange,
-@Schema(description = "포함된 빌드 요약")
-IncludedBuildsInfo includedBuilds
+    @Builder
+    @Schema(description = "패치 생성 요청")
+    public record GenerateRequest(
+            @Schema(description = "프로젝트 ID", example = "infraeye2")
+            @NotBlank(message = "프로젝트 ID는 필수입니다")
+            @Size(max = 50, message = "프로젝트 ID는 50자 이하여야 합니다")
+            String projectId,
+
+            @Schema(description = "릴리즈 타입", example = "standard")
+            @NotBlank(message = "릴리즈 타입은 필수입니다")
+            String type,
+
+            @Schema(description = "고객사 ID (커스텀인 경우)", example = "1")
+            Long customerId,
+
+            @Schema(description = "시작 버전", example = "1.0.0")
+            @NotBlank(message = "시작 버전은 필수입니다")
+            @Pattern(regexp = "^\\d+\\.\\d+\\.\\d+$", message = "버전 형식이 올바르지 않습니다 (예: 1.0.0)")
+            String fromVersion,
+
+            @Schema(description = "종료 버전", example = "1.1.1")
+            @NotBlank(message = "종료 버전은 필수입니다")
+            @Pattern(regexp = "^\\d+\\.\\d+\\.\\d+$", message = "버전 형식이 올바르지 않습니다 (예: 1.1.1)")
+            String toVersion,
+
+            @Schema(description = "생성자 이메일", example = "admin@tscientific")
+            @NotBlank(message = "생성자 이메일은 필수입니다")
+            @Size(max = 100, message = "생성자 이메일은 100자 이하여야 합니다")
+            String createdByEmail,
+
+            @Schema(description = "설명", example = "1.0.0에서 1.1.1로 업그레이드용 누적 패치")
+            String description,
+
+            @Schema(description = "패치 담당자 ID", example = "1")
+            Long assigneeId,
+
+            @Schema(description = "패치 이름 (미입력 시 자동 생성)", example = "20251125_1.0.0_1.1.1")
+            @Size(max = 100, message = "패치 이름은 100자 이하여야 합니다")
+            String patchName,
+
+            @Schema(description = "빌드 파일 선택 (null 또는 enabled=false 면 빌드 미포함)")
+            BuildSelection buildSelection
+    ) {}
+
+    @Builder
+    @Schema(description = "패치에 포함할 빌드 파일 선택")
+    public record BuildSelection(
+            @Schema(description = "토글 ON 여부 (false 면 빌드 미포함)", example = "true")
+            boolean enabled,
+
+            @Schema(description = "WEB 선택 (null 이면 WEB 미포함)")
+            SelectedWeb web,
+
+            @Schema(description = "엔진별 선택 (미포함 엔진은 배열에서 제외)")
+            java.util.List<SelectedEngine> engines
+    ) {}
+
+    @Schema(description = "WEB 빌드 선택")
+    public record SelectedWeb(
+            @Schema(description = "선택한 빌드 버전 ID", example = "42")
+            @jakarta.validation.constraints.NotNull(message = "WEB buildVersionId 는 필수입니다")
+            Long buildVersionId
+    ) {}
+
+    @Schema(description = "엔진 빌드 선택")
+    public record SelectedEngine(
+            @Schema(description = "엔진명", example = "NC_SMS")
+            @NotBlank(message = "engineName 은 필수입니다")
+            String engineName,
+
+            @Schema(description = "선택한 빌드 버전 ID", example = "42")
+            @jakarta.validation.constraints.NotNull(message = "engine buildVersionId 는 필수입니다")
+            Long buildVersionId
+    ) {}
 ```
 
-> 주의: `DetailResponse` 의 기존 필드 순서는 유지하면서 위 3개를 끝에 append. `PatchDtoMapper` 의 매핑이 영향 받으면 후속 task 에서 수정.
+> 기존 `Boolean includeAllBuildVersions` 필드와 `shouldIncludeAllBuildVersions()` 헬퍼는 삭제. 호출자는 후속 task 에서 정정한다.
 
-- [ ] **Step 2: import 보강 + 컴파일**
+- [ ] **Step 2: `IncludedBuilds`, `HotfixInRangeInfo`, `GenerateResponse` 추가**
+
+`PatchDto.java` 의 Response DTOs 섹션 (`BatchDeleteResponse` 위 또는 아래) 에 추가:
+
+```java
+    @Schema(description = "패치에 실제 포함된 빌드 정보 (응답)")
+    public record IncludedBuilds(
+            @Schema(description = "WEB 포함 정보 (없으면 null)")
+            IncludedWeb web,
+
+            @Schema(description = "엔진별 포함 정보")
+            java.util.List<IncludedEngine> engines
+    ) {}
+
+    @Schema(description = "패치에 포함된 WEB 빌드 정보")
+    public record IncludedWeb(
+            @Schema(description = "빌드 버전 ID", example = "42")
+            Long buildVersionId,
+
+            @Schema(description = "전체 버전 문자열", example = "1.1.0.260428")
+            String fullVersion
+    ) {}
+
+    @Schema(description = "패치에 포함된 엔진 빌드 정보")
+    public record IncludedEngine(
+            @Schema(description = "엔진명", example = "NC_SMS")
+            String engineName,
+
+            @Schema(description = "빌드 버전 ID", example = "42")
+            Long buildVersionId,
+
+            @Schema(description = "전체 버전 문자열", example = "1.1.0.260428")
+            String fullVersion
+    ) {}
+
+    @Schema(description = "범위 안의 핫픽스 메타정보 (응답)")
+    public record HotfixInRangeInfo(
+            @Schema(description = "핫픽스 버전 ID", example = "33")
+            Long versionId,
+
+            @Schema(description = "전체 버전 문자열", example = "1.0.0.1")
+            String fullVersion
+    ) {}
+
+    @Schema(description = "패치 생성 응답")
+    public record GenerateResponse(
+            @Schema(description = "생성된 패치 ID", example = "1")
+            Long patchId,
+
+            @Schema(description = "패치 이름")
+            String patchName,
+
+            @Schema(description = "출력 경로")
+            String outputPath,
+
+            @Schema(description = "Build-only 패치 여부 (from == to)", example = "false")
+            boolean isBuildOnly,
+
+            @Schema(description = "범위 안의 핫픽스 (별도 적용 안내용, 비어있으면 빈 배열)")
+            java.util.List<HotfixInRangeInfo> hotfixesInRange,
+
+            @Schema(description = "패치에 실제 포함된 빌드 정보")
+            IncludedBuilds includedBuilds
+    ) {}
+```
+
+- [ ] **Step 3: 컴파일 실패 확인 (호출자에서 `includeAllBuildVersions` 사용)**
 
 ```
 cd release-manager-api
 sed -i 's/languageVersion = JavaLanguageVersion.of(17)/languageVersion = JavaLanguageVersion.of(21)/' build.gradle
 ./gradlew compileJava 2>&1 | tail -25
 sed -i 's/languageVersion = JavaLanguageVersion.of(21)/languageVersion = JavaLanguageVersion.of(17)/' build.gradle
-grep -n "languageVersion" build.gradle
 ```
 
-`@NotNull` import (`jakarta.validation.constraints.NotNull`) 가 없으면 추가. 컴파일 에러가 나면 메시지에 따라 import 보강. 기대: `BUILD SUCCESSFUL`.
+기대: PatchService / PatchController / PatchGenerationService 등에서 `includeAllBuildVersions` / `shouldIncludeAllBuildVersions` / 기존 GenerateRequest 사용처가 컴파일 실패. **이 컴파일 실패는 다음 task 들에서 해소된다.**
 
-- [ ] **Step 3: 커밋**
+- [ ] **Step 4: 일단 커밋 (브로큰 빌드 지양 — 다음 task 에서 즉시 해소되므로 본 step 의 commit 은 보류)**
 
-```
-git -C release-manager-api add src/main/java/com/ts/rm/domain/patch/dto/PatchDto.java
-git -C release-manager-api commit -m "feat: PatchDto.GenerateRequest 에 buildSelection 도입, response 확장
-
-includeAllBuildVersions 제거, BuildSelection(enabled/web/engines) 으로
-대체. DetailResponse 에 isBuildOnly, hotfixesInRange, includedBuilds
-추가. PatchGenerationService 의 새 분기에 활용."
-```
+> 본 task 의 변경은 호출자 정정 없이 컴파일이 깨지므로 단독 커밋하지 않는다. **Step 3 의 검증 결과만 확인하고 다음 Task 6·7 의 정정 변경분을 함께 묶어 단일 커밋으로 처리한다.** Task 6 의 step 4 / Task 7 의 step 4 가 정정 후 빌드 통과를 확인한 직후, 본 task 의 변경분도 동일 add 묶음에 포함시켜 한 번에 커밋한다 (Task 7 step 4 의 git add 명령 참조).
 
 ---
 
-### Task 9: PatchService 시그니처 변경 + Controller 재배선
+### Task 6: PatchService — `generatePatchByVersion` / `generatePatch` 시그니처 변경 + 검증 룰
 
 **Files:**
 - Modify: `release-manager-api/src/main/java/com/ts/rm/domain/patch/service/PatchService.java`
-- Modify: `release-manager-api/src/main/java/com/ts/rm/domain/patch/controller/PatchController.java`
-- Modify: `release-manager-api/src/main/java/com/ts/rm/domain/patch/controller/PatchControllerDocs.java`
+- Test: `release-manager-api/src/test/java/com/ts/rm/domain/patch/service/PatchServiceValidationTest.java` (신규)
 
-- [ ] **Step 1: PatchService.generatePatchByVersion 시그니처 변경**
+- [ ] **Step 1: 검증 룰 단위 테스트 작성**
 
-`PatchService.java` 의 `generatePatchByVersion(String, String, Long, String, String, String, String, Long, String, boolean)` 호출과 시그니처를 다음으로 교체 (마지막 `boolean includeAllBuildVersions` 제거하고 `BuildSelection buildSelection` 추가):
-
-```java
-public Patch generatePatchByVersion(
-        String projectId,
-        String type,
-        Long customerId,
-        String fromVersion,
-        String toVersion,
-        String createdByEmail,
-        String description,
-        Long assigneeId,
-        String patchName,
-        com.ts.rm.domain.patch.dto.PatchDto.BuildSelection buildSelection) {
-    // 기존 메서드 본문 유지하되, 내부에서 PatchGenerationService 호출 인자를
-    // includeAllBuildVersions -> buildSelection 으로 교체.
-    // ...
-}
-```
-
-본문 안에서 `PatchGenerationService.generatePatch(...)` (또는 동일 역할 메서드) 호출 인자를 `buildSelection` 으로 교체.
-
-> 본 task 는 Service 안 PatchGenerationService 호출 라인에 `buildSelection` 까지만 전달. PatchGenerationService 내부 분기는 Task 10 에서 변경.
-
-- [ ] **Step 2: PatchController + Docs 호출부 변경**
-
-`PatchController.java` 의 `generatePatch` 메서드 안:
+`PatchServiceValidationTest.java` 신규 생성 (검증만 단독 검증, generatePatch 전체 흐름은 PatchGenerationServiceTest 가 담당):
 
 ```java
-Patch patch = patchService.generatePatchByVersion(
-        request.projectId(),
-        request.type(),
-        request.customerId(),
-        request.fromVersion(),
-        request.toVersion(),
-        request.createdByEmail(),
-        request.description(),
-        request.assigneeId(),
-        request.patchName(),
-        request.buildSelection()
-);
-```
+package com.ts.rm.domain.patch.service;
 
-`log.info` 의 `IncludeAllBuildVersions` 토큰을 `BuildSelection` 으로 교체:
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-```java
-log.info("패치 생성 요청 - Project: {}, From: {}, To: {}, Type: {}, PatchName: {}, BuildSelectionEnabled: {}",
-        request.projectId(), request.fromVersion(), request.toVersion(), request.type(),
-        request.patchName(),
-        request.buildSelection() != null && request.buildSelection().enabled());
-```
+import com.ts.rm.domain.patch.dto.PatchDto;
+import com.ts.rm.global.exception.BusinessException;
+import com.ts.rm.global.exception.ErrorCode;
+import java.util.List;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 
-`PatchControllerDocs.java` 의 시그니처 변경 사항이 있다면 동기화.
+@DisplayName("PatchService.validateBuildSelection 테스트")
+class PatchServiceValidationTest {
 
-- [ ] **Step 3: 컴파일**
-
-```
-cd release-manager-api
-sed -i 's/languageVersion = JavaLanguageVersion.of(17)/languageVersion = JavaLanguageVersion.of(21)/' build.gradle
-./gradlew compileJava 2>&1 | tail -25
-sed -i 's/languageVersion = JavaLanguageVersion.of(21)/languageVersion = JavaLanguageVersion.of(17)/' build.gradle
-grep -n "languageVersion" build.gradle
-```
-
-기대: `BUILD SUCCESSFUL`.
-
-- [ ] **Step 4: 커밋**
-
-```
-git -C release-manager-api add src/main/java/com/ts/rm/domain/patch/service/PatchService.java src/main/java/com/ts/rm/domain/patch/controller/PatchController.java src/main/java/com/ts/rm/domain/patch/controller/PatchControllerDocs.java
-git -C release-manager-api commit -m "refactor: PatchService.generatePatchByVersion 의 boolean 인자를 BuildSelection 으로 교체
-
-includeAllBuildVersions 제거, buildSelection 파라미터로 통일. 컨트롤러
-로깅도 토글 enabled 만 출력하도록 수정. PatchGenerationService 내부
-분기는 다음 task 에서 정리."
-```
-
----
-
-### Task 10: PatchGenerationService — 새 buildSelection 분기 + 핫픽스 제외 + ETC 동행 + 응답 채움
-
-**Files:**
-- Modify: `release-manager-api/src/main/java/com/ts/rm/domain/patch/service/PatchGenerationService.java`
-- Test: `release-manager-api/src/test/java/com/ts/rm/domain/patch/service/PatchGenerationServiceVersionLogicTest.java` (excluded 아닌 파일 — 사용 가능)
-
-본 task 는 코드 분량이 가장 크다. 단계를 둘로 쪼갠다 (10a, 10b).
-
-#### Task 10a — 빌드 파일 포함 분기 / 핫픽스 제외
-
-- [ ] **Step 1: 분리 가능한 헬퍼로 추출 + 단위 테스트**
-
-`PatchGenerationService` 의 빌드 분기 로직은 service 가 파일시스템 + 다수 repo 의존이라 통째로 mock 단위 테스트하기 어렵다. 본 task 의 단위 테스트는 **buildSelection 해석 로직**을 service 안의 작은 순수 메서드로 분리해 그 부분만 검증한다.
-
-`PatchGenerationService.java` 에 신규 package-private static 메서드 추가:
-
-```java
-/**
- * buildSelection 으로부터 (1) 활성 여부, (2) 선택된 빌드 ID 합집합,
- * (3) 엔진별 매핑을 산출. service 본문 분기에서 사용.
- */
-static SelectionPlan resolveSelectionPlan(
-        com.ts.rm.domain.patch.dto.PatchDto.BuildSelection sel) {
-    if (sel == null || !sel.enabled()) return SelectionPlan.disabled();
-    java.util.LinkedHashSet<Long> ids = new java.util.LinkedHashSet<>();
-    Long webId = null;
-    if (sel.web() != null) {
-        webId = sel.web().buildVersionId();
-        ids.add(webId);
+    @Test
+    @DisplayName("toggle ON 인데 web/engines 모두 비어있으면 INVALID_INPUT_VALUE")
+    void enabledButEmpty_throws() {
+        PatchDto.BuildSelection selection = new PatchDto.BuildSelection(true, null, List.of());
+        assertThatThrownBy(() -> PatchService.validateBuildSelection(selection, /*sameBase*/ false))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_INPUT_VALUE);
     }
-    java.util.Map<String, Long> enginesByName = new java.util.LinkedHashMap<>();
-    if (sel.engines() != null) {
-        for (var e : sel.engines()) {
-            enginesByName.put(e.engineName(), e.buildVersionId());
-            ids.add(e.buildVersionId());
-        }
-    }
-    return new SelectionPlan(true, webId, enginesByName, ids);
-}
 
-record SelectionPlan(
-        boolean enabled,
-        Long webBuildVersionId,
-        java.util.Map<String, Long> enginesByName,
-        java.util.Set<Long> selectedBuildIds
-) {
-    static SelectionPlan disabled() {
-        return new SelectionPlan(false, null, java.util.Map.of(), java.util.Set.of());
+    @Test
+    @DisplayName("from == to 인데 toggle OFF 면 INVALID_INPUT_VALUE")
+    void sameBaseAndDisabled_throws() {
+        PatchDto.BuildSelection selection = new PatchDto.BuildSelection(false, null, List.of());
+        assertThatThrownBy(() -> PatchService.validateBuildSelection(selection, /*sameBase*/ true))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_INPUT_VALUE);
+    }
+
+    @Test
+    @DisplayName("from == to + toggle ON + picker 비어있으면 INVALID_INPUT_VALUE")
+    void sameBaseEnabledButEmpty_throws() {
+        PatchDto.BuildSelection selection = new PatchDto.BuildSelection(true, null, List.of());
+        assertThatThrownBy(() -> PatchService.validateBuildSelection(selection, true))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_INPUT_VALUE);
+    }
+
+    @Test
+    @DisplayName("정상: from != to + toggle OFF (DB only)")
+    void disabledRangePatch_passes() {
+        PatchDto.BuildSelection selection = new PatchDto.BuildSelection(false, null, List.of());
+        PatchService.validateBuildSelection(selection, false);  // no exception
+    }
+
+    @Test
+    @DisplayName("정상: null buildSelection + range patch")
+    void nullSelectionRangePatch_passes() {
+        PatchService.validateBuildSelection(null, false);
+    }
+
+    @Test
+    @DisplayName("정상: from == to + toggle ON + picker 1개 이상")
+    void sameBaseWithPicker_passes() {
+        PatchDto.BuildSelection selection = new PatchDto.BuildSelection(
+                true, new PatchDto.SelectedWeb(42L), List.of());
+        PatchService.validateBuildSelection(selection, true);
     }
 }
 ```
-
-`PatchGenerationServiceVersionLogicTest.java` (excluded 아닌 파일) 에 추가:
-
-```java
-@Test
-@DisplayName("resolveSelectionPlan: null/disabled 입력은 disabled SelectionPlan")
-void selectionPlan_nullOrDisabled() {
-    var plan1 = PatchGenerationService.resolveSelectionPlan(null);
-    assertThat(plan1.enabled()).isFalse();
-    assertThat(plan1.selectedBuildIds()).isEmpty();
-
-    var plan2 = PatchGenerationService.resolveSelectionPlan(
-            new PatchDto.BuildSelection(false, null, java.util.List.of()));
-    assertThat(plan2.enabled()).isFalse();
-    assertThat(plan2.selectedBuildIds()).isEmpty();
-}
-
-@Test
-@DisplayName("resolveSelectionPlan: web 만 선택 시 selectedBuildIds = {webBuildId}")
-void selectionPlan_webOnly() {
-    var sel = new PatchDto.BuildSelection(
-            true,
-            new PatchDto.WebSelection(42L),
-            java.util.List.of()
-    );
-    var plan = PatchGenerationService.resolveSelectionPlan(sel);
-    assertThat(plan.enabled()).isTrue();
-    assertThat(plan.webBuildVersionId()).isEqualTo(42L);
-    assertThat(plan.enginesByName()).isEmpty();
-    assertThat(plan.selectedBuildIds()).containsExactly(42L);
-}
-
-@Test
-@DisplayName("resolveSelectionPlan: web + engines 합집합")
-void selectionPlan_webAndEngines() {
-    var sel = new PatchDto.BuildSelection(
-            true,
-            new PatchDto.WebSelection(42L),
-            java.util.List.of(
-                    new PatchDto.EngineSelection("NC_SMS", 42L),
-                    new PatchDto.EngineSelection("NC_FAULT_MS", 41L)
-            )
-    );
-    var plan = PatchGenerationService.resolveSelectionPlan(sel);
-    assertThat(plan.enabled()).isTrue();
-    assertThat(plan.enginesByName())
-            .containsEntry("NC_SMS", 42L)
-            .containsEntry("NC_FAULT_MS", 41L);
-    assertThat(plan.selectedBuildIds()).containsExactlyInAnyOrder(42L, 41L);  // 합집합
-}
-
-@Test
-@DisplayName("resolveSelectionPlan: 모두 미포함이지만 enabled=true 면 selectedBuildIds 빈 집합")
-void selectionPlan_enabledButEmpty() {
-    var sel = new PatchDto.BuildSelection(true, null, java.util.List.of());
-    var plan = PatchGenerationService.resolveSelectionPlan(sel);
-    assertThat(plan.enabled()).isTrue();
-    assertThat(plan.selectedBuildIds()).isEmpty();
-}
-```
-
-> 빌드 파일 복사·DB 시퀀스·핫픽스 제외의 end-to-end 검증은 단위 테스트가 아니라 Phase 6 Task 18 의 수동 시나리오로 다룬다. 단위 테스트의 역할은 SelectionPlan 변환 로직 보증까지.
 
 - [ ] **Step 2: 테스트 실패 확인**
 
 ```
 cd release-manager-api
 sed -i 's/languageVersion = JavaLanguageVersion.of(17)/languageVersion = JavaLanguageVersion.of(21)/' build.gradle
-./gradlew test --tests "com.ts.rm.domain.patch.service.PatchGenerationServiceVersionLogicTest" 2>&1 | tail -25
+./gradlew test --tests "com.ts.rm.domain.patch.service.PatchServiceValidationTest" 2>&1 | tail -25
 sed -i 's/languageVersion = JavaLanguageVersion.of(21)/languageVersion = JavaLanguageVersion.of(17)/' build.gradle
 ```
 
-기대: 컴파일 에러(`resolveSelectionPlan` / `SelectionPlan` 미존재).
+기대: 컴파일 에러 (`PatchService.validateBuildSelection` 미존재).
 
-- [ ] **Step 3: PatchGenerationService 재배선**
+- [ ] **Step 3: PatchService 시그니처 변경 + validateBuildSelection 추가**
 
-> 본 task 는 PatchGenerationService 의 빌드 분기를 통째로 갈아끼운다. 현재 코드(line 827~951 부근)의 `copySqlFiles` 와 그 안의 `if (!includeAllBuildVersions ...)` 블록을 보고 다음 변경을 진행한다.
+`PatchService.java` 에서:
 
-**1. 시그니처 정리.** `generatePatchInternal(...)` (또는 동급 private 메서드) 의 마지막 인자 `boolean includeAllBuildVersions` 를 `PatchDto.BuildSelection buildSelection` 으로 교체. 호출자(`generatePatch`, `generateCustomPatch`) 도 동일 패턴으로 따라 변경.
-
-**2. 누적 base 시퀀스.** 본 흐름에서 `findVersionsBetween(projectId, releaseType, fromVersion, toVersion)` 호출을 제거하고 `findVersionsBetweenExcludingHotfixes(projectId, releaseType, fromVersion, toVersion)` 만 사용한다(이미 Repository 에 존재).
-
-**3. 빌드 파일 복사 메서드 신규.** `copySqlFiles` 안의 빌드 분기(WEB 마지막 1개 / ENGINE sub_category 별 마지막 1개) 를 모두 제거하고, 다음 신규 메서드로 교체:
+(a) 기존 `generatePatchByVersion(...)` 의 마지막 인자를 변경:
 
 ```java
-/**
- * buildSelection 에 따라 outputDir 아래에 web/engine/etc 파일을 복사한다.
- * - WEB:   web 의 buildVersionId 의 file_category=WEB 파일을 outputDir/web/ 으로
- * - ENGINE: engines[*] 각 항목의 (buildVersionId, sub_category=engineName) 매칭
- *           file_category=ENGINE 파일을 outputDir/engine/{engineName}/ 으로
- * - ETC:   선택된 빌드 ID 의 합집합에 대해 file_category=ETC 파일을 outputDir/etc/ 으로
- */
-private void copySelectedBuildFiles(SelectionPlan plan, java.nio.file.Path outputDir)
-        throws java.io.IOException {
-    if (!plan.enabled() || plan.selectedBuildIds().isEmpty()) return;
-
-    // 1. WEB
-    if (plan.webBuildVersionId() != null) {
-        java.util.List<ReleaseFile> webFiles = releaseFileRepository
-                .findAllByReleaseVersion_ReleaseVersionIdAndFileCategory(
-                        plan.webBuildVersionId(), FileCategory.WEB);
-        copyReleaseFiles(webFiles, outputDir);  // 기존 헬퍼 사용
+    @Transactional
+    public Patch generatePatchByVersion(String projectId, String releaseType, Long customerId,
+            String fromVersion, String toVersion, String createdByEmail, String description,
+            Long engineerId, String patchName, PatchDto.BuildSelection buildSelection) {
+        return patchGenerationService.generatePatchByVersion(
+                projectId, releaseType, customerId, fromVersion, toVersion,
+                createdByEmail, description, engineerId, patchName, buildSelection);
     }
-
-    // 2. ENGINE
-    for (var entry : plan.enginesByName().entrySet()) {
-        String engineName = entry.getKey();
-        Long buildId = entry.getValue();
-        java.util.List<ReleaseFile> engineFiles = releaseFileRepository
-                .findAllByReleaseVersion_ReleaseVersionIdAndFileCategoryAndSubCategory(
-                        buildId, FileCategory.ENGINE, engineName);
-        copyReleaseFiles(engineFiles, outputDir);
-    }
-
-    // 3. ETC 동행 — 선택된 빌드 ID 합집합 각각의 ETC
-    for (Long buildId : plan.selectedBuildIds()) {
-        java.util.List<ReleaseFile> etcFiles = releaseFileRepository
-                .findAllByReleaseVersion_ReleaseVersionIdAndFileCategory(
-                        buildId, FileCategory.ETC);
-        copyReleaseFiles(etcFiles, outputDir);
-    }
-}
 ```
 
-> 위 finder 메서드(`findAllByReleaseVersion_ReleaseVersionIdAndFileCategory`, `…AndSubCategory`) 가 ReleaseFileRepository 에 없으면 같이 추가한다(spring data JPA 명명 규약으로 자동 생성). `copyReleaseFiles(List<ReleaseFile>, Path outputDir)` 는 기존 `copyBuildFilesFromFileSystem` 의 단일 빌드 처리 부분을 재사용 가능한 헬퍼로 분리해 사용.
-
-**4. build-only 분기.** `betweenVersions` 가 비어있고 `from.id == to.id` 인 경우 기존 `isSameBaseVersion` 가드(line 1008~1012) 를 그대로 활용하여 DB 스크립트 단계는 skip. 이후 `copySelectedBuildFiles(plan, outputDir)` 만 수행.
-
-**5. 호출 진입점.** `copySqlFiles(...)` 의 시그니처에서 `boolean includeAllBuildVersions` 제거. 빌드 분기 코드 블록 제거. `copySqlFiles` 종료 직후 (또는 generatePatchInternal 의 적절한 위치) `copySelectedBuildFiles(resolveSelectionPlan(buildSelection), outputDir)` 호출.
-
-**6. 응답 enrich (서비스 레벨).** `generatePatchInternal` 이 `Patch` 저장 후 `PatchDto.DetailResponse` 를 직접 조립하던 부분(또는 호출자) 에서 다음 3 필드를 채운다:
+(b) `generatePatch(...)` 의 마지막 인자도 동일하게 변경:
 
 ```java
-boolean isBuildOnly = (fromVersionEntity.getReleaseVersionId()
-        .equals(toVersionEntity.getReleaseVersionId()));
-
-java.util.List<ReleaseVersion> hotfixesInRange = releaseVersionRepository
-        .findHotfixesInBaseRange(projectId, releaseType, customerCode,
-                fromVersion, toVersion);
-java.util.List<PatchDto.HotfixInRange> hotfixInfo = hotfixesInRange.stream()
-        .map(h -> new PatchDto.HotfixInRange(
-                h.getReleaseVersionId(), h.getFullVersion(), h.getHotfixVersion()))
-        .toList();
-
-PatchDto.IncludedBuildsInfo included = plan.enabled()
-        ? new PatchDto.IncludedBuildsInfo(
-                plan.webBuildVersionId() != null
-                        ? new PatchDto.WebSelection(plan.webBuildVersionId())
-                        : null,
-                plan.enginesByName().entrySet().stream()
-                        .map(e -> new PatchDto.EngineSelection(e.getKey(), e.getValue()))
-                        .toList())
-        : null;
-
-// PatchDtoMapper 결과(record copy) + 새 3 필드 = 새 DetailResponse 인스턴스 생성.
-// (PatchDto.DetailResponse 가 record 라서 wither 가 없으므로 모든 필드를 다시 넘긴다.)
+    @Transactional
+    public Patch generatePatch(String projectId, Long fromVersionId, Long toVersionId, Long customerId,
+            String createdByEmail, String description, Long engineerId, String patchName,
+            PatchDto.BuildSelection buildSelection) {
+        return patchGenerationService.generatePatch(
+                projectId, fromVersionId, toVersionId, customerId,
+                createdByEmail, description, engineerId, patchName, buildSelection);
+    }
 ```
 
-> Mapper 의 자동 매핑 대상에서 새 3 필드는 제외(`@Mapping(target = "isBuildOnly", ignore = true)` 등) — 후처리에서 채움.
+(c) 클래스 안에 정적 검증 메서드 추가 (Javadoc 의 `@param ` 중복 사용 안 함):
 
-**7. 키워드 정리.** 모든 main 코드 / 활성 테스트에서 `includeAllBuildVersions` 키워드 검색 후 제거. exclude 된 깨진 테스트 파일은 손대지 않음(사전 부채로 별도 정리).
+```java
+    /**
+     * buildSelection 의 spec §4.3 검증 룰을 검사한다.
+     *
+     * @param selection  요청에서 받은 buildSelection (null 가능)
+     * @param sameBase   from.id == to.id 여부 (Build-only 케이스)
+     * @throws BusinessException INVALID_INPUT_VALUE 룰에 위배되면
+     */
+    public static void validateBuildSelection(PatchDto.BuildSelection selection, boolean sameBase) {
+        boolean enabled = selection != null && selection.enabled();
+        boolean pickerEmpty = selection == null
+                || selection.web() == null && (selection.engines() == null || selection.engines().isEmpty());
 
-- [ ] **Step 4: PatchDtoMapper 보강**
+        if (enabled && pickerEmpty) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
+                    "빌드 미포함이면 토글을 OFF 로 두십시오");
+        }
+        if (sameBase && (!enabled || pickerEmpty)) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
+                    "동일 버전 패치는 최소 1개 이상의 빌드 선택이 필요합니다");
+        }
+    }
+```
 
-`PatchDtoMapper.java` 의 `toDetailResponse` 가 새 3 필드(`isBuildOnly`, `hotfixesInRange`, `includedBuilds`)를 채우도록 수정. 빈 값 기본은 `false`, `List.of()`, `null`.
+> import 추가: `com.ts.rm.domain.patch.dto.PatchDto` (이미 있음).
 
-엔티티 `Patch` 가 기존에 이 필드들을 갖지 않는다면, 응답 enrich 는 service 레벨에서 후처리(매퍼 결과를 받아 새 record 로 재구성)하는 편이 cleaner. 본 plan 은 후자 권장.
+- [ ] **Step 4: 검증 테스트 통과 확인**
 
-- [ ] **Step 5: 컴파일 + 테스트**
+```
+sed -i 's/languageVersion = JavaLanguageVersion.of(17)/languageVersion = JavaLanguageVersion.of(21)/' build.gradle
+./gradlew test --tests "com.ts.rm.domain.patch.service.PatchServiceValidationTest" 2>&1 | tail -15
+sed -i 's/languageVersion = JavaLanguageVersion.of(21)/languageVersion = JavaLanguageVersion.of(17)/' build.gradle
+```
+
+기대: 6/6 PASS.
+
+> 다른 호출자 (`PatchController`, `PatchGenerationService`) 의 컴파일 에러는 Task 7·8 에서 해소된다. 본 step 도 단독 커밋하지 않고 Task 7 의 step 4 commit 명령에 포함된다.
+
+---
+
+### Task 7: PatchController — 새 입력 / 새 응답으로 재배선
+
+**Files:**
+- Modify: `release-manager-api/src/main/java/com/ts/rm/domain/patch/controller/PatchController.java`
+- Modify: `release-manager-api/src/main/java/com/ts/rm/domain/patch/controller/PatchControllerDocs.java` (Swagger)
+
+> Controller 단위 테스트는 별도 작성하지 않음 (Service 단의 검증 + 통합 e2e 가 책임).
+
+- [ ] **Step 1: PatchController 의 표준 패치 생성 핸들러 정정**
+
+`PatchController.java` 에서 표준 패치 생성 핸들러의 `patchService.generatePatchByVersion(...)` 호출부를 새 시그니처에 맞게 정정. 마지막 인자 `request.shouldIncludeAllBuildVersions()` → `request.buildSelection()` 으로 교체:
+
+```java
+        Patch patch = patchService.generatePatchByVersion(
+                request.projectId(),
+                request.type(),
+                request.customerId(),
+                request.fromVersion(),
+                request.toVersion(),
+                request.createdByEmail(),
+                request.description(),
+                request.assigneeId(),
+                request.patchName(),
+                request.buildSelection()
+        );
+```
+
+- [ ] **Step 2: (응답 DTO 매핑은 본 task 에서 다루지 않음)**
+
+`PatchGenerationService` 의 반환 타입은 Task 8 까지 `Patch` 그대로이고, Task 10 에서 `GenerateResult` record 로 확장된다. 따라서 본 task 의 Controller 는 **Step 1 의 인자만 정정** 하고, 응답은 기존 `Patch` 를 ApiResponse 로 래핑하는 현 코드를 그대로 둔다. `PatchDto.GenerateResponse` 매핑은 Task 10 의 step 4 에서 일괄 적용된다.
+
+- [ ] **Step 3: PatchControllerDocs 정정 (Swagger 설명 갱신)**
+
+`PatchControllerDocs.java` 에서 표준 패치 생성 메서드의 `@Operation.description` 안의 "WEB/ENGINE 모든 버전 포함" / `includeAllBuildVersions` 관련 문구를 다음과 같이 교체:
+
+```java
+    @Operation(
+            summary = "패치 생성",
+            description = "from..to 사이의 누적 DB 패치를 생성하고, buildSelection.enabled=true 인 경우 "
+                    + "선택된 WEB/엔진 빌드와 함께 ETC 동행을 처리한다. 핫픽스는 누적 DB 시퀀스에 미포함."
+    )
+```
+
+- [ ] **Step 4: Phase 2 통합 빌드 + 커밋**
 
 ```
 cd release-manager-api
 sed -i 's/languageVersion = JavaLanguageVersion.of(17)/languageVersion = JavaLanguageVersion.of(21)/' build.gradle
-./gradlew test --tests "com.ts.rm.domain.patch.service.PatchGenerationServiceVersionLogicTest" --tests "com.ts.rm.domain.releaseversion.service.BuildFileServiceTest" --tests "com.ts.rm.domain.releaseversion.service.ReleaseVersionBuildServiceTest" 2>&1 | tail -30
+./gradlew compileJava compileTestJava 2>&1 | tail -25
 sed -i 's/languageVersion = JavaLanguageVersion.of(21)/languageVersion = JavaLanguageVersion.of(17)/' build.gradle
-grep -n "languageVersion" build.gradle
 ```
 
-기대: `BUILD SUCCESSFUL`. 핫픽스 누락은 정상(스펙 결정).
-
-- [ ] **Step 6: 커밋**
-
-```
-git -C release-manager-api add src/main/java/com/ts/rm/domain/patch/service/PatchGenerationService.java src/main/java/com/ts/rm/domain/patch/mapper/PatchDtoMapper.java src/test/java/com/ts/rm/domain/patch/service/PatchGenerationServiceVersionLogicTest.java
-git -C release-manager-api commit -m "feat: PatchGenerationService 를 buildSelection 기반으로 재배선
-
-- 누적 DB 시퀀스에서 findVersionsBetweenExcludingHotfixes 만 사용
-  (핫픽스는 별도 다운로드 artifact 로 분리).
-- 빌드 파일 복사를 copySelectedBuildFiles 로 분리: WEB 1개 + 엔진별 1개
-  + 그 빌드들의 ETC 동행.
-- from==to + buildSelection 1개 이상 → build-only 패치(DB 스크립트 0).
-- 응답 enrich: isBuildOnly / hotfixesInRange / includedBuilds.
-- 기존 includeAllBuildVersions 분기 및 호출 제거."
-```
+기대: **이 시점에는 PatchGenerationService 가 여전히 옛 시그니처라 컴파일 에러가 남는다.** 따라서 Task 6·7 의 변경분만 단독 커밋하지 않고 **Task 8 의 step 4 까지 한 번에 묶어서 커밋한다** (Task 8 의 step 5 명령 참조). 본 step 은 **컴파일 에러 메시지가 PatchGenerationService 에 한정되는지** 만 확인한다.
 
 ---
 
-#### Task 10b — README / SiteVersionFile 안내 갱신
+## Phase 3 — 백엔드: `PatchGenerationService` 재배선
+
+### Task 8: 자동 통째 복사 분기 폐기 + versions[] 루프에서 빌드 skip
 
 **Files:**
 - Modify: `release-manager-api/src/main/java/com/ts/rm/domain/patch/service/PatchGenerationService.java`
+- Modify: `release-manager-api/src/test/java/com/ts/rm/domain/patch/service/PatchGenerationServiceTest.java` (있으면 확장, 없으면 신규 — 이 plan 에서는 **신규** 가정. 본 task 가 첫 등장.)
 
-- [ ] **Step 1: README 생성 부분에 핫픽스 안내 + 포함된 빌드 요약 추가**
+- [ ] **Step 1: PatchGenerationService 의 시그니처 변경**
 
-`generateReadme` / `generateCustomReadme` 안에 다음 섹션 추가 (문자열 빌더에 append):
+`PatchGenerationService.java` 의 두 진입점 시그니처를 `boolean includeAllBuildVersions` → `PatchDto.BuildSelection buildSelection` 으로 교체:
 
+```java
+    public Patch generatePatchByVersion(
+            String projectId, String releaseType, Long customerId,
+            String fromVersion, String toVersion, String createdByEmail, String description,
+            Long engineerId, String patchName, PatchDto.BuildSelection buildSelection) {
+        // 기존 본문에서 includeAllBuildVersions 사용처를 buildSelection 으로 통일.
+        // ...
+    }
+
+    public Patch generatePatch(
+            String projectId, Long fromVersionId, Long toVersionId, Long customerId,
+            String createdByEmail, String description, Long engineerId, String patchName,
+            PatchDto.BuildSelection buildSelection) {
+        // 동일.
+    }
 ```
-## 포함된 빌드 (Build files)
 
-WEB: 1.1.0.260428
-ENGINE:
-  - NC_SMS:        1.1.0.260428
-  - NC_FAULT_MS:   1.1.0.260427
-  - NC_INV:        포함 안 함
+> 두 진입점이 내부 헬퍼 (`copyReleaseFilesToOutput` 등) 를 호출할 때 인자 전달도 함께 정정.
 
-## 별도 적용 필요 — 핫픽스 (Hotfixes)
+- [ ] **Step 2: versions[] 루프 안의 빌드 자동 통째 복사 분기 제거**
 
-이 패치 범위(1.0.0 ~ 1.1.0) 안에 포함되지 않은 핫픽스가 있습니다.
-필요한 경우 버전 관리 화면에서 직접 다운로드/적용해 주세요.
+`copyReleaseFilesToOutput` (또는 versions[] 루프가 있는 메서드) 의 다음 블록 (commit `00ee8f8` 에서 추가됐음) 을 **제거**:
 
-  - 1.0.0.1
-  - 1.0.0.2
+```java
+//   if (v.isBuild()) {
+//       if (lastVersionIdForWeb == null && buildRootHasFiles(v, "web")) { ... }
+//       if (lastVersionIdForEngineAll == null && buildRootHasFiles(v, "engine")) { ... }
+//   }
 ```
 
-(섹션은 hotfixesInRange 가 비어있지 않을 때만 출력. 포함된 빌드는 buildSelection.enabled 일 때만.)
+및
 
-- [ ] **Step 2: 컴파일**
+```java
+//   if (version.isBuild()) {
+//       int copiedCount = copyBuildFilesFromFileSystem(version, outputDir);
+//       ...
+//       continue;
+//   }
+```
+
+대신 단순히 **빌드 버전이면 versions[] 루프에서 skip**:
+
+```java
+            for (ReleaseVersion version : versions) {
+                if (version.isBuild()) {
+                    continue;  // 빌드는 picker 입력 단계에서 별도 처리 (§5.3 Q-S2)
+                }
+                // 이하 base 버전 처리 (DB 카테고리 / WEB / ENGINE / ETC 의 ReleaseFile 행 기반 복사) 그대로
+                ...
+            }
+```
+
+또한 lastVersionIdForEngineAll 변수와 그에 의존하던 분기 (`if (lastVersionIdForEngineAll != null && ...)`) 를 제거하고 base 만의 ENGINE sub_category 분기 (`lastVersionIdByEngineSubCategory`) 만 남긴다.
+
+- [ ] **Step 3: 테스트 추가 / 확장**
+
+`PatchGenerationServiceTest.java` 에 (없으면 신규 생성하고) 다음 테스트 추가:
+
+```java
+@Test
+@DisplayName("buildSelection==null 이면 versions[] 루프에서 빌드 skip, outputDir 에 web/engine 없음")
+void nullBuildSelection_buildSkippedFromVersionsLoop() throws IOException {
+    // GIVEN: from~to 사이에 base 1개 + 빌드 1개. base 의 ReleaseFile 은 DB SQL 1개.
+    // (테스트 setup 은 기존 PatchGenerationServiceTest 패턴을 참고; 모킹은 ReleaseFile,
+    //  ReleaseVersionRepository, ReleaseVersionFileSystemService 를 그대로 쓴다.)
+
+    // WHEN: generatePatch(..., null /* buildSelection */) 호출
+
+    // THEN: outputDir 에 mariadb/ 또는 cratedb/ SQL 만 있고 web/, engine/, etc/ 디렉토리 없음.
+    //       releaseVersionRepository 는 base 의 ReleaseFile 만 조회하고 빌드의 ReleaseFile 조회는 호출되지 않음
+    //       (verify(releaseFileRepository, never()).findAllBy...(buildVersionId)).
+}
+
+@Test
+@DisplayName("buildSelection.enabled=false 면 빌드 미포함")
+void disabledBuildSelection_buildSkipped() throws IOException {
+    PatchDto.BuildSelection sel = new PatchDto.BuildSelection(false, null, java.util.List.of());
+    // 위와 동일한 검증.
+}
+```
+
+> 정확한 mock 셋업은 기존 PatchGenerationServiceTest 의 setup 헬퍼를 활용; 신규 파일이면 `@ExtendWith(MockitoExtension.class) + @TempDir` 패턴으로 작성.
+
+- [ ] **Step 4: 빌드 + 테스트 + 커밋 (Phase 2 + Task 8 단일 커밋)**
 
 ```
 cd release-manager-api
 sed -i 's/languageVersion = JavaLanguageVersion.of(17)/languageVersion = JavaLanguageVersion.of(21)/' build.gradle
-./gradlew compileJava 2>&1 | tail -10
+./gradlew compileJava compileTestJava 2>&1 | tail -10
+./gradlew test --tests "com.ts.rm.domain.patch.service.*" --tests "com.ts.rm.domain.releaseversion.service.*" 2>&1 | tail -15
 sed -i 's/languageVersion = JavaLanguageVersion.of(21)/languageVersion = JavaLanguageVersion.of(17)/' build.gradle
-grep -n "languageVersion" build.gradle
+grep -n "languageVersion" build.gradle | head -1
 ```
 
-- [ ] **Step 3: 커밋**
+기대: 컴파일 + 모든 테스트 PASS.
 
 ```
-git -C release-manager-api add src/main/java/com/ts/rm/domain/patch/service/PatchGenerationService.java
-git -C release-manager-api commit -m "feat: 패치 README 에 포함된 빌드/별도 적용 핫픽스 섹션 추가
+git -C release-manager-api add \
+    src/main/java/com/ts/rm/domain/patch/dto/PatchDto.java \
+    src/main/java/com/ts/rm/domain/patch/service/PatchService.java \
+    src/main/java/com/ts/rm/domain/patch/service/PatchGenerationService.java \
+    src/main/java/com/ts/rm/domain/patch/controller/PatchController.java \
+    src/main/java/com/ts/rm/domain/patch/controller/PatchControllerDocs.java \
+    src/test/java/com/ts/rm/domain/patch/service/PatchServiceValidationTest.java \
+    src/test/java/com/ts/rm/domain/patch/service/PatchGenerationServiceTest.java
+git -C release-manager-api commit -m "feat: 패치 생성 입출력을 buildSelection 으로 재배선
 
-운영자가 패치 ZIP 만 받아도 'WEB/엔진별 어떤 빌드가 들어갔는지' 와
-'이 범위에 핫픽스 N건이 있고 별도 적용해야 한다' 를 즉시 알 수 있도록
-README 에 명시."
+- PatchDto: includeAllBuildVersions 제거, BuildSelection / SelectedWeb /
+  SelectedEngine / IncludedBuilds / GenerateResponse 추가.
+- PatchService: generatePatchByVersion / generatePatch 시그니처를
+  PatchDto.BuildSelection 으로 교체, validateBuildSelection 정적 검증 추가.
+- PatchController + Docs: 새 인자 사용으로 정정.
+- PatchGenerationService: versions[] 루프에서 빌드 skip. 자동 통째 복사
+  분기 (commit 00ee8f8 에서 임시로 들어갔던) 폐기. 빌드 처리는 후속 task
+  에서 picker 입력 별도 단계로 추가될 예정."
 ```
 
 ---
 
-## Phase 4 — 프론트엔드 타입 / API / 쿼리
+### Task 9: PatchGenerationService — picker 입력 별도 단계 (web/{engineName}/etc 부분 복사)
 
-### Task 11: FE — 빌드/패치 타입 추가
+**Files:**
+- Modify: `release-manager-api/src/main/java/com/ts/rm/domain/patch/service/PatchGenerationService.java`
+- Modify: `release-manager-api/src/test/java/com/ts/rm/domain/patch/service/PatchGenerationServiceTest.java`
+
+- [ ] **Step 1: 테스트 추가**
+
+`PatchGenerationServiceTest.java` 에 추가:
+
+```java
+@Test
+@DisplayName("buildSelection.enabled=true: 선택된 WEB / engine/{engineName} / etc 만 복사")
+void pickerSelection_partialCopy() throws IOException {
+    // GIVEN: 빌드 v260427 의 web/foo.war, engine/NC_SMS/x.jar, engine/NC_FAULT_MS/y.jar, etc/note.txt
+    //        빌드 v260428 의 web/foo.war, engine/NC_SMS/x.jar, engine/NC_FAULT_MS/y.jar, etc/note.txt
+    //        picker: WEB=v260428, NC_SMS=v260427 (NC_FAULT_MS 미선택)
+
+    // WHEN: generatePatch(..., new BuildSelection(true, new SelectedWeb(buildId(v260428)),
+    //          List.of(new SelectedEngine("NC_SMS", buildId(v260427)))))
+
+    // THEN: outputDir 에:
+    //   web/foo.war       (v260428)
+    //   engine/NC_SMS/x.jar (v260427)
+    //   etc/note.txt      (Q-S3 로 v260428 의 내용 — Task 10 에서 검증, 본 task 에서는 존재 여부만)
+    // outputDir 에 engine/NC_FAULT_MS 디렉토리 없음 (미선택).
+}
+```
+
+- [ ] **Step 2: 테스트 실패 확인**
+
+```
+sed -i 's/languageVersion = JavaLanguageVersion.of(17)/languageVersion = JavaLanguageVersion.of(21)/' build.gradle
+./gradlew test --tests "com.ts.rm.domain.patch.service.PatchGenerationServiceTest.pickerSelection_partialCopy" 2>&1 | tail -25
+sed -i 's/languageVersion = JavaLanguageVersion.of(21)/languageVersion = JavaLanguageVersion.of(17)/' build.gradle
+```
+
+기대: FAIL — picker 분기가 아직 없음.
+
+- [ ] **Step 3: PatchGenerationService 에 picker 단계 추가**
+
+versions[] 루프 직후, 패치 디렉토리 정리 직전에 다음 단계 추가:
+
+```java
+            // ---- buildSelection 별도 단계 (spec §5.1 / Q-S2) ----
+            if (buildSelection != null && buildSelection.enabled()) {
+                applyBuildSelection(outputDir, buildSelection);
+            }
+```
+
+그리고 같은 클래스에 헬퍼 메서드 추가:
+
+```java
+    /**
+     * picker 입력에 따라 빌드 디렉토리에서 web/, engine/{engineName}/, etc/ 를 outputDir 로 복사.
+     *
+     * <p>spec §5.1 / Q-S3: ETC 는 selectedBuildIds 의 합집합을 buildVersion 오름차순으로 순차 복사하여
+     * 같은 경로 충돌 시 큰 buildVersion 의 내용이 살아남게 한다.
+     */
+    private void applyBuildSelection(Path outputDir, PatchDto.BuildSelection sel) throws IOException {
+        java.util.Set<Long> selectedBuildIds = new java.util.LinkedHashSet<>();
+
+        // a. WEB 부분 복사
+        if (sel.web() != null) {
+            ReleaseVersion bv = loadBuildVersion(sel.web().buildVersionId());
+            Path src = fileSystemService.resolveBuildBasePath(bv.getBuildBaseVersion(), bv.getBuildVersion()).resolve("web");
+            copyDirectoryReplaceExisting(src, outputDir.resolve("web"));
+            selectedBuildIds.add(bv.getReleaseVersionId());
+        }
+
+        // b. ENGINE 부분 복사
+        if (sel.engines() != null) {
+            for (PatchDto.SelectedEngine se : sel.engines()) {
+                ReleaseVersion bv = loadBuildVersion(se.buildVersionId());
+                Path src = fileSystemService.resolveBuildBasePath(bv.getBuildBaseVersion(), bv.getBuildVersion())
+                        .resolve("engine").resolve(se.engineName());
+                copyDirectoryReplaceExisting(src, outputDir.resolve("engine").resolve(se.engineName()));
+                selectedBuildIds.add(bv.getReleaseVersionId());
+            }
+        }
+
+        // c. ETC 동행: buildVersion 오름차순 순차 복사 (REPLACE_EXISTING)
+        java.util.List<ReleaseVersion> sortedByBuildVersion = selectedBuildIds.stream()
+                .map(this::loadBuildVersion)
+                .sorted(java.util.Comparator.comparingInt(ReleaseVersion::getBuildVersion))
+                .toList();
+        for (ReleaseVersion bv : sortedByBuildVersion) {
+            Path src = fileSystemService.resolveBuildBasePath(bv.getBuildBaseVersion(), bv.getBuildVersion()).resolve("etc");
+            if (Files.isDirectory(src)) {
+                copyDirectoryReplaceExisting(src, outputDir.resolve("etc"));
+            }
+        }
+    }
+
+    private ReleaseVersion loadBuildVersion(Long buildVersionId) {
+        return releaseVersionRepository.findById(buildVersionId)
+                .filter(ReleaseVersion::isBuild)
+                .orElseThrow(() -> new BusinessException(
+                        ErrorCode.INVALID_INPUT_VALUE,
+                        "선택한 빌드 버전을 찾을 수 없습니다: " + buildVersionId));
+    }
+
+    /**
+     * source 디렉토리 전체를 target 으로 복사 (REPLACE_EXISTING).
+     * source 가 존재하지 않으면 no-op.
+     */
+    private void copyDirectoryReplaceExisting(Path source, Path target) throws IOException {
+        if (!Files.isDirectory(source)) {
+            return;
+        }
+        try (var stream = Files.walk(source)) {
+            stream.forEach(p -> {
+                try {
+                    Path rel = source.relativize(p);
+                    Path dst = target.resolve(rel.toString());
+                    if (Files.isDirectory(p)) {
+                        Files.createDirectories(dst);
+                    } else {
+                        Files.createDirectories(dst.getParent());
+                        Files.copy(p, dst, StandardCopyOption.REPLACE_EXISTING);
+                    }
+                } catch (IOException e) {
+                    throw new BuildFileCopyException(p, e);
+                }
+            });
+        } catch (BuildFileCopyException e) {
+            throw new IOException("빌드 파일 복사 실패: " + e.sourcePath, e);
+        }
+    }
+```
+
+> 기존 `copyBuildFilesFromFileSystem` 헬퍼는 호출처가 사라졌으므로 제거하거나, 위 `copyDirectoryReplaceExisting` 으로 일원화한다. `BuildFileCopyException` 내부 클래스는 그대로 보존 (위 헬퍼가 사용).
+
+- [ ] **Step 4: 테스트 통과 확인**
+
+```
+sed -i 's/languageVersion = JavaLanguageVersion.of(17)/languageVersion = JavaLanguageVersion.of(21)/' build.gradle
+./gradlew test --tests "com.ts.rm.domain.patch.service.PatchGenerationServiceTest" 2>&1 | tail -15
+sed -i 's/languageVersion = JavaLanguageVersion.of(21)/languageVersion = JavaLanguageVersion.of(17)/' build.gradle
+```
+
+기대: 모든 PatchGenerationServiceTest PASS.
+
+- [ ] **Step 5: 커밋**
+
+```
+git -C release-manager-api add src/main/java/com/ts/rm/domain/patch/service/PatchGenerationService.java src/test/java/com/ts/rm/domain/patch/service/PatchGenerationServiceTest.java
+git -C release-manager-api commit -m "feat: PatchGenerationService 에 picker 입력 별도 복사 단계 추가
+
+versions[] 루프 직후 buildSelection.enabled=true 인 경우 applyBuildSelection
+을 호출하여 web/, engine/{engineName}/, etc/ 를 빌드 디렉토리에서 직접
+부분 복사. ETC 는 selectedBuildIds 오름차순 순차 복사로 큰 buildVersion 이
+같은 경로 충돌 시 살아남게 한다."
+```
+
+---
+
+### Task 10: ETC 충돌 검증 + 응답 (`includedBuilds`, `hotfixesInRange`, `isBuildOnly`) 채우기
+
+**Files:**
+- Modify: `release-manager-api/src/main/java/com/ts/rm/domain/patch/service/PatchGenerationService.java`
+- Modify: `release-manager-api/src/main/java/com/ts/rm/domain/patch/service/PatchService.java`
+- Modify: `release-manager-api/src/main/java/com/ts/rm/domain/patch/controller/PatchController.java`
+- Modify: `release-manager-api/src/test/java/com/ts/rm/domain/patch/service/PatchGenerationServiceTest.java`
+
+- [ ] **Step 1: 테스트 추가**
+
+```java
+@Test
+@DisplayName("Q-S3: 두 빌드 모두 etc/note.txt 가 있으면 큰 buildVersion 의 내용이 살아남음")
+void etcConflict_largerBuildVersionWins() throws IOException {
+    // GIVEN: 빌드 v260427/etc/note.txt = "old", 빌드 v260428/etc/note.txt = "new"
+    //        picker: NC_SMS=v260427, NC_FAULT_MS=v260428 (selectedBuildIds = {v260427, v260428})
+
+    // WHEN: generatePatch(..., buildSelection)
+
+    // THEN: outputDir/etc/note.txt 의 내용이 "new" 임 (v260428 의 내용).
+}
+
+@Test
+@DisplayName("응답: includedBuilds, hotfixesInRange, isBuildOnly 채워짐")
+void responseFields_populated() throws IOException {
+    // GIVEN: from!=to 인 표준 패치, 범위 안에 핫픽스 1개, picker 로 WEB + 엔진 1개 선택
+
+    // WHEN: generatePatch(...)
+
+    // THEN: 반환된 PatchGenerationService 결과에서:
+    //   includedBuilds.web().fullVersion()   == "1.1.0.260428"
+    //   includedBuilds.engines() 의 size == 1 + engineName, fullVersion 매칭
+    //   hotfixesInRange.size() == 1 + 핫픽스 메타정보 매칭
+    //   isBuildOnly == false (from != to)
+}
+```
+
+- [ ] **Step 2: 테스트 실패 확인**
+
+```
+sed -i 's/languageVersion = JavaLanguageVersion.of(17)/languageVersion = JavaLanguageVersion.of(21)/' build.gradle
+./gradlew test --tests "com.ts.rm.domain.patch.service.PatchGenerationServiceTest" 2>&1 | tail -25
+sed -i 's/languageVersion = JavaLanguageVersion.of(21)/languageVersion = JavaLanguageVersion.of(17)/' build.gradle
+```
+
+기대: 두 신규 테스트 FAIL — `includedBuilds` 등 응답 필드 미채움.
+
+- [ ] **Step 3: PatchGenerationService 가 풍부한 결과 record 를 반환하도록 변경**
+
+내부 record 추가 (`Patch` + 응답 보강 필드):
+
+```java
+    public record GenerateResult(
+            Patch patch,
+            boolean isBuildOnly,
+            java.util.List<PatchDto.HotfixInRangeInfo> hotfixesInRange,
+            PatchDto.IncludedBuilds includedBuilds
+    ) {}
+```
+
+`generatePatch(...)` 와 `generatePatchByVersion(...)` 의 반환 타입을 `Patch` → `GenerateResult` 로 변경하고, 끝부분에서 보강 필드를 채워 반환:
+
+```java
+        boolean isBuildOnly = (fromBaseId.equals(toBaseId));
+        java.util.List<PatchDto.HotfixInRangeInfo> hotfixes = releaseVersionRepository
+                .findHotfixesInBaseRange(projectId, fromBaseId, toBaseId, customerId).stream()
+                .map(h -> new PatchDto.HotfixInRangeInfo(h.getReleaseVersionId(), h.getFullVersion()))
+                .toList();
+        PatchDto.IncludedBuilds includedBuilds = buildIncludedBuilds(buildSelection);
+        return new GenerateResult(patch, isBuildOnly, hotfixes, includedBuilds);
+```
+
+`buildIncludedBuilds` 헬퍼 추가:
+
+```java
+    private PatchDto.IncludedBuilds buildIncludedBuilds(PatchDto.BuildSelection sel) {
+        if (sel == null || !sel.enabled()) {
+            return new PatchDto.IncludedBuilds(null, java.util.List.of());
+        }
+        PatchDto.IncludedWeb web = null;
+        if (sel.web() != null) {
+            ReleaseVersion bv = loadBuildVersion(sel.web().buildVersionId());
+            web = new PatchDto.IncludedWeb(bv.getReleaseVersionId(), bv.getFullVersion());
+        }
+        java.util.List<PatchDto.IncludedEngine> engines = new java.util.ArrayList<>();
+        if (sel.engines() != null) {
+            for (PatchDto.SelectedEngine se : sel.engines()) {
+                ReleaseVersion bv = loadBuildVersion(se.buildVersionId());
+                engines.add(new PatchDto.IncludedEngine(se.engineName(), bv.getReleaseVersionId(), bv.getFullVersion()));
+            }
+        }
+        return new PatchDto.IncludedBuilds(web, engines);
+    }
+```
+
+- [ ] **Step 4: PatchService / PatchController 에서 결과 매핑 정정**
+
+`PatchService.generatePatchByVersion` / `generatePatch` 의 반환 타입을 `Patch` → `PatchGenerationService.GenerateResult` 로 교체. `PatchController` 의 표준 패치 생성 핸들러를 다음과 같이 정정:
+
+```java
+        PatchGenerationService.GenerateResult result = patchService.generatePatchByVersion(
+                request.projectId(), request.type(), request.customerId(),
+                request.fromVersion(), request.toVersion(),
+                request.createdByEmail(), request.description(),
+                request.assigneeId(), request.patchName(),
+                request.buildSelection());
+
+        PatchDto.GenerateResponse body = new PatchDto.GenerateResponse(
+                result.patch().getPatchId(),
+                result.patch().getPatchName(),
+                result.patch().getOutputPath(),
+                result.isBuildOnly(),
+                result.hotfixesInRange(),
+                result.includedBuilds());
+
+        return ResponseEntity.ok(ApiResponse.success(body));
+```
+
+> `PatchControllerDocs` 의 응답 타입도 `PatchDto.GenerateResponse` 로 정정.
+
+- [ ] **Step 5: 빌드 + 테스트 + 커밋**
+
+```
+cd release-manager-api
+sed -i 's/languageVersion = JavaLanguageVersion.of(17)/languageVersion = JavaLanguageVersion.of(21)/' build.gradle
+./gradlew test --tests "com.ts.rm.domain.patch.*" --tests "com.ts.rm.domain.releaseversion.*" 2>&1 | tail -15
+./gradlew clean build -x test 2>&1 | tail -10
+sed -i 's/languageVersion = JavaLanguageVersion.of(21)/languageVersion = JavaLanguageVersion.of(17)/' build.gradle
+grep -n "languageVersion" build.gradle | head -1
+```
+
+기대: 모든 patch / releaseversion 테스트 PASS + `BUILD SUCCESSFUL` + line 14 = `JavaLanguageVersion.of(17)`.
+
+```
+git -C release-manager-api add \
+    src/main/java/com/ts/rm/domain/patch/service/PatchGenerationService.java \
+    src/main/java/com/ts/rm/domain/patch/service/PatchService.java \
+    src/main/java/com/ts/rm/domain/patch/controller/PatchController.java \
+    src/main/java/com/ts/rm/domain/patch/controller/PatchControllerDocs.java \
+    src/test/java/com/ts/rm/domain/patch/service/PatchGenerationServiceTest.java
+git -C release-manager-api commit -m "feat: 패치 생성 응답에 includedBuilds / hotfixesInRange / isBuildOnly 추가
+
+PatchGenerationService 가 GenerateResult record 를 반환하도록 변경하여 응답
+보강 정보 (포함된 WEB/엔진 빌드, 범위 안의 핫픽스, build-only 여부) 를 함께
+전달. PatchController 가 이를 PatchDto.GenerateResponse 로 매핑하여
+ApiResponse 로 래핑."
+```
+
+---
+
+## Phase 4 — 프론트엔드
+
+### Task 11: 엔티티 타입 추가 (releases + patches)
 
 **Files:**
 - Modify: `release-manager-web/src/entities/releases/release/model/types.ts`
 - Modify: `release-manager-web/src/entities/patches/patch/model/types.ts`
 
-- [ ] **Step 1: releases types 에 BuildCandidate / EngineGroup / BuildsInRangeResponse 추가**
+- [ ] **Step 1: releases 엔티티 타입 추가**
 
-`release/model/types.ts` 의 끝에 추가:
+`release-manager-web/src/entities/releases/release/model/types.ts` 끝에 추가:
 
 ```ts
-/** 패치 picker 용 빌드 후보 */
+// ---- builds-in-range API ----
+
 export interface BuildCandidate {
   buildVersionId: number
   fullVersion: string
-  buildVersion: number
-  createdAt: string | null
+  createdAt: string
   isLatest: boolean
 }
 
-/** 엔진별 후보 그룹 */
 export interface EngineGroup {
   engineName: string
   candidates: BuildCandidate[]
 }
 
-/** 범위 내 핫픽스 안내 */
-export interface HotfixInRange {
+export interface HotfixInRangeInfo {
   versionId: number
   fullVersion: string
   hotfixVersion: number
 }
 
-/** 패치 picker 후보 응답 (백엔드 BuildsInRangeResponse) */
 export interface BuildsInRangeResponse {
   web: BuildCandidate[]
   engines: EngineGroup[]
-  hotfixesInRange: HotfixInRange[]
+  hotfixesInRange: HotfixInRangeInfo[]
 }
 ```
 
-- [ ] **Step 2: patch types 에 BuildSelection 추가 + GenerateRequest 변경**
+- [ ] **Step 2: patches 엔티티 타입 변경**
 
-`patches/patch/model/types.ts` 변경:
+`release-manager-web/src/entities/patches/patch/model/types.ts` 의 `GenerateRequest` 에서 `includeAllBuildVersions` 를 제거하고 `buildSelection` 를 추가, 그리고 응답 타입 추가:
 
 ```ts
-/** WEB 빌드 선택 (null = 포함 안 함) */
-export interface WebSelection {
+export interface SelectedWeb {
   buildVersionId: number
 }
 
-/** 엔진별 빌드 선택 */
-export interface EngineSelection {
+export interface SelectedEngine {
   engineName: string
   buildVersionId: number
 }
 
-/** 빌드 파일 선택 (toggle ON 시) */
 export interface BuildSelection {
   enabled: boolean
-  web: WebSelection | null
-  engines: EngineSelection[]
+  web: SelectedWeb | null
+  engines: SelectedEngine[]
 }
 
-export interface CumulativePatchGenerateRequest {
+export interface GenerateRequest {
   projectId: string
-  type: 'standard' | 'custom'
-  customerId?: number
+  type: string
+  customerId?: number | null
   fromVersion: string
   toVersion: string
   createdByEmail: string
-  assigneeId?: number
   description?: string
+  assigneeId?: number
   patchName?: string
-  /** 토글 OFF 또는 enabled=false 면 DB only */
-  buildSelection?: BuildSelection
+  buildSelection?: BuildSelection | null
 }
-```
 
-기존 `includeAllBuildVersions` 필드 제거.
+export interface IncludedWeb {
+  buildVersionId: number
+  fullVersion: string
+}
 
-또한 `CumulativePatchDetail` 에 추가:
+export interface IncludedEngine {
+  engineName: string
+  buildVersionId: number
+  fullVersion: string
+}
 
-```ts
-  isBuildOnly?: boolean
-  hotfixesInRange?: HotfixInRange[]
-  includedBuilds?: {
-    web: WebSelection | null
-    engines: EngineSelection[]
-  }
-```
+export interface IncludedBuilds {
+  web: IncludedWeb | null
+  engines: IncludedEngine[]
+}
 
-`HotfixInRange` 는 releases types 에서 import:
+export interface PatchHotfixInRangeInfo {
+  versionId: number
+  fullVersion: string
+}
 
-```ts
-import type { HotfixInRange } from '@/entities/releases/release/model/types'
+export interface GenerateResponse {
+  patchId: number
+  patchName: string
+  outputPath: string
+  isBuildOnly: boolean
+  hotfixesInRange: PatchHotfixInRangeInfo[]
+  includedBuilds: IncludedBuilds
+}
 ```
 
 - [ ] **Step 3: type-check**
 
 ```
-cd release-manager-web && npm run type-check 2>&1 | tail -20
+cd release-manager-web
+npm run type-check 2>&1 | tail -25
 ```
 
-기대: PASS.
-
-- [ ] **Step 4: 커밋**
-
-```
-git -C release-manager-web add src/entities/releases/release/model/types.ts src/entities/patches/patch/model/types.ts
-git -C release-manager-web commit -m "feat: 패치 picker 용 BuildSelection / BuildsInRangeResponse 타입 추가
-
-릴리즈 도메인에 BuildCandidate/EngineGroup/HotfixInRange,
-패치 도메인에 WebSelection/EngineSelection/BuildSelection.
-CumulativePatchGenerateRequest 의 includeAllBuildVersions 는
-buildSelection 으로 교체."
-```
+기대: `includeAllBuildVersions` 사용처 (PatchesPage / PatchCreateForm / PatchGenerateFormCard) 에서 type 에러. **이 에러는 Task 13~16 에서 해소된다. 본 task 단독 커밋은 보류.**
 
 ---
 
-### Task 12: FE — `getBuildsInRange` API + 훅
+### Task 12: `useBuildsInRange` 훅 + `releaseApi.getBuildsInRange` 추가
 
 **Files:**
 - Modify: `release-manager-web/src/entities/releases/release/api/releaseApi.ts`
 - Modify: `release-manager-web/src/entities/releases/release/queries/releaseQueries.ts`
 
-- [ ] **Step 1: releaseApi.ts 에 메서드 추가**
+- [ ] **Step 1: api 함수 추가**
+
+`releaseApi.ts` 에 추가 (기존 호출 패턴, 즉 `axios.get` 래퍼를 그대로 사용):
 
 ```ts
-import type { BuildsInRangeResponse } from '../model/types'
+import type { BuildsInRangeResponse } from "../model/types"
 
-// 기존 ENDPOINTS 객체 안에 추가:
-const ENDPOINTS = {
-  ...,
-  buildsInRange: '/api/releases/versions/builds-in-range',
-} as const
+export const releaseApi = {
+  // ...기존 메서드...
 
-// 기존 export 객체 안에 추가:
-getBuildsInRange: async (params: {
-  projectId: string
-  releaseType: 'STANDARD' | 'CUSTOM'
-  customerCode?: string | null
-  fromVersion: string
-  toVersion: string
-}): Promise<BuildsInRangeResponse> => {
-  const qs = new URLSearchParams()
-  qs.append('projectId', params.projectId)
-  qs.append('releaseType', params.releaseType)
-  if (params.customerCode) qs.append('customerCode', params.customerCode)
-  qs.append('fromVersion', params.fromVersion)
-  qs.append('toVersion', params.toVersion)
-  return await apiClient.get<BuildsInRangeResponse>(
-    `${ENDPOINTS.buildsInRange}?${qs.toString()}`
-  )
-},
+  getBuildsInRange: async (
+    projectId: string,
+    fromVersionId: number,
+    toVersionId: number,
+    customerId?: number | null,
+  ): Promise<BuildsInRangeResponse> => {
+    const params: Record<string, string | number> = {
+      projectId,
+      fromVersionId,
+      toVersionId,
+    }
+    if (customerId != null) params.customerId = customerId
+    const response = await axiosInstance.get("/api/releases/versions/builds-in-range", { params })
+    return response.data.data
+  },
+}
 ```
 
-- [ ] **Step 2: releaseQueries.ts 에 useBuildsInRange 추가**
+> 기존 `releaseApi` 의 다른 메서드 시그니처를 정확히 모른다면 파일을 열어 동일한 기존 패턴 (`response.data.data` 추출 등) 을 그대로 따른다.
+
+- [ ] **Step 2: 훅 추가**
+
+`releaseQueries.ts` 에 추가:
 
 ```ts
-import type { BuildsInRangeResponse } from '../model/types'
-
-// releaseKeys 확장
-export const releaseKeys = {
-  ...,
-  buildsInRange: (params: {
-    projectId: string
-    releaseType: 'STANDARD' | 'CUSTOM'
-    customerCode?: string | null
-    fromVersion: string
-    toVersion: string
-  }) => [...releaseKeys.all, 'buildsInRange', params] as const,
-}
+import { useQuery } from "@tanstack/react-query"
+import { releaseApi } from "../api/releaseApi"
 
 export const useBuildsInRange = (
-  params: {
-    projectId: string
-    releaseType: 'STANDARD' | 'CUSTOM'
-    customerCode?: string | null
-    fromVersion: string
-    toVersion: string
-  } | null,
-  enabled = true,
-) =>
-  useQuery({
-    queryKey: params ? releaseKeys.buildsInRange(params) : ['releases', 'buildsInRange', 'noop'],
-    queryFn: () => releaseApi.getBuildsInRange(params!),
-    enabled: enabled && !!params && !!params.fromVersion && !!params.toVersion,
+  projectId: string | null,
+  fromVersionId: number | null,
+  toVersionId: number | null,
+  customerId?: number | null,
+) => {
+  return useQuery({
+    queryKey: ["builds-in-range", projectId, fromVersionId, toVersionId, customerId ?? null],
+    queryFn: () => releaseApi.getBuildsInRange(projectId!, fromVersionId!, toVersionId!, customerId),
+    enabled: !!projectId && !!fromVersionId && !!toVersionId,
   })
+}
 ```
 
 - [ ] **Step 3: type-check**
 
 ```
-cd release-manager-web && npm run type-check 2>&1 | tail -10
+cd release-manager-web
+npm run type-check 2>&1 | tail -10
 ```
 
-기대: PASS.
+기대: 본 task 의 변경분만으로는 새 에러가 추가되지 않음. (Task 11 의 잔존 에러는 그대로.)
 
-- [ ] **Step 4: 커밋**
-
-```
-git -C release-manager-web add src/entities/releases/release/api/releaseApi.ts src/entities/releases/release/queries/releaseQueries.ts
-git -C release-manager-web commit -m "feat: useBuildsInRange 훅 + getBuildsInRange API 추가
-
-picker 가 현재 from/to 범위의 WEB/ENGINE 빌드 후보와 핫픽스 안내를
-조회하는 진입점."
-```
+> 본 task 도 단독 커밋은 보류. Task 13 ~ 16 까지 한 번에 묶어 커밋.
 
 ---
 
-## Phase 5 — 프론트엔드 UI
-
-### Task 13: FE — 패치 셀렉터 base-only 필터링
+### Task 13: 셀렉터 base-only 필터 — `PatchesPage.getVersionsFromTree`
 
 **Files:**
-- Modify: `release-manager-web/src/pages/patches/PatchesPage.tsx` (`getVersionsFromTree` 헬퍼)
+- Modify: `release-manager-web/src/pages/patches/PatchesPage.tsx`
 
-현재 `getVersionsFromTree` 는 빌드/핫픽스 fullVersion 까지 노출. 본 task 에서 base 만 노출하도록 필터.
+- [ ] **Step 1: `getVersionsFromTree` 가 base 만 반환하도록 정정**
 
-- [ ] **Step 1: 헬퍼 변경**
-
-`PatchesPage.tsx` line 98 근방의 `getVersionsFromTree` 본문에서 빌드/핫픽스 행을 추가하던 분기를 제거. 결과 배열은 base 버전(`hotfixVersion === 0 && (buildVersion ?? 0) === 0`) 만 포함.
+`PatchesPage.tsx` 의 `getVersionsFromTree` 함수에서 빌드 (`buildVersion > 0`) / 핫픽스 (`hotfixVersion > 0`) 행을 제외:
 
 ```ts
-// 파일 트리에서 base 만 추출
-function getVersionsFromTree(tree: ReleaseTreeResponse | undefined): VersionSelectOption[] {
-  if (!tree) return []
-  const out: VersionSelectOption[] = []
-  for (const group of tree.majorMinorGroups) {
-    for (const v of group.versions) {
-      // 빌드/핫픽스는 picker 와 별도 화면에서 다룬다 → 셀렉터에는 base 만
-      out.push({ versionId: v.versionId, version: v.version, isApproved: v.isApproved })
-    }
-  }
-  // 정렬: major.minor.patch 4-part 보정 제거. base 만이라 3-part 정렬로 충분.
-  return out.sort((a, b) => compareBaseVersion(b.version, a.version))
+function getVersionsFromTree(treeData: ReleaseVersionTreeNode[] | undefined): VersionOption[] {
+  if (!treeData) return []
+  // base 만 노출 (빌드/핫픽스 제외)
+  return flatten(treeData)
+    .filter((node) => (node.buildVersion ?? 0) === 0 && (node.hotfixVersion ?? 0) === 0)
+    .map(toVersionOption)
 }
 ```
 
-`compareBaseVersion` 헬퍼는 기존 `compareVersionStrings` 가 있으면 그것을 사용. 없으면 inline:
+> 정확한 트리 구조 (필드명) 는 기존 코드 패턴에 맞게 유지. 이 step 의 핵심은 buildVersion=0 + hotfixVersion=0 행만 통과시키는 것.
+
+- [ ] **Step 2: `formData.includeAllBuildVersions` 사용처 제거 + `buildSelection` 초기값 추가**
+
+`PatchesPage.tsx` 에서 폼 초기값 / dispatch 부분의 `includeAllBuildVersions: false` / `includeAllBuildVersions: standardFormData.includeAllBuildVersions || undefined` 등을 제거하고 `buildSelection: null` 로 대체:
 
 ```ts
-function compareBaseVersion(a: string, b: string): number {
-  const pa = a.split('.').map(Number)
-  const pb = b.split('.').map(Number)
-  for (let i = 0; i < 3; i++) {
-    if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) - (pb[i] ?? 0)
-  }
-  return 0
+const initialFormData: PatchCreateFormData = {
+  // ...기존 필드...
+  buildSelection: null,
+}
+
+// generate request 빌드 시:
+const request: GenerateRequest = {
+  // ...기존 필드...
+  buildSelection: standardFormData.buildSelection ?? null,
 }
 ```
 
-- [ ] **Step 2: type-check**
+- [ ] **Step 3: 핫픽스 안내 toast 준비 — 응답 hotfixesInRange 처리 분기 추가**
+
+generate 성공 콜백에서 응답의 `hotfixesInRange` 가 비어있지 않으면 toast 표시:
+
+```ts
+onSuccess: (data) => {
+  // ...기존 처리...
+  if (data.hotfixesInRange.length > 0) {
+    toast.warning(
+      `이 범위에 핫픽스 ${data.hotfixesInRange.length}건이 있습니다. ` +
+      `핫픽스는 버전 관리 화면에서 별도로 다운로드/적용해 주세요. (` +
+      `${data.hotfixesInRange.map((h) => h.fullVersion).join(", ")})`,
+    )
+  }
+},
+```
+
+> 기존 toast 라이브러리 (sonner / react-hot-toast 등) 는 프로젝트 패턴에 맞춰 사용.
+
+- [ ] **Step 4: type-check + 단독 커밋 보류**
 
 ```
-cd release-manager-web && npm run type-check 2>&1 | tail -10
+cd release-manager-web
+npm run type-check 2>&1 | tail -10
 ```
 
-- [ ] **Step 3: 커밋**
-
-```
-git -C release-manager-web add src/pages/patches/PatchesPage.tsx
-git -C release-manager-web commit -m "refactor: 패치 셀렉터에서 핫픽스/빌드 제외, base 버전만 노출
-
-빌드는 picker, 핫픽스는 별도 다운로드. 셀렉터의 책임은 base 시퀀스 입력."
-```
+기대: 본 task 의 변경분으로 셀렉터 / dispatch 측 에러는 해소되지만 PatchCreateForm / PatchGenerateFormCard 에서 여전히 `formData.includeAllBuildVersions` 참조가 남아 type 에러. Task 14~16 까지 묶어 한 번에 커밋.
 
 ---
 
-### Task 14: FE — `BuildPickerSection` 컴포넌트 신규
+### Task 14: BuildPickerSection 컴포넌트 신규
 
 **Files:**
 - Create: `release-manager-web/src/features/patches/patch-management/ui/BuildPickerSection.tsx`
-- Create: `release-manager-web/src/features/patches/patch-management/ui/BuildPickerEngineRow.tsx`
 
-- [ ] **Step 1: BuildPickerSection.tsx 작성**
+- [ ] **Step 1: 컴포넌트 신규 작성**
 
 ```tsx
-import { useEffect, useMemo } from 'react'
-import { Hammer } from 'lucide-react'
-
+import * as React from "react"
+import { RadioGroup, RadioGroupItem } from "@/shared/ui/radio-group"  // shadcn-ui 경로 (프로젝트 alias 에 맞게 조정)
+import { Label } from "@/shared/ui/label"
+import { Button } from "@/shared/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/shared/ui/dropdown-menu"
 import type {
   BuildsInRangeResponse,
   BuildCandidate,
-} from '@/entities/releases/release/model/types'
-import type { BuildSelection } from '@/entities/patches/patch/model/types'
+  EngineGroup,
+} from "@/entities/releases/release/model/types"
+import type { BuildSelection, SelectedEngine } from "@/entities/patches/patch/model/types"
 
-import { Badge } from '@/shared/ui/badge'
-import { Button } from '@/shared/ui/button'
-import { RadioGroup, RadioGroupItem } from '@/shared/ui/radio-group'
-import { Label } from '@/shared/ui/label'
-
-import { BuildPickerEngineRow } from './BuildPickerEngineRow'
-
-interface Props {
+interface BuildPickerSectionProps {
   data: BuildsInRangeResponse
   value: BuildSelection
   onChange: (next: BuildSelection) => void
+  disabled?: boolean
 }
 
-const NONE = '__NONE__'  // "포함 안 함" sentinel
+const NONE = "__NONE__"
 
-export function BuildPickerSection({ data, value, onChange }: Props) {
-  // value 가 enabled=false 거나 비어있을 때 자동 preselect
-  useEffect(() => {
-    if (!value.enabled) return
-    const filledWeb =
-      value.web ?? (data.web[0] ? { buildVersionId: data.web[0].buildVersionId } : null)
-    const filledEngines = data.engines.map((g) => {
-      const existing = value.engines.find((e) => e.engineName === g.engineName)
-      if (existing) return existing
-      const latest = g.candidates[0]
-      return latest
-        ? { engineName: g.engineName, buildVersionId: latest.buildVersionId }
-        : null
-    }).filter(Boolean) as BuildSelection['engines']
-
-    // 외부에서 받은 값이 이미 채워져 있으면 변경 안 함
-    if (
-      filledWeb?.buildVersionId === value.web?.buildVersionId &&
-      filledEngines.length === value.engines.length &&
-      filledEngines.every((e, i) =>
-        e.engineName === value.engines[i]?.engineName &&
-        e.buildVersionId === value.engines[i]?.buildVersionId)
-    ) return
-    onChange({ ...value, web: filledWeb, engines: filledEngines })
-  }, [data, value, onChange])
-
-  const handleWebChange = (raw: string) => {
-    if (raw === NONE) onChange({ ...value, web: null })
-    else onChange({ ...value, web: { buildVersionId: Number(raw) } })
+export function BuildPickerSection({ data, value, onChange, disabled }: BuildPickerSectionProps) {
+  const setWeb = (buildVersionId: number | null) => {
+    onChange({ ...value, web: buildVersionId == null ? null : { buildVersionId } })
   }
-
-  const handleEngineChange = (engineName: string, buildVersionId: number | null) => {
+  const setEngine = (engineName: string, buildVersionId: number | null) => {
     const others = value.engines.filter((e) => e.engineName !== engineName)
-    if (buildVersionId == null) onChange({ ...value, engines: others })
-    else onChange({ ...value, engines: [...others, { engineName, buildVersionId }] })
-  }
-
-  const selectAllLatest = () => {
     onChange({
-      enabled: true,
-      web: data.web[0] ? { buildVersionId: data.web[0].buildVersionId } : null,
-      engines: data.engines
-        .map((g) => g.candidates[0]
-          ? { engineName: g.engineName, buildVersionId: g.candidates[0].buildVersionId }
-          : null)
-        .filter(Boolean) as BuildSelection['engines'],
+      ...value,
+      engines: buildVersionId == null ? others : [...others, { engineName, buildVersionId }],
     })
   }
-
-  const clearAll = () => onChange({ enabled: true, web: null, engines: [] })
-
-  const webValue = value.web ? String(value.web.buildVersionId) : NONE
-
-  if (data.web.length === 0 && data.engines.length === 0) {
-    return (
-      <div className="text-xs text-muted-foreground italic px-2 py-3">
-        이 범위에 빌드 후보가 없습니다.
-      </div>
-    )
+  const selectAllLatest = () => {
+    const web: BuildSelection["web"] =
+      data.web.length > 0 ? { buildVersionId: data.web[0].buildVersionId } : null
+    const engines: SelectedEngine[] = data.engines.map((g) => ({
+      engineName: g.engineName,
+      buildVersionId: g.candidates[0].buildVersionId,
+    }))
+    onChange({ ...value, web, engines })
   }
+  const clearAll = () => onChange({ ...value, web: null, engines: [] })
 
   return (
-    <div className="rounded-md border bg-card/50 p-3 space-y-4">
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>모든 빌드 자동 선택됨(최신). 변경할 항목만 클릭하세요.</span>
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-muted-foreground">
+          {data.web.length === 0 && data.engines.length === 0
+            ? "이 범위에 빌드가 없습니다"
+            : "모두 최신 자동 선택됨"}
+        </span>
         <div className="flex gap-2">
-          <Button type="button" size="sm" variant="ghost" onClick={selectAllLatest}>
+          <Button type="button" size="sm" variant="outline" onClick={selectAllLatest} disabled={disabled}>
             모두 최신
           </Button>
-          <Button type="button" size="sm" variant="ghost" onClick={clearAll}>
+          <Button type="button" size="sm" variant="outline" onClick={clearAll} disabled={disabled}>
             모두 해제
           </Button>
         </div>
@@ -1746,14 +1853,25 @@ export function BuildPickerSection({ data, value, onChange }: Props) {
 
       {data.web.length > 0 && (
         <section>
-          <div className="flex items-center gap-2 mb-2">
-            <Badge variant="web" className="text-[10px]">WEB</Badge>
-          </div>
-          <RadioGroup value={webValue} onValueChange={handleWebChange} className="space-y-1">
-            {data.web.map((c) => <WebOption key={c.buildVersionId} c={c} />)}
-            <div className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent">
+          <h4 className="mb-2 text-sm font-semibold">WEB</h4>
+          <RadioGroup
+            value={value.web ? String(value.web.buildVersionId) : NONE}
+            onValueChange={(v) => setWeb(v === NONE ? null : Number(v))}
+            disabled={disabled}
+          >
+            {data.web.map((c) => (
+              <div key={c.buildVersionId} className="flex items-center gap-2">
+                <RadioGroupItem id={`web-${c.buildVersionId}`} value={String(c.buildVersionId)} />
+                <Label htmlFor={`web-${c.buildVersionId}`} className="cursor-pointer">
+                  {c.fullVersion} {c.isLatest && <span className="ml-1 text-xs">✦최신</span>}
+                </Label>
+              </div>
+            ))}
+            <div className="flex items-center gap-2">
               <RadioGroupItem id="web-none" value={NONE} />
-              <Label htmlFor="web-none" className="text-sm cursor-pointer">포함 안 함</Label>
+              <Label htmlFor="web-none" className="cursor-pointer">
+                포함 안 함
+              </Label>
             </div>
           </RadioGroup>
         </section>
@@ -1761,474 +1879,377 @@ export function BuildPickerSection({ data, value, onChange }: Props) {
 
       {data.engines.length > 0 && (
         <section>
-          <div className="flex items-center gap-2 mb-2">
-            <Badge variant="engine" className="text-[10px]">ENGINE</Badge>
-            <span className="text-xs text-muted-foreground">({data.engines.length}개)</span>
-          </div>
-          <div className="rounded border divide-y">
-            {data.engines.map((group) => (
-              <BuildPickerEngineRow
-                key={group.engineName}
-                group={group}
+          <h4 className="mb-2 text-sm font-semibold">ENGINE</h4>
+          <ul className="flex flex-col gap-2">
+            {data.engines.map((g) => (
+              <EngineRow
+                key={g.engineName}
+                group={g}
                 selectedBuildId={
-                  value.engines.find((e) => e.engineName === group.engineName)?.buildVersionId ?? null
+                  value.engines.find((e) => e.engineName === g.engineName)?.buildVersionId ?? null
                 }
-                onChange={(buildId) => handleEngineChange(group.engineName, buildId)}
+                onChange={(bv) => setEngine(g.engineName, bv)}
+                disabled={disabled}
               />
             ))}
-          </div>
+          </ul>
         </section>
       )}
     </div>
   )
 }
 
-function WebOption({ c }: { c: BuildCandidate }) {
-  return (
-    <div className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent">
-      <RadioGroupItem id={`web-${c.buildVersionId}`} value={String(c.buildVersionId)} />
-      <Label htmlFor={`web-${c.buildVersionId}`} className="text-sm cursor-pointer flex-1 flex items-center gap-2">
-        <Hammer className="h-3.5 w-3.5 text-blue-500" />
-        {c.fullVersion}
-        {c.isLatest && <span className="text-[10px] text-amber-500">✦최신</span>}
-      </Label>
-    </div>
-  )
-}
-```
-
-- [ ] **Step 2: BuildPickerEngineRow.tsx 작성**
-
-```tsx
-import { Check, ChevronsUpDown, Hammer } from 'lucide-react'
-
-import type { EngineGroup } from '@/entities/releases/release/model/types'
-
-import { Button } from '@/shared/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/shared/ui/dropdown-menu'
-
-interface Props {
+interface EngineRowProps {
   group: EngineGroup
-  selectedBuildId: number | null  // null = 포함 안 함
+  selectedBuildId: number | null
   onChange: (buildVersionId: number | null) => void
+  disabled?: boolean
 }
 
-export function BuildPickerEngineRow({ group, selectedBuildId, onChange }: Props) {
-  const selected = selectedBuildId
-    ? group.candidates.find((c) => c.buildVersionId === selectedBuildId)
-    : null
+function EngineRow({ group, selectedBuildId, onChange, disabled }: EngineRowProps) {
+  const selected: BuildCandidate | undefined =
+    selectedBuildId == null
+      ? undefined
+      : group.candidates.find((c) => c.buildVersionId === selectedBuildId)
 
   return (
-    <div className="flex items-center justify-between gap-2 px-2 py-1.5 hover:bg-accent">
-      <div className="flex items-center gap-2 text-sm font-medium min-w-0">
-        <Hammer className="h-3.5 w-3.5 text-blue-500 shrink-0" />
-        <span className="truncate">{group.engineName}</span>
-      </div>
+    <li className="grid grid-cols-[160px_1fr] items-center gap-2">
+      <span className="text-sm">{group.engineName}</span>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button type="button" variant="ghost" size="sm" className="text-xs h-7 px-2 gap-1">
+          <Button type="button" variant="outline" size="sm" disabled={disabled}>
             {selected ? (
               <>
                 {selected.fullVersion}
-                {selected.isLatest && <span className="text-[10px] text-amber-500">✦최신</span>}
+                {selected.isLatest && <span className="ml-1 text-xs">✦최신</span>}
               </>
             ) : (
-              <span className="text-muted-foreground">포함 안 함</span>
+              "포함 안 함"
             )}
-            <ChevronsUpDown className="h-3 w-3 opacity-60" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-[16rem]">
+        <DropdownMenuContent align="end">
           {group.candidates.map((c) => (
-            <DropdownMenuItem
-              key={c.buildVersionId}
-              onSelect={() => onChange(c.buildVersionId)}
-              className="text-xs"
-            >
-              <span className="flex-1">{c.fullVersion}</span>
-              {c.isLatest && <span className="text-[10px] text-amber-500 mr-2">✦최신</span>}
-              {selectedBuildId === c.buildVersionId && <Check className="h-3 w-3" />}
+            <DropdownMenuItem key={c.buildVersionId} onSelect={() => onChange(c.buildVersionId)}>
+              {c.fullVersion}
+              {c.isLatest && <span className="ml-1 text-xs">✦최신</span>}
             </DropdownMenuItem>
           ))}
           <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onSelect={() => onChange(null)}
-            className="text-xs text-muted-foreground"
-          >
-            <span className="flex-1">포함 안 함</span>
-            {selectedBuildId === null && <Check className="h-3 w-3" />}
-          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => onChange(null)}>포함 안 함</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-    </div>
+    </li>
   )
 }
 ```
 
-- [ ] **Step 3: type-check**
+> shadcn-ui 컴포넌트 import 경로 (`@/shared/ui/...`) 는 프로젝트의 기존 alias 에 맞게 조정. 기존 컴포넌트들이 사용하는 패턴을 그대로 따른다 (`PatchCreateForm.tsx` 등의 import 를 참고).
 
-```
-cd release-manager-web && npm run type-check 2>&1 | tail -15
-```
-
-기대: PASS. shadcn 의 `RadioGroup`/`DropdownMenu`/`Badge` `web|engine` variant 가 이미 있는지 확인 필요(없으면 임시로 `default` 사용).
-
-- [ ] **Step 4: 커밋**
-
-```
-git -C release-manager-web add src/features/patches/patch-management/ui/BuildPickerSection.tsx src/features/patches/patch-management/ui/BuildPickerEngineRow.tsx
-git -C release-manager-web commit -m "feat: BuildPickerSection 컴포넌트 신규
-
-WEB radio + 엔진별 컴팩트 행(드롭다운). 자동 preselect(최신),
-'모두 최신'/'모두 해제' 일괄 액션. 각 항목에 '포함 안 함' 옵션."
-```
-
----
-
-### Task 15: FE — PatchCreateForm 통합 + 검증 + build-only 인디케이터
-
-**Files:**
-- Modify: `release-manager-web/src/features/patches/patch-management/ui/PatchCreateForm.tsx`
-- Modify: `release-manager-web/src/features/patches/patch-management/model/types.ts`
-- Modify: `release-manager-web/src/features/patches/patch-management/model/validation.ts` (있다면)
-
-- [ ] **Step 1: PatchCreateFormData 에 buildSelection 추가**
-
-`features/patches/patch-management/model/types.ts`:
-
-```ts
-import type { BuildSelection } from '@/entities/patches/patch/model/types'
-
-export interface PatchCreateFormData {
-  fromVersion: string
-  toVersion: string
-  customerCode?: string  // 기존 유지
-  assigneeId?: number | string
-  patchName?: string
-  description?: string
-  buildSelection: BuildSelection
-}
-
-export const INITIAL_BUILD_SELECTION: BuildSelection = {
-  enabled: false,  // 기본 OFF
-  web: null,
-  engines: [],
-}
-```
-
-기존 `INITIAL_FORM_DATA`/`INITIAL_STANDARD_FORM` 등에 `buildSelection: INITIAL_BUILD_SELECTION` 추가. `includeAllBuildVersions` 키 제거.
-
-- [ ] **Step 2: PatchCreateForm.tsx 의 토글 영역 교체**
-
-기존 토글 영역(line 207~218 부근, “모든 버전의 빌드 파일 포함” 라벨/Switch)을 다음으로 교체:
-
-```tsx
-{/* 빌드 파일 포함 토글 */}
-<div className="rounded-lg border bg-card p-4 space-y-3">
-  <div className="flex items-center justify-between">
-    <div className="space-y-0.5">
-      <Label htmlFor="buildSelectionEnabled" className="cursor-pointer font-medium">
-        빌드 파일 포함
-      </Label>
-      <p className="text-xs text-muted-foreground">
-        토글을 켜면 WEB/엔진별 빌드를 직접 선택할 수 있습니다 (자동 preselect=최신).
-      </p>
-    </div>
-    <Switch
-      id="buildSelectionEnabled"
-      checked={formData.buildSelection.enabled}
-      onCheckedChange={(checked) => onFormDataChange({
-        ...formData,
-        buildSelection: { ...formData.buildSelection, enabled: checked },
-      })}
-    />
-  </div>
-
-  {formData.buildSelection.enabled && buildsInRange.data && (
-    <BuildPickerSection
-      data={buildsInRange.data}
-      value={formData.buildSelection}
-      onChange={(next) => onFormDataChange({ ...formData, buildSelection: next })}
-    />
-  )}
-
-  {/* Build-only 인디케이터 */}
-  {formData.fromVersion && formData.fromVersion === formData.toVersion && (
-    <div className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1">
-      ⓘ 빌드 전용 패치 — DB 스크립트 없이 빌드 파일만 생성됩니다
-    </div>
-  )}
-
-  {/* 핫픽스 안내 */}
-  {(buildsInRange.data?.hotfixesInRange?.length ?? 0) > 0 && (
-    <div className="text-xs text-amber-600 dark:text-amber-400">
-      ⚠ 이 범위에 핫픽스 {buildsInRange.data!.hotfixesInRange.length}건 있음.
-      핫픽스는 버전 관리 화면에서 별도로 다운로드/적용해 주세요.
-      ({buildsInRange.data!.hotfixesInRange.map((h) => h.fullVersion).join(', ')})
-    </div>
-  )}
-</div>
-```
-
-상단에 hooks 추가:
-
-```tsx
-import { useBuildsInRange } from '@/entities/releases/release'
-import { BuildPickerSection } from './BuildPickerSection'
-
-// 컴포넌트 본문 안:
-const buildsInRange = useBuildsInRange(
-  formData.buildSelection.enabled && formData.fromVersion && formData.toVersion
-    ? {
-        projectId,
-        releaseType: 'STANDARD',
-        customerCode: null,
-        fromVersion: formData.fromVersion,
-        toVersion: formData.toVersion,
-      }
-    : null,
-)
-```
-
-(커스텀 패치 폼인 `CustomPatchCreateForm` 도 동일 패턴으로 후속 적용. 본 task 는 standard 만 처리.)
-
-- [ ] **Step 3: 검증 룰 (생성 버튼 비활성)**
-
-`PatchCreateForm` 의 “패치 생성” 버튼 `disabled` 조건에 다음을 OR 로 추가:
-
-```tsx
-const sel = formData.buildSelection
-const isBuildOnly = formData.fromVersion === formData.toVersion
-const buildSelectionEmpty = sel.enabled && !sel.web && sel.engines.length === 0
-
-const submitDisabled =
-  !formData.fromVersion ||
-  !formData.toVersion ||
-  // build-only 면 picker 가 ON 이고 1개 이상 선택 필수
-  (isBuildOnly && (!sel.enabled || buildSelectionEmpty)) ||
-  // 일반 패치인데 picker 가 ON 인데 모두 미포함이면 토글 OFF 가 맞다
-  buildSelectionEmpty ||
-  // 기타 기존 검증
-  ...existingChecks
-```
-
-비활성 시 안내 텍스트:
-
-```tsx
-{isBuildOnly && (!sel.enabled || buildSelectionEmpty) && (
-  <p className="text-xs text-destructive">동일 버전 패치는 빌드를 1개 이상 선택해야 합니다.</p>
-)}
-{buildSelectionEmpty && !isBuildOnly && (
-  <p className="text-xs text-destructive">빌드 미포함이면 토글을 OFF 로 두십시오.</p>
-)}
-```
-
-- [ ] **Step 4: PatchesPage 에서 폼 → API 호출 매핑 변경**
-
-`PatchesPage.tsx` 의 `handleStandardSubmit` (또는 동등 함수) 안에서 `includeAllBuildVersions` 대신 `buildSelection` 전달:
-
-```ts
-mutation.mutate({
-  ...,
-  buildSelection: standardFormData.buildSelection.enabled
-    ? standardFormData.buildSelection
-    : { enabled: false, web: null, engines: [] },
-})
-```
-
-- [ ] **Step 5: type-check + dev server 수동 확인**
-
-```
-cd release-manager-web && npm run type-check 2>&1 | tail -15
-npm run dev
-# 브라우저에서 패치 생성 모달 열어 토글 ON 시 picker 동작, build-only 인디케이터 검증
-```
-
-- [ ] **Step 6: 커밋**
-
-```
-git -C release-manager-web add src/features/patches/patch-management/ui/PatchCreateForm.tsx src/features/patches/patch-management/model/types.ts src/features/patches/patch-management/model/validation.ts src/pages/patches/PatchesPage.tsx
-git -C release-manager-web commit -m "feat: PatchCreateForm 에 BuildPickerSection 통합 + 검증 + 안내
-
-토글 OFF 기본값(DB only). ON 시 자동 preselect 된 picker 펼쳐짐.
-build-only 패치(from==to + picker 1개 이상) 인디케이터 표기.
-범위 안 핫픽스 N건 안내. 빈 picker / 동일버전+OFF 케이스 검증."
-```
-
----
-
-### Task 16: FE — Custom 패치 폼 동일 패턴 적용 (선택, 커스텀 사용 빈도에 따라)
-
-**Files:**
-- Modify: `release-manager-web/src/features/patches/patch-management/ui/PatchGenerateFormCard.tsx`
-
-> standard 와 동일 패턴. `releaseType: 'CUSTOM'` + `customerCode` 인자만 다름. 본 task 는 사용자 운영 빈도가 확인된 후 진행. **MVP 에서는 skip 가능**(우선순위 낮음).
-
-- [ ] **Step 1~5**: Task 15 Step 2~6 동일 패턴, releaseType/customerCode 만 변경.
-
-- [ ] **Step 6: 커밋**
-
-```
-git -C release-manager-web add src/features/patches/patch-management/ui/PatchGenerateFormCard.tsx
-git -C release-manager-web commit -m "feat: 커스텀 패치 폼에도 빌드 picker 적용"
-```
-
----
-
-## Phase 6 — 운영 / 검증
-
-### Task 17: 수동 SQL 백필 — 운영 DB 에 적용
-
-**Files:** 없음(운영 DB 직접 실행).
-
-- [ ] **Step 1: 적용 전 검증 SELECT 실행**
-
-```sql
-SELECT release_file_id,
-       file_category,
-       sub_category,
-       file_path
-FROM release_file
-WHERE file_category = 'ENGINE'
-  AND sub_category IS NULL
-  AND file_path LIKE '%/engine/%'
-LIMIT 30;
-```
-
-기대: 빌드 ZIP 추출본 행이 보이고 file_path 가 `versions/.../builds/.../engine/{engineName}/...` 패턴.
-
-- [ ] **Step 2: 백업(선택, 운영 정책에 따라)**
-
-```sql
-CREATE TABLE release_file_backup_20260428 AS SELECT * FROM release_file;
-```
-
-- [ ] **Step 3: 백필**
-
-```sql
-UPDATE release_file rf
-SET rf.sub_category = TRIM(BOTH '/' FROM
-    SUBSTRING_INDEX(
-        SUBSTRING_INDEX(rf.file_path, '/engine/', -1),
-        '/',
-        1
-    )
-)
-WHERE rf.file_category = 'ENGINE'
-  AND rf.sub_category IS NULL
-  AND rf.file_path LIKE '%/engine/%';
-```
-
-- [ ] **Step 4: UNKNOWN 보정**
-
-```sql
-UPDATE release_file rf
-SET rf.sub_category = 'UNKNOWN'
-WHERE rf.file_category = 'ENGINE'
-  AND rf.sub_category LIKE '%.%';
-```
-
-- [ ] **Step 5: 검증 SELECT**
-
-```sql
-SELECT sub_category, COUNT(*)
-FROM release_file
-WHERE file_category = 'ENGINE'
-GROUP BY sub_category
-ORDER BY 1;
-```
-
-기대: NC_SMS, NC_FAULT_MS, … 등 운영 엔진명들 + 소수의 UNKNOWN.
-
-- [ ] **Step 6: 운영자 보고**
-
-운영 채널에 백필 완료 + 그룹별 행수 공유.
-
-> 본 task 는 코드 commit 없음. 실행 결과는 운영 로그에만.
-
----
-
-### Task 18: 빌드 + e2e 검증
-
-**Files:** 없음(실행만).
-
-- [ ] **Step 1: 백엔드 풀 빌드 + 테스트**
-
-```
-cd release-manager-api
-sed -i 's/languageVersion = JavaLanguageVersion.of(17)/languageVersion = JavaLanguageVersion.of(21)/' build.gradle
-./gradlew clean build 2>&1 | tail -30
-sed -i 's/languageVersion = JavaLanguageVersion.of(21)/languageVersion = JavaLanguageVersion.of(17)/' build.gradle
-grep -n "languageVersion" build.gradle
-```
-
-기대: `BUILD SUCCESSFUL`.
-
-- [ ] **Step 2: 프론트 type-check + lint**
+- [ ] **Step 2: type-check**
 
 ```
 cd release-manager-web
 npm run type-check 2>&1 | tail -10
-npm run lint 2>&1 | tail -10
 ```
 
-기대: 둘 다 PASS.
+기대: 본 컴포넌트 자체는 type 통과. 호출자 (PatchCreateForm / PatchGenerateFormCard) 의 잔존 에러는 그대로.
 
-- [ ] **Step 3: 수동 시나리오 검증 (브라우저)**
+> 단독 커밋 보류 — Task 16 의 step 4 에서 한 번에 커밋.
 
-`npm run dev` + 백엔드 가동 후:
-1. 표준 패치 생성 → 토글 OFF → 패치 생성 → DB only 확인.
-2. 토글 ON → picker 자동 preselect 확인 → 패치 생성 → web/engine 디렉토리 확인.
-3. 토글 ON → 일부 엔진 “포함 안 함” → 결과 ZIP 에 해당 엔진 폴더 부재 확인.
-4. from==to + 토글 ON + WEB 1개 → build-only 패치 → DB 스크립트 0 확인.
-5. from==to + 토글 OFF → “패치 생성” 비활성 + 안내 텍스트.
-6. 핫픽스가 범위 안에 있을 때 → 폼/응답 안내 표시.
+---
 
-- [ ] **Step 4: 릴리즈 노트 추가**
+### Task 15: PatchCreateForm picker 통합
 
-`release-manager-api/BUILD_VERSION.md` 또는 별도 `CHANGELOG.md` 에 항목 추가:
+**Files:**
+- Modify: `release-manager-web/src/features/patches/patch-management/ui/PatchCreateForm.tsx`
+- Modify: `release-manager-web/src/features/patches/patch-management/model/types.ts`
 
-```
-## 2026-04-28 — 패치 생성 빌드 picker 도입
+- [ ] **Step 1: PatchCreateFormData 타입에 buildSelection 추가**
 
-[BREAKING] '빌드 파일 포함' 토글 기본값이 OFF (이전: 모든 버전 포함=true 의 반대).
-  토글 OFF 면 빌드 파일이 포함되지 않습니다(DB 패치만).
-  기존 워크플로 유지하려면 패치 생성 시 토글을 ON 으로 켜시면 됩니다(자동 preselect=최신).
+`features/patches/patch-management/model/types.ts` 의 `PatchCreateFormData` 에서 `includeAllBuildVersions` 를 제거하고 `buildSelection` 추가:
 
-[변경] 누적 패치에서 핫픽스 DB 스크립트가 자동 포함되지 않습니다. 핫픽스는 버전 관리
-  화면에서 별도로 다운로드/적용해 주세요.
+```ts
+import type { BuildSelection } from "@/entities/patches/patch/model/types"
 
-[추가] WEB 1개 + 엔진별 1개씩 직접 선택 가능한 picker. '포함 안 함' 옵션 포함.
-
-[추가] Build-only 패치 (같은 base 안에서 빌드만 갈아끼우기) 지원.
+export interface PatchCreateFormData {
+  // ...기존 필드 (projectId, fromVersionId, toVersionId, customerId, ... )...
+  buildSelection: BuildSelection | null
+}
 ```
 
-- [ ] **Step 5: 커밋**
+- [ ] **Step 2: PatchCreateForm 폼 변경**
+
+`PatchCreateForm.tsx` 의 기존 `includeAllBuildVersions` Checkbox / Switch 블록 (line 200~220 근처) 을 토글 + BuildPickerSection 으로 대체:
+
+```tsx
+import { BuildPickerSection } from "./BuildPickerSection"
+import { useBuildsInRange } from "@/entities/releases/release/queries/releaseQueries"
+import { Switch } from "@/shared/ui/switch"
+
+// ...컴포넌트 내부...
+
+const buildsQuery = useBuildsInRange(
+  formData.projectId ?? null,
+  formData.fromVersionId ?? null,
+  formData.toVersionId ?? null,
+  formData.customerId ?? null,
+)
+
+const toggleEnabled = formData.buildSelection?.enabled ?? false
+
+const setEnabled = (next: boolean) => {
+  if (!next) {
+    onFormDataChange({ ...formData, buildSelection: { enabled: false, web: null, engines: [] } })
+    return
+  }
+  // 토글 ON → 자동 preselect (모두 최신)
+  const data = buildsQuery.data
+  const web = data && data.web.length > 0 ? { buildVersionId: data.web[0].buildVersionId } : null
+  const engines = (data?.engines ?? []).map((g) => ({
+    engineName: g.engineName,
+    buildVersionId: g.candidates[0].buildVersionId,
+  }))
+  onFormDataChange({ ...formData, buildSelection: { enabled: true, web, engines } })
+}
+
+// JSX:
+<div className="flex flex-col gap-2">
+  <div className="flex items-center justify-between">
+    <Label htmlFor="buildToggle" className="cursor-pointer font-medium">
+      빌드 파일 포함
+    </Label>
+    <Switch id="buildToggle" checked={toggleEnabled} onCheckedChange={setEnabled} />
+  </div>
+  {toggleEnabled && buildsQuery.data && (
+    <BuildPickerSection
+      data={buildsQuery.data}
+      value={formData.buildSelection ?? { enabled: true, web: null, engines: [] }}
+      onChange={(next) => onFormDataChange({ ...formData, buildSelection: next })}
+    />
+  )}
+
+  {formData.fromVersionId === formData.toVersionId && (
+    <p className="text-xs text-muted-foreground">
+      ⓘ 빌드 전용 패치 — DB 스크립트 없이 빌드 파일만 생성됩니다
+    </p>
+  )}
+</div>
+```
+
+- [ ] **Step 3: 클라이언트 검증 룰 추가**
+
+`PatchCreateForm.tsx` 의 "패치 생성" 버튼 disabled 조건에 다음을 추가:
+
+```ts
+const sameBase =
+  formData.fromVersionId != null && formData.fromVersionId === formData.toVersionId
+const sel = formData.buildSelection
+const pickerEmpty = !sel || sel.web == null && (sel.engines == null || sel.engines.length === 0)
+const enabled = sel?.enabled ?? false
+
+const submitDisabled =
+  // 기존 룰 (fromId > toId, fromId/toId 미선택 등) ...
+  (enabled && pickerEmpty) || (sameBase && (!enabled || pickerEmpty))
+```
+
+- [ ] **Step 4: type-check**
 
 ```
-git -C release-manager-api add BUILD_VERSION.md
-git -C release-manager-api commit -m "docs: 패치 생성 빌드 picker 릴리즈 노트 추가
+cd release-manager-web
+npm run type-check 2>&1 | tail -10
+```
 
-토글 OFF 기본값 변경, 핫픽스 분리, picker, build-only 패치 지원."
+기대: 본 task 의 변경분으로 PatchCreateForm 의 `includeAllBuildVersions` 잔존 참조가 해소됨. PatchGenerateFormCard 의 잔존 에러만 남음.
+
+> 단독 커밋 보류 — Task 16 의 step 4 에서 한 번에 커밋.
+
+---
+
+### Task 16: PatchGenerateFormCard picker 통합 + 프론트엔드 통합 커밋
+
+**Files:**
+- Modify: `release-manager-web/src/features/patches/patch-management/ui/PatchGenerateFormCard.tsx`
+
+- [ ] **Step 1: 동일 폼 블록 적용**
+
+`PatchGenerateFormCard.tsx` 의 `includeAllBuildVersions` 사용처 (line 200~220 근처) 를 다음 블록으로 교체. (Task 15 와 동일한 코드. 두 컴포넌트의 `PatchCreateFormData` 가 같으므로 폼 블록도 동일.)
+
+```tsx
+import { BuildPickerSection } from "./BuildPickerSection"
+import { useBuildsInRange } from "@/entities/releases/release/queries/releaseQueries"
+import { Switch } from "@/shared/ui/switch"
+
+// ...컴포넌트 내부...
+
+const buildsQuery = useBuildsInRange(
+  formData.projectId ?? null,
+  formData.fromVersionId ?? null,
+  formData.toVersionId ?? null,
+  formData.customerId ?? null,
+)
+
+const toggleEnabled = formData.buildSelection?.enabled ?? false
+
+const setEnabled = (next: boolean) => {
+  if (!next) {
+    onFormDataChange({ ...formData, buildSelection: { enabled: false, web: null, engines: [] } })
+    return
+  }
+  const data = buildsQuery.data
+  const web = data && data.web.length > 0 ? { buildVersionId: data.web[0].buildVersionId } : null
+  const engines = (data?.engines ?? []).map((g) => ({
+    engineName: g.engineName,
+    buildVersionId: g.candidates[0].buildVersionId,
+  }))
+  onFormDataChange({ ...formData, buildSelection: { enabled: true, web, engines } })
+}
+
+// JSX:
+<div className="flex flex-col gap-2">
+  <div className="flex items-center justify-between">
+    <Label htmlFor="buildToggleCard" className="cursor-pointer font-medium">
+      빌드 파일 포함
+    </Label>
+    <Switch id="buildToggleCard" checked={toggleEnabled} onCheckedChange={setEnabled} />
+  </div>
+  {toggleEnabled && buildsQuery.data && (
+    <BuildPickerSection
+      data={buildsQuery.data}
+      value={formData.buildSelection ?? { enabled: true, web: null, engines: [] }}
+      onChange={(next) => onFormDataChange({ ...formData, buildSelection: next })}
+    />
+  )}
+  {formData.fromVersionId === formData.toVersionId && (
+    <p className="text-xs text-muted-foreground">
+      ⓘ 빌드 전용 패치 — DB 스크립트 없이 빌드 파일만 생성됩니다
+    </p>
+  )}
+</div>
+```
+
+검증 룰 (Task 15 step 3 의 disabled 조건) 도 동일하게 적용:
+
+```ts
+const sameBase =
+  formData.fromVersionId != null && formData.fromVersionId === formData.toVersionId
+const sel = formData.buildSelection
+const pickerEmpty = !sel || sel.web == null && (sel.engines == null || sel.engines.length === 0)
+const enabled = sel?.enabled ?? false
+
+const submitDisabled =
+  // 기존 룰 ...
+  (enabled && pickerEmpty) || (sameBase && (!enabled || pickerEmpty))
+```
+
+> 두 컴포넌트의 차이는 wrapper (Sheet vs Card) 와 footer 위치뿐이므로 폼 블록 자체는 동일하게 둔다. 만약 Task 15 작업 중에 자동 preselect 로직을 별도 헬퍼 (`computeAutoPreselect(data): BuildSelection` 등) 로 추출했다면 본 task 에서도 같은 헬퍼를 재사용한다.
+
+- [ ] **Step 2: type-check + 빌드**
+
+```
+cd release-manager-web
+npm run type-check 2>&1 | tail -10
+npm run build 2>&1 | tail -10
+```
+
+기대: type 에러 0개 + production 빌드 성공.
+
+- [ ] **Step 3: 프론트엔드 통합 커밋 (Task 11 ~ Task 16)**
+
+```
+git -C release-manager-web add \
+    src/entities/releases/release/model/types.ts \
+    src/entities/releases/release/api/releaseApi.ts \
+    src/entities/releases/release/queries/releaseQueries.ts \
+    src/entities/patches/patch/model/types.ts \
+    src/features/patches/patch-management/model/types.ts \
+    src/features/patches/patch-management/ui/BuildPickerSection.tsx \
+    src/features/patches/patch-management/ui/PatchCreateForm.tsx \
+    src/features/patches/patch-management/ui/PatchGenerateFormCard.tsx \
+    src/pages/patches/PatchesPage.tsx
+git -C release-manager-web commit -m "feat: 패치 생성 폼에 BuildPickerSection 통합
+
+- entities: BuildsInRangeResponse / BuildCandidate / EngineGroup 추가,
+  BuildSelection / SelectedEngine / GenerateResponse 추가.
+- useBuildsInRange 훅 + releaseApi.getBuildsInRange.
+- PatchesPage: getVersionsFromTree 가 base (build_version=0 && hotfix_version=0)
+  만 노출. 응답 hotfixesInRange 가 있으면 toast 안내.
+- BuildPickerSection 신규 컴포넌트 (WEB radio + ENGINE 행 + 일괄 액션).
+- PatchCreateForm / PatchGenerateFormCard: 토글 + picker + 검증 룰
+  + build-only 인디케이터 통합. includeAllBuildVersions 폼 필드 제거."
 ```
 
 ---
 
-## 자체 점검 결과
+## Phase 5 — 통합 검증
 
-본 plan 의 spec 커버리지:
-- 결정 Q1 (하이브리드) → Task 14, 15
-- 결정 Q2 (sub_category 백필) → Task 1, 2, 17
-- 결정 Q3 (토글 OFF=미포함) → Task 15 (INITIAL_BUILD_SELECTION enabled=false), Task 18 릴리즈 노트
-- 결정 Q4 (인라인 컴팩트) → Task 14, 15
-- 결정 Q5 (셀렉터 base only) → Task 13
-- 결정 Q6 (핫픽스 분리) → Task 10a (findVersionsBetweenExcludingHotfixes 만 사용), Task 10b (README), Task 15 (안내)
-- 결정 Q7 (build-only via from==to) → Task 10a (분기 로직), Task 15 (인디케이터)
+### Task 17: 백엔드/프론트엔드 통합 빌드 + 수동 시나리오 검증
 
-데이터 모델 / API / 비즈니스 로직 / UI / 운영 절차 모두 task 가 존재함.
+**Files:** (검증만, 코드 변경 없음)
+
+- [ ] **Step 1: 백엔드 풀빌드 + 전체 테스트**
+
+```
+cd release-manager-api
+sed -i 's/languageVersion = JavaLanguageVersion.of(17)/languageVersion = JavaLanguageVersion.of(21)/' build.gradle
+./gradlew clean build 2>&1 | tail -25
+sed -i 's/languageVersion = JavaLanguageVersion.of(21)/languageVersion = JavaLanguageVersion.of(17)/' build.gradle
+grep -n "languageVersion" build.gradle | head -1
+```
+
+기대: `BUILD SUCCESSFUL` + 모든 테스트 PASS + line 14 = `JavaLanguageVersion.of(17)`.
+
+- [ ] **Step 2: 프론트엔드 풀빌드**
+
+```
+cd release-manager-web
+npm run type-check && npm run build 2>&1 | tail -15
+```
+
+기대: type-check 통과 + production build 성공.
+
+- [ ] **Step 3: 수동 시나리오 검증 (운영 / dev 환경)**
+
+다음을 운영자/사용자 확인 명세로 README 또는 릴리즈 노트에 적고 직접 시나리오 검증:
+
+1. **DB only 패치**: `from=1.0.0, to=1.1.0`, 토글 OFF → 결과 ZIP 에 `web/` `engine/` `etc/` 없음, `mariadb/` 또는 `cratedb/` 만.
+2. **부분 빌드 포함 패치**: 위 범위에서 토글 ON, NC_SMS 만 picker 로 1개 선택, 나머지 "포함 안 함" → 결과 ZIP 에 `engine/NC_SMS/...` 만, `engine/NC_FAULT_MS/` 없음.
+3. **Build-only 패치**: `from=1.1.0, to=1.1.0`, 토글 ON, WEB 1개 선택 → 결과 ZIP 에 SQL 0개 + `web/` 산출.
+4. **응답 hotfixesInRange**: 핫픽스가 있는 범위로 패치 생성 → 응답에 `hotfixesInRange` 비어있지 않음 + UI toast 노출 확인.
+5. **검증 룰**: 토글 ON + picker 모두 미포함 → 서버가 `INVALID_INPUT_VALUE` 로 거부 (UI 의 "패치 생성" 버튼은 그 전에 disabled).
+
+- [ ] **Step 4: (선택) Playwright e2e**
+
+```
+cd release-manager-web
+# 테스트가 이미 정의되어 있다면 실행:
+# npm run e2e -- --grep "build picker"
+```
+
+> e2e 시나리오 신규 작성은 본 plan 의 비목표. 운영 검증을 통해 동작 확인이 우선.
+
+- [ ] **Step 5: 검증 종료 (커밋 없음)**
+
+본 task 는 코드 변경 없이 검증만 수행. 모든 검증 통과 시 plan 완료.
+
+---
+
+## 부록 A — 폐기되는 항목 명시
+
+직전 spec/plan (2026-04-28 초안) 의 다음 단계는 본 plan 에서 **명시적으로 폐기**된다 (commit `7d18caf` 의 spec 재설계 반영):
+
+- `BuildFileService.extractEngineName` 헬퍼 추가 — **폐기** (빌드는 ReleaseFile 행을 만들지 않음).
+- 빌드 ZIP 업로드 시 `subCategory` 자동 저장 — **폐기**.
+- 데이터 보정 SQL (release_file 의 sub_category 백필) — **폐기**.
+- `PatchGenerationService` 의 자동 통째 복사 분기 (commit `00ee8f8` 에서 임시 도입) — Task 8 에서 제거.
+
+본 plan 의 17 task 만으로 spec §11 의 모든 청크를 커버한다.
+
+## 부록 B — 본 plan 의 비목표 (테스트 누락)
+
+spec §10 에 명시된 다음 항목은 **본 plan 의 17 task 에 포함되지 않는다** (별도 후속 사이클로 분리):
+
+- 프론트엔드 단위 테스트: `PatchCreateForm.test`, `BuildPickerSection.test`. 본 plan 의 백엔드 단위 테스트와 Task 17 의 수동 시나리오 검증으로 핵심 동작은 보장되며, 컴포넌트 단위 테스트는 후속 task 에서 별도 커버.
+- Playwright e2e 신규 시나리오: 본 plan 은 Task 17 의 수동 검증으로 갈음. 자동화 e2e 추가가 필요하면 별도 plan.
+
+이 두 항목이 본 plan 완료 후 곧바로 필요하다면, 17 task 완료 직후 새 brainstorming → plan 사이클로 분리 진행을 권장.
