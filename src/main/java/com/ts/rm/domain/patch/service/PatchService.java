@@ -4,7 +4,9 @@ import com.ts.rm.domain.customer.entity.Customer;
 import com.ts.rm.domain.customer.repository.CustomerRepository;
 import com.ts.rm.domain.patch.dto.PatchDto;
 import com.ts.rm.domain.patch.entity.Patch;
+import com.ts.rm.domain.patch.entity.PatchIncludedBuild;
 import com.ts.rm.domain.patch.mapper.PatchDtoMapper;
+import com.ts.rm.domain.patch.repository.PatchIncludedBuildRepository;
 import com.ts.rm.domain.patch.repository.PatchRepository;
 import com.ts.rm.domain.releaseversion.entity.ReleaseVersion;
 import com.ts.rm.domain.releaseversion.repository.ReleaseVersionRepository;
@@ -16,7 +18,11 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -36,6 +42,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class PatchService {
 
     private final PatchRepository patchRepository;
+    private final PatchIncludedBuildRepository patchIncludedBuildRepository;
     private final PatchDtoMapper patchDtoMapper;
     private final PatchGenerationService patchGenerationService;
     private final PatchDownloadService patchDownloadService;
@@ -119,31 +126,63 @@ public class PatchService {
             String customerCode, Pageable pageable) {
         Page<Patch> patches = patchRepository.findAllWithFilters(projectId, releaseType, customerCode, pageable);
 
+        // 페이징 결과의 patch_id 들에 대해 batch 1번으로 PatchIncludedBuild 행 조회 (N+1 방지)
+        List<Long> patchIds = patches.getContent().stream()
+                .map(Patch::getPatchId)
+                .toList();
+        Map<Long, List<PatchIncludedBuild>> includedByPatch = patchIds.isEmpty()
+                ? Map.of()
+                : patchIncludedBuildRepository.findAllByPatch_PatchIdIn(patchIds).stream()
+                        .collect(Collectors.groupingBy(r -> r.getPatch().getPatchId()));
+
         // rowNumber 계산 (공통 유틸리티 사용)
         return PageRowNumberUtil.mapWithRowNumber(patches, (patch, rowNumber) -> {
-            PatchDto.ListResponse response = patchDtoMapper.toListResponse(patch);
+            PatchDto.ListResponse base = patchDtoMapper.toListResponse(patch);
+            String summary = buildIncludedBuildsSummary(
+                    includedByPatch.getOrDefault(patch.getPatchId(), List.of()));
             return new PatchDto.ListResponse(
                     rowNumber,
-                    response.patchId(),
-                    response.projectId(),
-                    response.releaseType(),
-                    response.customerCode(),
-                    response.customerName(),
-                    response.fromVersion(),
-                    response.toVersion(),
-                    response.patchName(),
-                    response.createdByEmail(),
-                    response.createdByName(),
-                    response.createdByAvatarStyle(),
-                    response.createdByAvatarSeed(),
-                    response.isDeletedCreator(),
-                    response.description(),
-                    response.assigneeId(),
-                    response.assigneeName(),
-                    response.createdAt(),
-                    response.updatedAt()
+                    base.patchId(),
+                    base.projectId(),
+                    base.releaseType(),
+                    base.customerCode(),
+                    base.customerName(),
+                    base.fromVersion(),
+                    base.toVersion(),
+                    base.patchName(),
+                    base.createdByEmail(),
+                    base.createdByName(),
+                    base.createdByAvatarStyle(),
+                    base.createdByAvatarSeed(),
+                    base.isDeletedCreator(),
+                    base.description(),
+                    base.assigneeId(),
+                    base.assigneeName(),
+                    base.createdAt(),
+                    base.updatedAt(),
+                    patch.getIsBuildOnly(),
+                    patch.getIsBuildIncluded(),
+                    summary
             );
         });
+    }
+
+    /**
+     * spec §4.3 의 includedBuildsSummary 형식: 'WEB · NC_SMS · NC_FAULT_MS'.
+     * 빌드 미포함 시 null.
+     */
+    private String buildIncludedBuildsSummary(List<PatchIncludedBuild> rows) {
+        if (rows.isEmpty()) return null;
+        List<String> tokens = new ArrayList<>();
+        boolean hasWeb = rows.stream().anyMatch(r -> "WEB".equals(r.getKind()));
+        if (hasWeb) tokens.add("WEB");
+        rows.stream()
+                .filter(r -> "ENGINE".equals(r.getKind()))
+                .map(PatchIncludedBuild::getEngineName)
+                .filter(Objects::nonNull)
+                .sorted()
+                .forEach(tokens::add);
+        return String.join(" · ", tokens);
     }
 
     /**
