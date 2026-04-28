@@ -14,6 +14,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -900,10 +901,14 @@ public interface ReleaseVersionControllerDocs {
             )
     )
     ResponseEntity<ApiResponse<ReleaseVersionDto.BuildsInRangeResponse>> getBuildsInRange(
-            @Parameter(description = "프로젝트 ID", required = true) String projectId,
-            @Parameter(description = "시작 base 버전 ID (포함)", required = true) Long fromVersionId,
-            @Parameter(description = "종료 base 버전 ID (포함)", required = true) Long toVersionId,
-            @Parameter(description = "고객사 ID (커스텀인 경우)") Long customerId
+            @Parameter(description = "프로젝트 ID", required = true)
+            @RequestParam String projectId,
+            @Parameter(description = "시작 base 버전 ID (포함)", required = true)
+            @RequestParam Long fromVersionId,
+            @Parameter(description = "종료 base 버전 ID (포함)", required = true)
+            @RequestParam Long toVersionId,
+            @Parameter(description = "고객사 ID (커스텀인 경우)")
+            @RequestParam(required = false) Long customerId
     );
 
     /**

@@ -493,10 +493,12 @@ public class ReleaseVersionController implements ReleaseVersionControllerDocs {
             @RequestParam Long fromVersionId,
             @RequestParam Long toVersionId,
             @RequestParam(required = false) Long customerId) {
-        log.info("GET /api/releases/versions/builds-in-range - projectId: {}, range: {}..{}, customerId: {}",
+        log.info("빌드 후보 range 조회 요청 - projectId: {}, fromVersionId: {}, toVersionId: {}, customerId: {}",
                 projectId, fromVersionId, toVersionId, customerId);
+
         ReleaseVersionDto.BuildsInRangeResponse response =
                 buildsInRangeService.getBuildsInRange(projectId, fromVersionId, toVersionId, customerId);
+
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 }
