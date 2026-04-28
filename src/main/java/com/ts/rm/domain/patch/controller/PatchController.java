@@ -3,6 +3,7 @@ package com.ts.rm.domain.patch.controller;
 import com.ts.rm.domain.patch.dto.PatchDto;
 import com.ts.rm.domain.patch.entity.Patch;
 import com.ts.rm.domain.patch.mapper.PatchDtoMapper;
+import com.ts.rm.domain.patch.service.PatchGenerationService;
 import com.ts.rm.domain.patch.service.PatchService;
 import com.ts.rm.global.file.HttpFileDownloadUtil;
 import com.ts.rm.global.response.ApiResponse;
@@ -43,14 +44,14 @@ public class PatchController implements PatchControllerDocs {
      */
     @Override
     @PostMapping("/standard/generate")
-    public ApiResponse<PatchDto.DetailResponse> generatePatch(
+    public ApiResponse<PatchDto.GenerateResponse> generatePatch(
             @Valid @RequestBody PatchDto.GenerateRequest request) {
 
         log.info("패치 생성 요청 - Project: {}, From: {}, To: {}, Type: {}, PatchName: {}, BuildSelection: {}",
                 request.projectId(), request.fromVersion(), request.toVersion(), request.type(),
                 request.patchName(), request.buildSelection());
 
-        Patch patch = patchService.generatePatchByVersion(
+        PatchGenerationService.GenerateResult result = patchService.generatePatchByVersion(
                 request.projectId(),
                 request.type(),
                 request.customerId(),
@@ -63,9 +64,16 @@ public class PatchController implements PatchControllerDocs {
                 request.buildSelection()
         );
 
-        PatchDto.DetailResponse response = patchDtoMapper.toDetailResponse(patch);
+        PatchDto.GenerateResponse body = new PatchDto.GenerateResponse(
+                result.patch().getPatchId(),
+                result.patch().getPatchName(),
+                result.patch().getOutputPath(),
+                result.isBuildOnly(),
+                result.hotfixesInRange(),
+                result.includedBuilds()
+        );
 
-        return ApiResponse.success(response);
+        return ApiResponse.success(body);
     }
 
     /**

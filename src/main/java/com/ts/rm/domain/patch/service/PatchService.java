@@ -49,8 +49,8 @@ public class PatchService {
      * 패치 생성 (버전 문자열 기반) - 위임
      */
     @Transactional
-    public Patch generatePatchByVersion(String projectId, String releaseType, Long customerId,
-            String fromVersion, String toVersion, String createdByEmail, String description,
+    public PatchGenerationService.GenerateResult generatePatchByVersion(String projectId, String releaseType,
+            Long customerId, String fromVersion, String toVersion, String createdByEmail, String description,
             Long engineerId, String patchName, PatchDto.BuildSelection buildSelection) {
         boolean sameBase = fromVersion.equals(toVersion);
         validateBuildSelection(buildSelection, sameBase);
@@ -63,9 +63,9 @@ public class PatchService {
      * 패치 생성 (버전 ID 기반) - 위임
      */
     @Transactional
-    public Patch generatePatch(String projectId, Long fromVersionId, Long toVersionId, Long customerId,
-            String createdByEmail, String description, Long engineerId, String patchName,
-            PatchDto.BuildSelection buildSelection) {
+    public PatchGenerationService.GenerateResult generatePatch(String projectId, Long fromVersionId,
+            Long toVersionId, Long customerId, String createdByEmail, String description, Long engineerId,
+            String patchName, PatchDto.BuildSelection buildSelection) {
         boolean sameBase = fromVersionId.equals(toVersionId);
         validateBuildSelection(buildSelection, sameBase);
         return patchGenerationService.generatePatch(

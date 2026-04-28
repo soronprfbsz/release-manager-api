@@ -422,11 +422,13 @@ class PatchGenerationServiceTest {
         );
 
         // WHEN — generatePatch 전체 경로 호출 (가드 조건 if (buildSelection != null && buildSelection.enabled()) 까지 통합 검증)
-        Patch result = patchGenerationService.generatePatch(
+        when(releaseVersionRepository.findHotfixesInBaseRange(anyString(), any(), any(), any()))
+                .thenReturn(java.util.List.of());
+        PatchGenerationService.GenerateResult result = patchGenerationService.generatePatch(
                 projectId, 10L, 20L, null, createdBy, null, null, "test-patch", buildSelection);
 
         // THEN — outputPath 아래 파일 검증
-        Path outputDir = tempDir.resolve(result.getOutputPath());
+        Path outputDir = tempDir.resolve(result.patch().getOutputPath());
 
         // web/foo.war — v260428 의 내용
         assertThat(outputDir.resolve("web/foo.war")).exists();
@@ -441,6 +443,244 @@ class PatchGenerationServiceTest {
 
         // etc/ — ETC 동행 복사 (내용 검증은 Task 10, 존재 여부만)
         assertThat(outputDir.resolve("etc")).isDirectory();
+    }
+
+    @Test
+    @DisplayName("Q-S3: 두 빌드 모두 etc/note.txt 가 있으면 큰 buildVersion 의 내용이 살아남음")
+    void etcConflict_largerBuildVersionWins(@TempDir Path tempDir) throws IOException {
+        // GIVEN: 빌드 v260427/etc/note.txt = "old", 빌드 v260428/etc/note.txt = "new"
+        //        picker: NC_SMS=v260427, NC_FAULT_MS=v260428 (selectedBuildIds = {v260427, v260428})
+        Path buildDir427 = tempDir.resolve("build427");
+        Files.createDirectories(buildDir427.resolve("etc"));
+        Files.writeString(buildDir427.resolve("etc/note.txt"), "old");
+
+        Path buildDir428 = tempDir.resolve("build428");
+        Files.createDirectories(buildDir428.resolve("etc"));
+        Files.writeString(buildDir428.resolve("etc/note.txt"), "new");
+
+        ReflectionTestUtils.setField(patchGenerationService, "releaseBasePath", tempDir.toString());
+
+        String projectId = "infraeye2";
+        String createdBy = "test@tscientific";
+
+        Project project = Project.builder()
+                .projectId(projectId)
+                .projectName("InfraEye 2.0")
+                .build();
+
+        ReleaseVersion baseFrom = ReleaseVersion.builder()
+                .releaseVersionId(10L)
+                .project(project)
+                .releaseType("STANDARD")
+                .version("1.1.0")
+                .majorVersion(1).minorVersion(1).patchVersion(0)
+                .buildVersion(0)
+                .isApproved(true)
+                .build();
+
+        ReleaseVersion bv427 = ReleaseVersion.builder()
+                .releaseVersionId(21L)
+                .project(project)
+                .releaseType("STANDARD")
+                .version("1.1.0")
+                .majorVersion(1).minorVersion(1).patchVersion(0)
+                .buildVersion(260427)
+                .buildBaseVersion(baseFrom)
+                .isApproved(true)
+                .build();
+
+        ReleaseVersion bv428 = ReleaseVersion.builder()
+                .releaseVersionId(20L)
+                .project(project)
+                .releaseType("STANDARD")
+                .version("1.1.0")
+                .majorVersion(1).minorVersion(1).patchVersion(0)
+                .buildVersion(260428)
+                .buildBaseVersion(baseFrom)
+                .isApproved(true)
+                .build();
+
+        when(projectRepository.findById(projectId)).thenReturn(Optional.of(project));
+        when(releaseVersionRepository.findById(10L)).thenReturn(Optional.of(baseFrom));
+        when(releaseVersionRepository.findById(20L)).thenReturn(Optional.of(bv428));
+        when(releaseVersionRepository.findById(21L)).thenReturn(Optional.of(bv427));
+        when(releaseVersionRepository.findUnapprovedVersionsBetween(
+                anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(java.util.List.of());
+        when(releaseVersionRepository.findHotfixesInBaseRange(
+                anyString(), any(), any(), any()))
+                .thenReturn(java.util.List.of());
+        when(fileSystemService.resolveBuildBasePath(baseFrom, 260427)).thenReturn(buildDir427);
+        when(fileSystemService.resolveBuildBasePath(baseFrom, 260428)).thenReturn(buildDir428);
+        Account creator = Account.builder()
+                .accountId(1L)
+                .email(createdBy)
+                .accountName("테스트 계정")
+                .password("pw")
+                .build();
+        when(accountLookupService.findByEmail(createdBy)).thenReturn(creator);
+        when(patchRepository.save(any(Patch.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(patchHistoryRepository.save(any(PatchHistory.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // picker: NC_SMS=v260427(ID=21), NC_FAULT_MS=v260428(ID=20) — ETC 동행은 buildVersion 오름차순
+        PatchDto.BuildSelection buildSelection = new PatchDto.BuildSelection(
+                true,
+                null,
+                List.of(
+                        new PatchDto.SelectedEngine("NC_SMS", 21L),
+                        new PatchDto.SelectedEngine("NC_FAULT_MS", 20L)
+                )
+        );
+
+        // WHEN: generatePatch (isSameBaseVersion=true, bv428.isBuild=true)
+        PatchGenerationService.GenerateResult result = patchGenerationService.generatePatch(
+                projectId, 10L, 20L, null, createdBy, null, null, "etc-conflict-patch", buildSelection);
+
+        // THEN: outputDir/etc/note.txt 의 내용이 "new" (v260428 의 내용 — 오름차순 복사 마지막)
+        Path outputDir = tempDir.resolve(result.patch().getOutputPath());
+        assertThat(outputDir.resolve("etc/note.txt")).exists();
+        assertThat(Files.readString(outputDir.resolve("etc/note.txt"))).isEqualTo("new");
+    }
+
+    @Test
+    @DisplayName("응답: includedBuilds, hotfixesInRange, isBuildOnly 채워짐")
+    void responseFields_populated(@TempDir Path tempDir) throws IOException {
+        // GIVEN: from(1.1.0 base) != to(1.2.0 base) 표준 패치, 범위 안에 핫픽스 1개,
+        //        picker 로 WEB(bv428) + NC_SMS(bv427) 선택
+        ReflectionTestUtils.setField(patchGenerationService, "releaseBasePath", tempDir.toString());
+
+        String projectId = "infraeye2";
+        String createdBy = "test@tscientific";
+
+        Project project = Project.builder()
+                .projectId(projectId)
+                .projectName("InfraEye 2.0")
+                .build();
+
+        ReleaseVersion fromVersion = ReleaseVersion.builder()
+                .releaseVersionId(1L)
+                .project(project)
+                .releaseType("STANDARD")
+                .version("1.1.0")
+                .majorVersion(1).minorVersion(1).patchVersion(0)
+                .buildVersion(0)
+                .isApproved(true)
+                .build();
+
+        ReleaseVersion toVersion = ReleaseVersion.builder()
+                .releaseVersionId(2L)
+                .project(project)
+                .releaseType("STANDARD")
+                .version("1.2.0")
+                .majorVersion(1).minorVersion(2).patchVersion(0)
+                .buildVersion(0)
+                .isApproved(true)
+                .build();
+
+        ReleaseVersion baseFrom11 = ReleaseVersion.builder()
+                .releaseVersionId(10L)
+                .project(project)
+                .releaseType("STANDARD")
+                .version("1.1.0")
+                .majorVersion(1).minorVersion(1).patchVersion(0)
+                .buildVersion(0)
+                .isApproved(true)
+                .build();
+
+        // 빌드 v260427
+        ReleaseVersion bv427 = ReleaseVersion.builder()
+                .releaseVersionId(21L)
+                .project(project)
+                .releaseType("STANDARD")
+                .version("1.1.0")
+                .majorVersion(1).minorVersion(1).patchVersion(0)
+                .buildVersion(260427)
+                .buildBaseVersion(baseFrom11)
+                .isApproved(true)
+                .build();
+
+        // 빌드 v260428
+        ReleaseVersion bv428 = ReleaseVersion.builder()
+                .releaseVersionId(20L)
+                .project(project)
+                .releaseType("STANDARD")
+                .version("1.1.0")
+                .majorVersion(1).minorVersion(1).patchVersion(0)
+                .buildVersion(260428)
+                .buildBaseVersion(baseFrom11)
+                .isApproved(true)
+                .build();
+
+        // 핫픽스 1개 (1.1.0.1)
+        ReleaseVersion hotfix = ReleaseVersion.builder()
+                .releaseVersionId(99L)
+                .project(project)
+                .releaseType("STANDARD")
+                .version("1.1.0")
+                .majorVersion(1).minorVersion(1).patchVersion(0)
+                .hotfixVersion(1)
+                .isApproved(true)
+                .build();
+
+        // 빌드 파일시스템 디렉토리 준비
+        Path buildDir428 = tempDir.resolve("build428");
+        Files.createDirectories(buildDir428.resolve("web"));
+        Files.createFile(buildDir428.resolve("web/foo.war"));
+        Path buildDir427 = tempDir.resolve("build427");
+        Files.createDirectories(buildDir427.resolve("engine/NC_SMS"));
+        Files.createFile(buildDir427.resolve("engine/NC_SMS/x.jar"));
+
+        // Mocks
+        when(projectRepository.findById(projectId)).thenReturn(Optional.of(project));
+        when(releaseVersionRepository.findById(1L)).thenReturn(Optional.of(fromVersion));
+        when(releaseVersionRepository.findById(2L)).thenReturn(Optional.of(toVersion));
+        when(releaseVersionRepository.findById(20L)).thenReturn(Optional.of(bv428));
+        when(releaseVersionRepository.findById(21L)).thenReturn(Optional.of(bv427));
+        when(releaseVersionRepository.findUnapprovedVersionsBetween(
+                anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(java.util.List.of());
+        when(releaseVersionRepository.findVersionsBetween(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(List.of(toVersion));
+        // 핫픽스 1건 반환
+        when(releaseVersionRepository.findHotfixesInBaseRange(anyString(), any(), any(), any()))
+                .thenReturn(List.of(hotfix));
+        when(releaseFileRepository.findAllByReleaseVersion_ReleaseVersionIdOrderByExecutionOrderAsc(2L))
+                .thenReturn(java.util.List.of());
+        when(fileSystemService.resolveBuildBasePath(baseFrom11, 260428)).thenReturn(buildDir428);
+        when(fileSystemService.resolveBuildBasePath(baseFrom11, 260427)).thenReturn(buildDir427);
+        Account creator = Account.builder()
+                .accountId(1L)
+                .email(createdBy)
+                .accountName("테스트 계정")
+                .password("pw")
+                .build();
+        when(accountLookupService.findByEmail(createdBy)).thenReturn(creator);
+        when(patchRepository.save(any(Patch.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(patchHistoryRepository.save(any(PatchHistory.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // picker: WEB=bv428(ID=20), NC_SMS=bv427(ID=21)
+        PatchDto.BuildSelection buildSelection = new PatchDto.BuildSelection(
+                true,
+                new PatchDto.SelectedWeb(20L),
+                List.of(new PatchDto.SelectedEngine("NC_SMS", 21L))
+        );
+
+        // WHEN
+        PatchGenerationService.GenerateResult result = patchGenerationService.generatePatch(
+                projectId, 1L, 2L, null, createdBy, null, null, "response-fields-patch", buildSelection);
+
+        // THEN
+        assertThat(result.isBuildOnly()).isFalse();  // from(1L) != to(2L)
+
+        assertThat(result.hotfixesInRange()).hasSize(1);
+        assertThat(result.hotfixesInRange().get(0).versionId()).isEqualTo(99L);
+
+        assertThat(result.includedBuilds()).isNotNull();
+        assertThat(result.includedBuilds().web()).isNotNull();
+        assertThat(result.includedBuilds().web().fullVersion()).isEqualTo("1.1.0.260428");
+        assertThat(result.includedBuilds().engines()).hasSize(1);
+        assertThat(result.includedBuilds().engines().get(0).engineName()).isEqualTo("NC_SMS");
+        assertThat(result.includedBuilds().engines().get(0).fullVersion()).isEqualTo("1.1.0.260427");
     }
 
     @Test

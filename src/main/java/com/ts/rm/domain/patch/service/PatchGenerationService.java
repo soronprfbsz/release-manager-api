@@ -53,6 +53,18 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class PatchGenerationService {
 
+    /**
+     * 패치 생성 결과 record.
+     *
+     * <p>생성된 Patch 엔티티와 응답 보강 정보(isBuildOnly, hotfixesInRange, includedBuilds)를 함께 전달한다.
+     */
+    public record GenerateResult(
+            Patch patch,
+            boolean isBuildOnly,
+            java.util.List<PatchDto.HotfixInRangeInfo> hotfixesInRange,
+            PatchDto.IncludedBuilds includedBuilds
+    ) {}
+
     private final PatchRepository patchRepository;
     private final PatchHistoryRepository patchHistoryRepository;
     private final ReleaseVersionRepository releaseVersionRepository;
@@ -85,7 +97,7 @@ public class PatchGenerationService {
      * @return 생성된 패치
      */
     @Transactional
-    public Patch generatePatchByVersion(String projectId, String releaseType, Long customerId,
+    public GenerateResult generatePatchByVersion(String projectId, String releaseType, Long customerId,
             String fromVersion, String toVersion, String createdByEmail, String description,
             Long assigneeId, String patchName, PatchDto.BuildSelection buildSelection) {
 
@@ -490,7 +502,7 @@ public class PatchGenerationService {
      * @return 생성된 패치
      */
     @Transactional
-    public Patch generatePatch(String projectId, Long fromVersionId, Long toVersionId, Long customerId,
+    public GenerateResult generatePatch(String projectId, Long fromVersionId, Long toVersionId, Long customerId,
             String createdByEmail, String description, Long assigneeId, String patchName,
             PatchDto.BuildSelection buildSelection) {
         try {
@@ -603,7 +615,15 @@ public class PatchGenerationService {
             log.info("패치 생성 완료 - ID: {}, Path: {}", saved.getPatchId(),
                     outputPath);
 
-            return saved;
+            // 12. 응답 보강 필드 계산
+            boolean isBuildOnly = isSameBaseVersion(fromVersion, toVersion);
+            List<PatchDto.HotfixInRangeInfo> hotfixes = releaseVersionRepository
+                    .findHotfixesInBaseRange(projectId, fromVersionId, toVersionId, customerId).stream()
+                    .map(h -> new PatchDto.HotfixInRangeInfo(h.getReleaseVersionId(), h.getFullVersion()))
+                    .toList();
+            PatchDto.IncludedBuilds includedBuilds = buildIncludedBuilds(buildSelection);
+
+            return new GenerateResult(saved, isBuildOnly, hotfixes, includedBuilds);
 
         } catch (BusinessException e) {
             throw e;
@@ -612,6 +632,31 @@ public class PatchGenerationService {
             throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
                     "패치 생성 중 오류가 발생했습니다: " + e.getMessage());
         }
+    }
+
+    /**
+     * buildSelection 에 따라 응답용 IncludedBuilds 를 구성한다.
+     *
+     * @param sel 빌드 선택 (null 또는 enabled=false 면 WEB/engines 모두 비어있는 객체 반환)
+     * @return IncludedBuilds
+     */
+    private PatchDto.IncludedBuilds buildIncludedBuilds(PatchDto.BuildSelection sel) {
+        if (sel == null || !sel.enabled()) {
+            return new PatchDto.IncludedBuilds(null, List.of());
+        }
+        PatchDto.IncludedWeb web = null;
+        if (sel.web() != null) {
+            ReleaseVersion bv = loadBuildVersion(sel.web().buildVersionId());
+            web = new PatchDto.IncludedWeb(bv.getReleaseVersionId(), bv.getFullVersion());
+        }
+        List<PatchDto.IncludedEngine> engines = new ArrayList<>();
+        if (sel.engines() != null) {
+            for (PatchDto.SelectedEngine se : sel.engines()) {
+                ReleaseVersion bv = loadBuildVersion(se.buildVersionId());
+                engines.add(new PatchDto.IncludedEngine(se.engineName(), bv.getReleaseVersionId(), bv.getFullVersion()));
+            }
+        }
+        return new PatchDto.IncludedBuilds(web, engines);
     }
 
     /**

@@ -36,11 +36,11 @@ public interface PatchControllerDocs {
                     description = "성공",
                     content = @Content(
                             mediaType = "application/json",
-                            schema = @Schema(implementation = PatchDetailApiResponse.class)
+                            schema = @Schema(implementation = GenerateApiResponse.class)
                     )
             )
     )
-    ApiResponse<PatchDto.DetailResponse> generatePatch(
+    ApiResponse<PatchDto.GenerateResponse> generatePatch(
             @Valid @RequestBody PatchDto.GenerateRequest request
     );
 
@@ -373,6 +373,18 @@ public interface PatchControllerDocs {
     ApiResponse<PatchDto.DetailResponse> generateCustomPatch(
             @Valid @RequestBody PatchDto.GenerateCustomPatchRequest request
     );
+
+    /**
+     * Swagger 스키마용 wrapper 클래스 - 패치 생성 응답
+     */
+    @Schema(description = "패치 생성 API 응답")
+    class GenerateApiResponse {
+        @Schema(description = "응답 상태", example = "success")
+        public String status;
+
+        @Schema(description = "패치 생성 결과")
+        public PatchDto.GenerateResponse data;
+    }
 
     /**
      * Swagger 스키마용 wrapper 클래스 - 패치 상세 응답
