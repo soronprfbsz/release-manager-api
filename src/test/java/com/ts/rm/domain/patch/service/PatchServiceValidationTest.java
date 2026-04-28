@@ -59,4 +59,14 @@ class PatchServiceValidationTest {
                 true, new PatchDto.SelectedWeb(42L), List.of());
         PatchService.validateBuildSelection(selection, true);
     }
+
+    @Test
+    @DisplayName("정상: from != to + toggle ON + engines 만 1개 (web 없음)")
+    void enginesOnlyRangePatch_passes() {
+        PatchDto.BuildSelection selection = new PatchDto.BuildSelection(
+                true,
+                null,
+                java.util.List.of(new PatchDto.SelectedEngine("NC_SMS", 42L)));
+        PatchService.validateBuildSelection(selection, false);  // no exception
+    }
 }

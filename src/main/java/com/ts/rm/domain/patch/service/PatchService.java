@@ -52,6 +52,8 @@ public class PatchService {
     public Patch generatePatchByVersion(String projectId, String releaseType, Long customerId,
             String fromVersion, String toVersion, String createdByEmail, String description,
             Long engineerId, String patchName, PatchDto.BuildSelection buildSelection) {
+        boolean sameBase = fromVersion.equals(toVersion);
+        validateBuildSelection(buildSelection, sameBase);
         return patchGenerationService.generatePatchByVersion(
                 projectId, releaseType, customerId, fromVersion, toVersion,
                 createdByEmail, description, engineerId, patchName, buildSelection);
@@ -64,6 +66,8 @@ public class PatchService {
     public Patch generatePatch(String projectId, Long fromVersionId, Long toVersionId, Long customerId,
             String createdByEmail, String description, Long engineerId, String patchName,
             PatchDto.BuildSelection buildSelection) {
+        boolean sameBase = fromVersionId.equals(toVersionId);
+        validateBuildSelection(buildSelection, sameBase);
         return patchGenerationService.generatePatch(
                 projectId, fromVersionId, toVersionId, customerId,
                 createdByEmail, description, engineerId, patchName, buildSelection);
@@ -79,7 +83,7 @@ public class PatchService {
     public static void validateBuildSelection(PatchDto.BuildSelection selection, boolean sameBase) {
         boolean enabled = selection != null && selection.enabled();
         boolean pickerEmpty = selection == null
-                || selection.web() == null && (selection.engines() == null || selection.engines().isEmpty());
+                || (selection.web() == null && (selection.engines() == null || selection.engines().isEmpty()));
 
         if (enabled && pickerEmpty) {
             throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,

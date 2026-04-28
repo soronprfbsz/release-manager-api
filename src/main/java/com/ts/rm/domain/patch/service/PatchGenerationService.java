@@ -930,6 +930,7 @@ public class PatchGenerationService {
         }
     }
 
+    // TODO(Task 9 / spec §5.4): buildSelection picker 입력 별도 단계에서 부분 복사로 재활용 예정
     /**
      * 빌드 ZIP 산출물은 ReleaseFile row로 인덱싱하지 않으므로 파일시스템에서 직접 복사한다.
      */
@@ -968,6 +969,7 @@ public class PatchGenerationService {
         return copiedCount[0];
     }
 
+    // TODO(Task 9 / spec §5.4): builds-in-range 후보 검사와 검증 룰 (§4.3) 에서 재사용 예정
     private boolean buildRootHasFiles(ReleaseVersion buildVersion, String rootName) {
         ReleaseVersion baseVersion = buildVersion.getBuildBaseVersion();
         if (baseVersion == null) {

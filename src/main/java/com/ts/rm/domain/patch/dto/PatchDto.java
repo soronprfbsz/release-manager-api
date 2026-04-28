@@ -140,6 +140,10 @@ public final class PatchDto {
             String fullVersion
     ) {}
 
+    /**
+     * 패치 생성 응답.
+     * <p>Task 10 에서 PatchController 가 본 record 를 응답으로 반환하도록 연결될 예정.
+     */
     @Schema(description = "패치 생성 응답")
     public record GenerateResponse(
             @Schema(description = "생성된 패치 ID", example = "1")
