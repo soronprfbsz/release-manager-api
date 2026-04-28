@@ -135,4 +135,29 @@ public interface ReleaseVersionRepositoryCustom {
      * @return 최대 build_version (빌드가 하나도 없으면 Optional.empty)
      */
     Optional<Integer> findMaxBuildVersionByBaseId(Long buildBaseVersionId);
+
+    /**
+     * 두 base 버전 사이의 빌드 행 (build_version > 0) 조회.
+     *
+     * <p>표준 패치는 customerId 가 null. 커스텀 패치는 해당 고객사의 빌드만 반환한다.
+     * 결과는 build_version DESC 정렬.
+     *
+     * @param projectId  프로젝트 ID
+     * @param fromBaseId 시작 base 버전 ID (포함)
+     * @param toBaseId   종료 base 버전 ID (포함)
+     * @param customerId 고객사 ID (null = 표준)
+     * @return 빌드 ReleaseVersion 목록 (build_version DESC)
+     */
+    List<ReleaseVersion> findBuildsInBaseRange(String projectId, Long fromBaseId, Long toBaseId, Long customerId);
+
+    /**
+     * 두 base 버전 사이의 핫픽스 행 (hotfix_version > 0) 조회.
+     *
+     * @param projectId  프로젝트 ID
+     * @param fromBaseId 시작 base 버전 ID (포함)
+     * @param toBaseId   종료 base 버전 ID (포함)
+     * @param customerId 고객사 ID (null = 표준)
+     * @return 핫픽스 ReleaseVersion 목록 (hotfix_version ASC)
+     */
+    List<ReleaseVersion> findHotfixesInBaseRange(String projectId, Long fromBaseId, Long toBaseId, Long customerId);
 }

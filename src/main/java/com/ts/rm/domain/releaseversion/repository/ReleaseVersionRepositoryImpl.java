@@ -1,5 +1,6 @@
 package com.ts.rm.domain.releaseversion.repository;
 
+import com.querydsl.core.types.dsl.BooleanExpression;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import com.ts.rm.domain.releaseversion.entity.QReleaseVersion;
 import com.ts.rm.domain.releaseversion.entity.ReleaseVersion;
@@ -316,6 +317,44 @@ public class ReleaseVersionRepositoryImpl implements ReleaseVersionRepositoryCus
                         rv.minorVersion.asc(),
                         rv.patchVersion.asc()
                 )
+                .fetch();
+    }
+
+    @Override
+    public List<ReleaseVersion> findBuildsInBaseRange(String projectId, Long fromBaseId, Long toBaseId, Long customerId) {
+        QReleaseVersion rv = QReleaseVersion.releaseVersion;
+
+        BooleanExpression projectMatch = rv.project.projectId.eq(projectId);
+        BooleanExpression isBuild = rv.buildVersion.gt(0);
+        BooleanExpression baseRange = rv.buildBaseVersion.releaseVersionId.goe(fromBaseId)
+                .and(rv.buildBaseVersion.releaseVersionId.loe(toBaseId));
+        BooleanExpression customerMatch = (customerId == null)
+                ? rv.customer.isNull()
+                : rv.customer.customerId.eq(customerId);
+
+        return queryFactory
+                .selectFrom(rv)
+                .where(projectMatch, isBuild, baseRange, customerMatch)
+                .orderBy(rv.buildVersion.desc())
+                .fetch();
+    }
+
+    @Override
+    public List<ReleaseVersion> findHotfixesInBaseRange(String projectId, Long fromBaseId, Long toBaseId, Long customerId) {
+        QReleaseVersion rv = QReleaseVersion.releaseVersion;
+
+        BooleanExpression projectMatch = rv.project.projectId.eq(projectId);
+        BooleanExpression isHotfix = rv.hotfixVersion.gt(0);
+        BooleanExpression baseRange = rv.hotfixBaseVersion.releaseVersionId.goe(fromBaseId)
+                .and(rv.hotfixBaseVersion.releaseVersionId.loe(toBaseId));
+        BooleanExpression customerMatch = (customerId == null)
+                ? rv.customer.isNull()
+                : rv.customer.customerId.eq(customerId);
+
+        return queryFactory
+                .selectFrom(rv)
+                .where(projectMatch, isHotfix, baseRange, customerMatch)
+                .orderBy(rv.hotfixVersion.asc())
                 .fetch();
     }
 
