@@ -31,7 +31,9 @@ import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -942,14 +944,19 @@ public class PatchGenerationService {
      * 같은 경로 충돌 시 큰 buildVersion 의 내용이 살아남게 한다.
      */
     private void applyBuildSelection(Path outputDir, PatchDto.BuildSelection sel) throws IOException {
-        java.util.Set<Long> selectedBuildIds = new java.util.LinkedHashSet<>();
+        log.info("picker 복사 시작 - WEB: {}, ENGINE: {}",
+                sel.web() == null ? "(없음)" : sel.web().buildVersionId(),
+                sel.engines() == null ? List.of() : sel.engines());
+
+        // a/b 단계에서 로드한 ReleaseVersion 을 캐시하여 c 단계의 N+1 DB 조회 방지
+        Map<Long, ReleaseVersion> selectedBuilds = new LinkedHashMap<>();
 
         // a. WEB 부분 복사
         if (sel.web() != null) {
             ReleaseVersion bv = loadBuildVersion(sel.web().buildVersionId());
             Path src = fileSystemService.resolveBuildBasePath(bv.getBuildBaseVersion(), bv.getBuildVersion()).resolve("web");
             copyDirectoryReplaceExisting(src, outputDir.resolve("web"));
-            selectedBuildIds.add(bv.getReleaseVersionId());
+            selectedBuilds.put(bv.getReleaseVersionId(), bv);
         }
 
         // b. ENGINE 부분 복사
@@ -959,15 +966,16 @@ public class PatchGenerationService {
                 Path src = fileSystemService.resolveBuildBasePath(bv.getBuildBaseVersion(), bv.getBuildVersion())
                         .resolve("engine").resolve(se.engineName());
                 copyDirectoryReplaceExisting(src, outputDir.resolve("engine").resolve(se.engineName()));
-                selectedBuildIds.add(bv.getReleaseVersionId());
+                selectedBuilds.putIfAbsent(bv.getReleaseVersionId(), bv);
             }
         }
 
         // c. ETC 동행: buildVersion 오름차순 순차 복사 (REPLACE_EXISTING)
-        java.util.List<ReleaseVersion> sortedByBuildVersion = selectedBuildIds.stream()
-                .map(this::loadBuildVersion)
-                .sorted(java.util.Comparator.comparingInt(ReleaseVersion::getBuildVersion))
+        List<ReleaseVersion> sortedByBuildVersion = selectedBuilds.values().stream()
+                .sorted(Comparator.comparingInt(ReleaseVersion::getBuildVersion))
                 .toList();
+        log.info("ETC 동행 복사 순서: {}",
+                sortedByBuildVersion.stream().map(ReleaseVersion::getFullVersion).toList());
         for (ReleaseVersion bv : sortedByBuildVersion) {
             Path src = fileSystemService.resolveBuildBasePath(bv.getBuildBaseVersion(), bv.getBuildVersion()).resolve("etc");
             if (Files.isDirectory(src)) {
@@ -992,6 +1000,7 @@ public class PatchGenerationService {
         if (!Files.isDirectory(source)) {
             return;
         }
+        Files.createDirectories(target);
         try (var stream = Files.walk(source)) {
             stream.forEach(p -> {
                 try {
