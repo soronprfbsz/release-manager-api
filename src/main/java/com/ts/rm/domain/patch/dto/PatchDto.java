@@ -241,7 +241,19 @@ public final class PatchDto {
             LocalDateTime createdAt,
 
             @Schema(description = "수정일시")
-            LocalDateTime updatedAt
+            LocalDateTime updatedAt,
+
+            @Schema(description = "Build-only 패치 여부", example = "false")
+            Boolean isBuildOnly,
+
+            @Schema(description = "빌드 포함 여부", example = "true")
+            Boolean isBuildIncluded,
+
+            @Schema(description = "포함된 빌드 정보 (빈 객체 가능)")
+            IncludedBuilds includedBuilds,
+
+            @Schema(description = "범위 안의 핫픽스 (별도 적용 안내용, 비어있으면 빈 배열)")
+            java.util.List<HotfixInRangeInfo> hotfixesInRange
     ) {
 
     }
@@ -365,7 +377,16 @@ public final class PatchDto {
             LocalDateTime createdAt,
 
             @Schema(description = "수정일시")
-            LocalDateTime updatedAt
+            LocalDateTime updatedAt,
+
+            @Schema(description = "Build-only 패치 여부", example = "false")
+            Boolean isBuildOnly,
+
+            @Schema(description = "빌드 포함 여부", example = "true")
+            Boolean isBuildIncluded,
+
+            @Schema(description = "포함된 빌드 요약 (예: 'WEB · NC_SMS · NC_FAULT_MS', 빌드 미포함 시 null)", example = "WEB · NC_SMS · NC_FAULT_MS")
+            String includedBuildsSummary
     ) {
 
     }
