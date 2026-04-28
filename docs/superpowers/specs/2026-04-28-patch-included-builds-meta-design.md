@@ -51,8 +51,9 @@ CREATE TABLE patch_included_build (
     build_version_id        BIGINT       NULL,
     full_version            VARCHAR(50)  NOT NULL,
     created_at              TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_pib_patch FOREIGN KEY (patch_id)
-        REFERENCES patch(patch_id) ON DELETE CASCADE,
+        REFERENCES patch_file(patch_id) ON DELETE CASCADE,
     CONSTRAINT fk_pib_build FOREIGN KEY (build_version_id)
         REFERENCES release_version(release_version_id) ON DELETE SET NULL,
     INDEX idx_pib_patch_id (patch_id),
@@ -79,8 +80,9 @@ CREATE TABLE patch_hotfix_in_range (
     full_version              VARCHAR(50)  NOT NULL,
     hotfix_version            INT          NOT NULL,
     created_at                TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at                TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_phir_patch FOREIGN KEY (patch_id)
-        REFERENCES patch(patch_id) ON DELETE CASCADE,
+        REFERENCES patch_file(patch_id) ON DELETE CASCADE,
     CONSTRAINT fk_phir_hotfix FOREIGN KEY (hotfix_version_id)
         REFERENCES release_version(release_version_id) ON DELETE SET NULL,
     INDEX idx_phir_patch_id (patch_id)
@@ -90,7 +92,7 @@ CREATE TABLE patch_hotfix_in_range (
 ### 3.3 기존 테이블 ALTER — `patch`
 
 ```sql
-ALTER TABLE patch
+ALTER TABLE patch_file
   ADD COLUMN is_build_only     BOOLEAN NOT NULL DEFAULT FALSE,
   ADD COLUMN is_build_included BOOLEAN NOT NULL DEFAULT FALSE;
 ```
@@ -269,10 +271,10 @@ export interface PatchDetailResponse {
 
 ```sql
 -- 사전 백업 (선택, 운영 정책에 따라):
-CREATE TABLE patch_backup_20260428 AS SELECT * FROM patch;
+CREATE TABLE patch_backup_20260428 AS SELECT * FROM patch_file;
 
 -- 1) patch 테이블에 캐시 컬럼 추가
-ALTER TABLE patch
+ALTER TABLE patch_file
   ADD COLUMN is_build_only     BOOLEAN NOT NULL DEFAULT FALSE,
   ADD COLUMN is_build_included BOOLEAN NOT NULL DEFAULT FALSE;
 
@@ -285,8 +287,9 @@ CREATE TABLE patch_included_build (
     build_version_id        BIGINT       NULL,
     full_version            VARCHAR(50)  NOT NULL,
     created_at              TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_pib_patch FOREIGN KEY (patch_id)
-        REFERENCES patch(patch_id) ON DELETE CASCADE,
+        REFERENCES patch_file(patch_id) ON DELETE CASCADE,
     CONSTRAINT fk_pib_build FOREIGN KEY (build_version_id)
         REFERENCES release_version(release_version_id) ON DELETE SET NULL,
     INDEX idx_pib_patch_id (patch_id),
@@ -301,8 +304,9 @@ CREATE TABLE patch_hotfix_in_range (
     full_version              VARCHAR(50)  NOT NULL,
     hotfix_version            INT          NOT NULL,
     created_at                TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at                TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_phir_patch FOREIGN KEY (patch_id)
-        REFERENCES patch(patch_id) ON DELETE CASCADE,
+        REFERENCES patch_file(patch_id) ON DELETE CASCADE,
     CONSTRAINT fk_phir_hotfix FOREIGN KEY (hotfix_version_id)
         REFERENCES release_version(release_version_id) ON DELETE SET NULL,
     INDEX idx_phir_patch_id (patch_id)
