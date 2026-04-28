@@ -5,8 +5,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+
+import org.mockito.ArgumentCaptor;
 
 import com.ts.rm.domain.account.entity.Account;
 import com.ts.rm.domain.account.repository.AccountRepository;
@@ -15,6 +18,8 @@ import com.ts.rm.domain.customer.repository.CustomerRepository;
 import com.ts.rm.domain.patch.dto.PatchDto;
 import com.ts.rm.domain.patch.entity.Patch;
 import com.ts.rm.domain.patch.entity.PatchHistory;
+import com.ts.rm.domain.patch.entity.PatchIncludedBuild;
+import com.ts.rm.domain.patch.entity.PatchHotfixInRange;
 import com.ts.rm.domain.patch.repository.PatchHistoryRepository;
 import com.ts.rm.domain.patch.repository.PatchRepository;
 import com.ts.rm.domain.patch.util.ScriptGenerator;
@@ -681,6 +686,258 @@ class PatchGenerationServiceTest {
         assertThat(result.includedBuilds().engines()).hasSize(1);
         assertThat(result.includedBuilds().engines().get(0).engineName()).isEqualTo("NC_SMS");
         assertThat(result.includedBuilds().engines().get(0).fullVersion()).isEqualTo("1.1.0.260427");
+    }
+
+    @Test
+    @DisplayName("buildSelection.enabled=true 면 PatchIncludedBuild 행 + isBuildIncluded=true 가 영구 저장")
+    void persistIncludedBuilds_savesRowsAndFlag(@TempDir Path tempDir) throws IOException {
+        // GIVEN: pickerSelection_partialCopy 와 동일 fixture — WEB(bv428) + NC_SMS(bv427)
+        Path buildDir427 = tempDir.resolve("build427");
+        Files.createDirectories(buildDir427.resolve("engine/NC_SMS"));
+        Files.createFile(buildDir427.resolve("engine/NC_SMS/x.jar"));
+
+        Path buildDir428 = tempDir.resolve("build428");
+        Files.createDirectories(buildDir428.resolve("web"));
+        Files.createFile(buildDir428.resolve("web/foo.war"));
+
+        ReflectionTestUtils.setField(patchGenerationService, "releaseBasePath", tempDir.toString());
+
+        String projectId = "infraeye2";
+        String createdBy = "test@tscientific";
+
+        Project project = Project.builder()
+                .projectId(projectId)
+                .projectName("InfraEye 2.0")
+                .build();
+
+        ReleaseVersion baseFrom = ReleaseVersion.builder()
+                .releaseVersionId(10L)
+                .project(project)
+                .releaseType("STANDARD")
+                .version("1.1.0")
+                .majorVersion(1).minorVersion(1).patchVersion(0)
+                .buildVersion(0)
+                .isApproved(true)
+                .build();
+
+        ReleaseVersion bv428 = ReleaseVersion.builder()
+                .releaseVersionId(20L)
+                .project(project)
+                .releaseType("STANDARD")
+                .version("1.1.0")
+                .majorVersion(1).minorVersion(1).patchVersion(0)
+                .buildVersion(260428)
+                .buildBaseVersion(baseFrom)
+                .isApproved(true)
+                .build();
+
+        ReleaseVersion bv427 = ReleaseVersion.builder()
+                .releaseVersionId(21L)
+                .project(project)
+                .releaseType("STANDARD")
+                .version("1.1.0")
+                .majorVersion(1).minorVersion(1).patchVersion(0)
+                .buildVersion(260427)
+                .buildBaseVersion(baseFrom)
+                .isApproved(true)
+                .build();
+
+        when(projectRepository.findById(projectId)).thenReturn(Optional.of(project));
+        when(releaseVersionRepository.findById(10L)).thenReturn(Optional.of(baseFrom));
+        when(releaseVersionRepository.findById(20L)).thenReturn(Optional.of(bv428));
+        when(releaseVersionRepository.findById(21L)).thenReturn(Optional.of(bv427));
+        when(releaseVersionRepository.findUnapprovedVersionsBetween(
+                anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(List.of());
+        when(releaseVersionRepository.findHotfixesInBaseRange(anyString(), any(), any(), any()))
+                .thenReturn(List.of());
+        when(fileSystemService.resolveBuildBasePath(baseFrom, 260428)).thenReturn(buildDir428);
+        when(fileSystemService.resolveBuildBasePath(baseFrom, 260427)).thenReturn(buildDir427);
+        Account creator = Account.builder()
+                .accountId(1L)
+                .email(createdBy)
+                .accountName("테스트 계정")
+                .password("pw")
+                .build();
+        when(accountLookupService.findByEmail(createdBy)).thenReturn(creator);
+        when(patchRepository.save(any(Patch.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(patchHistoryRepository.save(any(PatchHistory.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        PatchDto.BuildSelection buildSelection = new PatchDto.BuildSelection(
+                true,
+                new PatchDto.SelectedWeb(20L),
+                List.of(new PatchDto.SelectedEngine("NC_SMS", 21L))
+        );
+
+        // WHEN
+        patchGenerationService.generatePatch(
+                projectId, 10L, 20L, null, createdBy, null, null, "persist-included-builds-patch", buildSelection);
+
+        // THEN: patchRepository.save 는 2회 호출 (최초 저장 + 메타 cascade 저장)
+        //       두 번째 save 의 Patch 에 includedBuilds 크기 = 2 (WEB + NC_SMS),
+        //       isBuildIncluded = true, isBuildOnly = true (isSameBaseVersion)
+        ArgumentCaptor<Patch> patchCaptor = ArgumentCaptor.forClass(Patch.class);
+        verify(patchRepository, times(2)).save(patchCaptor.capture());
+        Patch savedPatch = patchCaptor.getAllValues().get(1);
+
+        assertThat(savedPatch.getIsBuildIncluded()).isTrue();
+        assertThat(savedPatch.getIsBuildOnly()).isTrue();
+        assertThat(savedPatch.getIncludedBuilds()).hasSize(2);
+
+        List<PatchIncludedBuild> builds = savedPatch.getIncludedBuilds();
+        assertThat(builds).anyMatch(b -> "WEB".equals(b.getKind()));
+        assertThat(builds).anyMatch(b -> "ENGINE".equals(b.getKind()) && "NC_SMS".equals(b.getEngineName()));
+    }
+
+    @Test
+    @DisplayName("hotfixesInRange 가 비어있지 않으면 PatchHotfixInRange 행이 영구 저장")
+    void persistHotfixesInRange_savesRows(@TempDir Path tempDir) throws IOException {
+        // GIVEN: from(1.1.0 base) != to(1.2.0 base), 핫픽스 1건 (id=99, fullVersion=1.1.0.1, hotfixVersion=1)
+        ReflectionTestUtils.setField(patchGenerationService, "releaseBasePath", tempDir.toString());
+
+        String projectId = "infraeye2";
+        String createdBy = "test@tscientific";
+
+        Project project = Project.builder()
+                .projectId(projectId)
+                .projectName("InfraEye 2.0")
+                .build();
+
+        ReleaseVersion fromVersion = ReleaseVersion.builder()
+                .releaseVersionId(1L)
+                .project(project)
+                .releaseType("STANDARD")
+                .version("1.1.0")
+                .majorVersion(1).minorVersion(1).patchVersion(0)
+                .buildVersion(0)
+                .isApproved(true)
+                .build();
+
+        ReleaseVersion toVersion = ReleaseVersion.builder()
+                .releaseVersionId(2L)
+                .project(project)
+                .releaseType("STANDARD")
+                .version("1.2.0")
+                .majorVersion(1).minorVersion(2).patchVersion(0)
+                .buildVersion(0)
+                .isApproved(true)
+                .build();
+
+        ReleaseVersion hotfix = ReleaseVersion.builder()
+                .releaseVersionId(99L)
+                .project(project)
+                .releaseType("STANDARD")
+                .version("1.1.0")
+                .majorVersion(1).minorVersion(1).patchVersion(0)
+                .hotfixVersion(1)
+                .isApproved(true)
+                .build();
+
+        when(projectRepository.findById(projectId)).thenReturn(Optional.of(project));
+        when(releaseVersionRepository.findById(1L)).thenReturn(Optional.of(fromVersion));
+        when(releaseVersionRepository.findById(2L)).thenReturn(Optional.of(toVersion));
+        when(releaseVersionRepository.findUnapprovedVersionsBetween(
+                anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(List.of());
+        when(releaseVersionRepository.findVersionsBetween(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(List.of(toVersion));
+        when(releaseVersionRepository.findHotfixesInBaseRange(anyString(), any(), any(), any()))
+                .thenReturn(List.of(hotfix));
+        when(releaseFileRepository.findAllByReleaseVersion_ReleaseVersionIdOrderByExecutionOrderAsc(2L))
+                .thenReturn(List.of());
+        Account creator = Account.builder()
+                .accountId(1L)
+                .email(createdBy)
+                .accountName("테스트 계정")
+                .password("pw")
+                .build();
+        when(accountLookupService.findByEmail(createdBy)).thenReturn(creator);
+        when(patchRepository.save(any(Patch.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(patchHistoryRepository.save(any(PatchHistory.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // WHEN: buildSelection=null
+        patchGenerationService.generatePatch(
+                projectId, 1L, 2L, null, createdBy, null, null, "persist-hotfixes-patch", null);
+
+        // THEN: patchRepository.save 는 2회 호출. 두 번째 save 의 Patch 에 hotfixesInRange 크기 = 1
+        ArgumentCaptor<Patch> patchCaptor = ArgumentCaptor.forClass(Patch.class);
+        verify(patchRepository, times(2)).save(patchCaptor.capture());
+        Patch savedPatch = patchCaptor.getAllValues().get(1);
+
+        assertThat(savedPatch.getHotfixesInRange()).hasSize(1);
+        assertThat(savedPatch.getHotfixesInRange().get(0).getFullVersion()).isEqualTo("1.1.0.1");
+        assertThat(savedPatch.getIsBuildIncluded()).isFalse();
+    }
+
+    @Test
+    @DisplayName("buildSelection 미포함 (null) 일 때 isBuildIncluded=false 이고 메타 행 0개")
+    void noBuildSelection_noMetaRows(@TempDir Path tempDir) throws IOException {
+        // GIVEN: buildSelection=null, 핫픽스 0개
+        ReflectionTestUtils.setField(patchGenerationService, "releaseBasePath", tempDir.toString());
+
+        String projectId = "infraeye2";
+        String createdBy = "test@tscientific";
+
+        Project project = Project.builder()
+                .projectId(projectId)
+                .projectName("InfraEye 2.0")
+                .build();
+
+        ReleaseVersion fromVersion = ReleaseVersion.builder()
+                .releaseVersionId(1L)
+                .project(project)
+                .releaseType("STANDARD")
+                .version("1.1.0")
+                .majorVersion(1).minorVersion(1).patchVersion(0)
+                .buildVersion(0)
+                .isApproved(true)
+                .build();
+
+        ReleaseVersion toVersion = ReleaseVersion.builder()
+                .releaseVersionId(2L)
+                .project(project)
+                .releaseType("STANDARD")
+                .version("1.2.0")
+                .majorVersion(1).minorVersion(2).patchVersion(0)
+                .buildVersion(0)
+                .isApproved(true)
+                .build();
+
+        when(projectRepository.findById(projectId)).thenReturn(Optional.of(project));
+        when(releaseVersionRepository.findById(1L)).thenReturn(Optional.of(fromVersion));
+        when(releaseVersionRepository.findById(2L)).thenReturn(Optional.of(toVersion));
+        when(releaseVersionRepository.findUnapprovedVersionsBetween(
+                anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(List.of());
+        when(releaseVersionRepository.findVersionsBetween(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(List.of(toVersion));
+        when(releaseVersionRepository.findHotfixesInBaseRange(anyString(), any(), any(), any()))
+                .thenReturn(List.of());
+        when(releaseFileRepository.findAllByReleaseVersion_ReleaseVersionIdOrderByExecutionOrderAsc(2L))
+                .thenReturn(List.of());
+        Account creator = Account.builder()
+                .accountId(1L)
+                .email(createdBy)
+                .accountName("테스트 계정")
+                .password("pw")
+                .build();
+        when(accountLookupService.findByEmail(createdBy)).thenReturn(creator);
+        when(patchRepository.save(any(Patch.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(patchHistoryRepository.save(any(PatchHistory.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // WHEN: buildSelection=null 로 generatePatch 호출
+        patchGenerationService.generatePatch(
+                projectId, 1L, 2L, null, createdBy, null, null, "no-meta-patch", null);
+
+        // THEN: patchRepository.save 는 2회 호출. 두 번째 save 의 Patch 에 메타 없음
+        ArgumentCaptor<Patch> patchCaptor = ArgumentCaptor.forClass(Patch.class);
+        verify(patchRepository, times(2)).save(patchCaptor.capture());
+        Patch savedPatch = patchCaptor.getAllValues().get(1);
+
+        assertThat(savedPatch.getIsBuildIncluded()).isFalse();
+        assertThat(savedPatch.getIsBuildOnly()).isFalse();
+        assertThat(savedPatch.getIncludedBuilds()).isEmpty();
+        assertThat(savedPatch.getHotfixesInRange()).isEmpty();
     }
 
     @Test

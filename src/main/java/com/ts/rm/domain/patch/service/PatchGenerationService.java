@@ -9,6 +9,8 @@ import com.ts.rm.domain.customer.repository.CustomerRepository;
 import com.ts.rm.domain.patch.dto.PatchDto;
 import com.ts.rm.domain.patch.entity.Patch;
 import com.ts.rm.domain.patch.entity.PatchHistory;
+import com.ts.rm.domain.patch.entity.PatchHotfixInRange;
+import com.ts.rm.domain.patch.entity.PatchIncludedBuild;
 import com.ts.rm.domain.patch.repository.PatchHistoryRepository;
 import com.ts.rm.domain.patch.repository.PatchRepository;
 import com.ts.rm.domain.patch.util.ScriptGenerator;
@@ -618,10 +620,20 @@ public class PatchGenerationService {
             log.info("패치 생성 완료 - ID: {}, Path: {}", saved.getPatchId(),
                     outputPath);
 
-            // 12. 응답 보강 필드 계산
+            // 12. 메타 영구 저장 + 캐시 boolean 갱신 (spec §5.1)
+            // findHotfixesInBaseRange 는 단 1회 호출하여 메타 저장과 응답 매핑이 공유
             boolean isBuildOnly = isSameBaseVersion(fromVersion, toVersion);
-            List<PatchDto.HotfixInRangeInfo> hotfixes = releaseVersionRepository
-                    .findHotfixesInBaseRange(projectId, fromVersionId, toVersionId, customerId).stream()
+            List<ReleaseVersion> hotfixVersions = releaseVersionRepository
+                    .findHotfixesInBaseRange(projectId, fromVersionId, toVersionId, customerId);
+
+            saved.setIsBuildOnly(isBuildOnly);
+            saved.setIsBuildIncluded(buildSelection != null && buildSelection.enabled());
+            persistIncludedBuilds(saved, buildSelection, selectedBuilds);
+            persistHotfixesInRange(saved, hotfixVersions);
+            saved = patchRepository.save(saved);  // cascade 로 메타 행도 저장됨
+
+            // 응답용 hotfixesInRange / includedBuilds 매핑
+            List<PatchDto.HotfixInRangeInfo> hotfixes = hotfixVersions.stream()
                     .map(h -> new PatchDto.HotfixInRangeInfo(h.getReleaseVersionId(), h.getFullVersion()))
                     .toList();
             PatchDto.IncludedBuilds includedBuilds = buildIncludedBuilds(buildSelection, selectedBuilds);
@@ -1041,6 +1053,58 @@ public class PatchGenerationService {
         }
 
         return selectedBuilds;
+    }
+
+    /**
+     * picker 로 선택된 빌드들을 PatchIncludedBuild 로 저장. patch 의 양방향 관계를 통해 cascade.
+     *
+     * <p>kind 명세 (spec §3.1):
+     * <ul>
+     *   <li>WEB: kind="WEB", engine_name=NULL</li>
+     *   <li>ENGINE: kind="ENGINE", engine_name=engineName</li>
+     * </ul>
+     */
+    private void persistIncludedBuilds(Patch patch, PatchDto.BuildSelection sel,
+                                       Map<Long, ReleaseVersion> selectedBuilds) {
+        if (sel == null || !sel.enabled()) return;
+        if (sel.web() != null) {
+            ReleaseVersion bv = selectedBuilds.get(sel.web().buildVersionId());
+            if (bv == null) bv = loadBuildVersion(sel.web().buildVersionId());
+            PatchIncludedBuild row = PatchIncludedBuild.builder()
+                    .kind("WEB")
+                    .engineName(null)
+                    .buildVersion(bv)
+                    .fullVersion(bv.getFullVersion())
+                    .build();
+            patch.addIncludedBuild(row);
+        }
+        if (sel.engines() != null) {
+            for (PatchDto.SelectedEngine se : sel.engines()) {
+                ReleaseVersion bv = selectedBuilds.get(se.buildVersionId());
+                if (bv == null) bv = loadBuildVersion(se.buildVersionId());
+                PatchIncludedBuild row = PatchIncludedBuild.builder()
+                        .kind("ENGINE")
+                        .engineName(se.engineName())
+                        .buildVersion(bv)
+                        .fullVersion(bv.getFullVersion())
+                        .build();
+                patch.addIncludedBuild(row);
+            }
+        }
+    }
+
+    /**
+     * 범위 안의 핫픽스를 PatchHotfixInRange 로 저장. patch 의 양방향 관계를 통해 cascade.
+     */
+    private void persistHotfixesInRange(Patch patch, List<ReleaseVersion> hotfixesInRange) {
+        for (ReleaseVersion h : hotfixesInRange) {
+            PatchHotfixInRange row = PatchHotfixInRange.builder()
+                    .hotfixVersion(h)
+                    .fullVersion(h.getFullVersion())
+                    .hotfixVersionNumber(h.getHotfixVersion())
+                    .build();
+            patch.addHotfixInRange(row);
+        }
     }
 
     private ReleaseVersion loadBuildVersion(Long buildVersionId) {
