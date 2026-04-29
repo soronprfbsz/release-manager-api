@@ -335,15 +335,38 @@ function _record_site_version()
     echo "[InfraEye] Site 버전 레지스트리 업데이트: $INFRAEYE_VERSION_DIR/site = $version"
 }
 
+# db patch 의 마지막 적용 버전 — mariadb / cratedb 중 더 최근 mtime 의 to_version.
+# db patch 는 mariadb 만 / cratedb 만 / 둘 다 적용될 수 있어, 마지막에 갱신된 쪽을 따라간다.
+function _read_db_version()
+{
+    local mdb_file="${INFRAEYE_VERSION_DIR}/mariadb"
+    local cdb_file="${INFRAEYE_VERSION_DIR}/cratedb"
+    if [ -f "$mdb_file" ] && [ -f "$cdb_file" ]; then
+        if [ "$mdb_file" -nt "$cdb_file" ]; then
+            cat "$mdb_file"
+        else
+            cat "$cdb_file"
+        fi
+    elif [ -f "$mdb_file" ]; then
+        cat "$mdb_file"
+    elif [ -f "$cdb_file" ]; then
+        cat "$cdb_file"
+    else
+        echo "(not yet applied)"
+    fi
+}
+
 # --version / info version 공용 출력
-# - Version       : db patch 시 mariadb_patch.sh 가 CM_DB.VERSION_HISTORY 갱신 후
-#                   ${INFRAEYE_VERSION_DIR}/mariadb 에 mirror 한 to_version
+# - Version       : db patch (mariadb 또는 cratedb) 시 갱신된 to_version 중 가장 최근
+#                   값. mariadb_patch.sh 는 CM_DB.VERSION_HISTORY 와 함께
+#                   ${INFRAEYE_VERSION_DIR}/mariadb 를, cratedb_patch.sh 는
+#                   ${INFRAEYE_VERSION_DIR}/cratedb 를 mirror 한다.
 # - Build Version : was/eng patch 시 .infraeye-site-version 의 to_version 을
-#                   ${INFRAEYE_VERSION_DIR}/site 에 기록한 값
+#                   ${INFRAEYE_VERSION_DIR}/site 에 기록한 값.
 function _show_version()
 {
     local version build
-    version=$(_read_site_version "mariadb")
+    version=$(_read_db_version)
     build=$(_read_site_version "site")
     cat <<EOF
 InfraEye CLI ${INFRAEYE_CLI_VERSION} (Release Manager edition)
