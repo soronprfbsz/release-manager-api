@@ -69,10 +69,10 @@ public class ReleaseFileSyncAdapter implements FileSyncAdapter {
     @Transactional
     public Long registerFile(FileSyncMetadata metadata, @Nullable Map<String, Object> additionalData) {
         // additionalData에서 필수 정보 추출 (없으면 metadata 의 filePath 에서 자동 추론)
-        Long releaseVersionId = extractLong(additionalData, "releaseVersionId");
-        if (releaseVersionId == null) {
-            releaseVersionId = resolveReleaseVersionIdFromPath(metadata.getFilePath());
-        }
+        Long providedId = extractLong(additionalData, "releaseVersionId");
+        final Long releaseVersionId = providedId != null
+                ? providedId
+                : resolveReleaseVersionIdFromPath(metadata.getFilePath());
         if (releaseVersionId == null) {
             throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
                     "릴리즈 파일 등록에 필요한 releaseVersionId 를 결정할 수 없습니다 (path: "
