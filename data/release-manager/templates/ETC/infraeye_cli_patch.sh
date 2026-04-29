@@ -233,8 +233,9 @@ function cli_patch()
         echo "[cli-patch] 설치 완료: $TARGET ($OWNER:$GROUP, 0755)"
 
         # --- 검증 ---
+        # 새 출력 포맷: 'CLI Version: <version>' 줄에서 추출
         local installed
-        installed=$("$TARGET" --version 2>/dev/null | awk 'NR==1 {print $3}' || echo "")
+        installed=$("$TARGET" --version 2>/dev/null | awk -F': ' '$1=="CLI Version" {print $2; exit}' || echo "")
         if [[ "$installed" == "$NEW_VERSION" ]]; then
             echo "[cli-patch] 검증 성공: InfraEye CLI $installed"
         else
@@ -294,15 +295,23 @@ function _find_patch_metadata_file()
 function _read_patch_to_version()
 {
     local start_dir="$1"
-    local metadata_file
+    local metadata_file value
     metadata_file="$(_find_patch_metadata_file "$start_dir" 2>/dev/null || true)"
 
-    if [ -n "$metadata_file" ]; then
-        awk -F= '$1 == "to_version" { print $2; exit }' "$metadata_file"
+    if [ -z "$metadata_file" ]; then
+        return 1
+    fi
+
+    # 빌드 picker 가 사용된 패치는 web_build_full_version 에 base.build (예: 1.1.0.260429) 가 적힌다.
+    # 이 값이 있으면 사이트의 실효 빌드 버전이므로 to_version 보다 우선시한다.
+    value=$(awk -F= '$1 == "web_build_full_version" { print $2; exit }' "$metadata_file")
+    if [ -n "$value" ]; then
+        echo "$value"
         return 0
     fi
 
-    return 1
+    awk -F= '$1 == "to_version" { print $2; exit }' "$metadata_file"
+    return 0
 }
 
 function _record_site_version()
@@ -347,17 +356,19 @@ function _read_db_version()
 #                   값. mariadb_patch.sh 는 CM_DB.VERSION_HISTORY 와 함께
 #                   ${INFRAEYE_VERSION_DIR}/mariadb 를, cratedb_patch.sh 는
 #                   ${INFRAEYE_VERSION_DIR}/cratedb 를 mirror 한다.
-# - Build Version : was/eng patch 시 .build_version 의 to_version 을
-#                   ${INFRAEYE_VERSION_DIR}/site 에 기록한 값.
+# - Build Version : was/eng patch 시 .build_version 의 web_build_full_version
+#                   (있으면) 또는 to_version 을 ${INFRAEYE_VERSION_DIR}/site
+#                   에 기록한 값. 빌드가 포함된 패치인 경우 base.build (예: 1.1.0.260429).
+# - CLI Version   : 본 CLI 자체의 버전 (Release Manager 가 빌드 시점에 주입).
 function _show_version()
 {
     local version build
     version=$(_read_db_version)
     build=$(_read_site_version "site")
     cat <<EOF
-InfraEye CLI ${INFRAEYE_CLI_VERSION} (Release Manager edition)
-  Version: ${version}
-  Build Version: ${build}
+Version: ${version}
+Build Version: ${build}
+CLI Version: ${INFRAEYE_CLI_VERSION}
 EOF
 }
 

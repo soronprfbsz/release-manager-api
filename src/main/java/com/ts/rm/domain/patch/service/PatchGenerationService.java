@@ -283,7 +283,8 @@ public class PatchGenerationService {
 
             // 8. README 생성
             generateCustomReadme(fromVersion, toVersion, betweenVersions, outputPath, customer);
-            generateBuildVersionFile(fromVersion, toVersion, outputPath);
+            // 커스텀 패치는 빌드 picker 미사용 → web build 정보 없음
+            generateBuildVersionFile(fromVersion, toVersion, outputPath, null);
 
             // 9. 생성자 Account 조회
             Account creator = accountLookupService.findByEmail(createdByEmail);
@@ -587,7 +588,12 @@ public class PatchGenerationService {
 
             // 8. README 생성
             generateReadme(fromVersion, toVersion, betweenVersions, outputPath);
-            generateBuildVersionFile(fromVersion, toVersion, outputPath);
+            // 빌드 picker 로 선택된 WEB 빌드가 있으면 메타파일에 함께 기록 (CLI 의 Build Version 표기에 사용)
+            ReleaseVersion webBuildForMeta = null;
+            if (buildSelection != null && buildSelection.enabled() && buildSelection.web() != null) {
+                webBuildForMeta = selectedBuilds.get(buildSelection.web().buildVersionId());
+            }
+            generateBuildVersionFile(fromVersion, toVersion, outputPath, webBuildForMeta);
 
             // 9. 생성자 Account 조회
             Account creator = accountLookupService.findByEmail(createdByEmail);
@@ -1380,19 +1386,30 @@ public class PatchGenerationService {
     /**
      * InfraEye CLI가 DB 패치 없이도 WAS/ENG 패치 성공 후 빌드 버전을 기록할 수 있도록
      * 패치 루트에 fullVersion 메타파일(.build_version)을 생성한다.
+     *
+     * <p>빌드 picker 로 WEB 빌드가 포함된 경우 추가로 {@code web_build_full_version} 줄을
+     * 기록한다. CLI 의 {@code _read_patch_to_version} 은 이 값이 있으면 우선 사용해
+     * Build Version 표기에 빌드 번호까지 포함되도록 한다 (예: 1.1.0.260429).
+     *
+     * @param webBuild 빌드 picker 로 선택된 WEB 빌드 ReleaseVersion (없으면 null)
      */
-    private void generateBuildVersionFile(ReleaseVersion fromVersion, ReleaseVersion toVersion, String outputPath) {
+    private void generateBuildVersionFile(ReleaseVersion fromVersion, ReleaseVersion toVersion,
+                                           String outputPath, ReleaseVersion webBuild) {
         try {
             Path versionPath = Paths.get(releaseBasePath, outputPath, ".build_version");
 
-            String content = String.join("\n",
-                    "from_version=" + fromVersion.getFullVersion(),
-                    "to_version=" + toVersion.getFullVersion(),
-                    "generated_at=" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),
-                    "");
+            List<String> lines = new ArrayList<>();
+            lines.add("from_version=" + fromVersion.getFullVersion());
+            lines.add("to_version=" + toVersion.getFullVersion());
+            if (webBuild != null) {
+                lines.add("web_build_full_version=" + webBuild.getFullVersion());
+            }
+            lines.add("generated_at=" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+            lines.add("");
 
-            Files.writeString(versionPath, content);
-            log.info("InfraEye 빌드 버전 메타파일 생성 완료: {}", versionPath);
+            Files.writeString(versionPath, String.join("\n", lines));
+            log.info("InfraEye 빌드 버전 메타파일 생성 완료: {} (web_build={})",
+                    versionPath, webBuild != null ? webBuild.getFullVersion() : "(없음)");
         } catch (IOException e) {
             log.error("InfraEye 빌드 버전 메타파일 생성 실패: {}", outputPath, e);
             throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
