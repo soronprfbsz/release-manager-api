@@ -17,8 +17,9 @@ import lombok.NoArgsConstructor;
 /**
  * 빌드 ZIP 파일 루트 디렉토리 검증 유틸리티.
  *
- * <p>빌드 ZIP 파일의 루트 1단계 디렉토리는 {@code web/}, {@code engine/}, {@code etc/} 만
- * 허용된다. 그 외 디렉토리나 루트 파일이 발견되면 {@link BusinessException} 을 던진다.
+ * <p>빌드 ZIP 파일의 루트 1단계 디렉토리는 {@code web/}, {@code engine/} 만 허용된다.
+ * 그 외 디렉토리나 루트 파일이 발견되면 {@link BusinessException} 을 던진다.
+ * (운영자 자산은 release version 의 ETC ReleaseFile 로 등록 → patch 의 etc/{version}/* 으로 자연 포함)
  *
  * <p>비교는 <b>대소문자 구분</b>으로 수행한다 (예: {@code Web/} 은 거부). 표준 디렉토리명을
  * 강제하기 위함이다.
@@ -35,7 +36,7 @@ public final class BuildZipValidator {
     /**
      * 허용된 루트 디렉토리 (대소문자 구분).
      */
-    public static final Set<String> ALLOWED_ROOT_DIRECTORIES = Set.of("web", "engine", "etc");
+    public static final Set<String> ALLOWED_ROOT_DIRECTORIES = Set.of("web", "engine");
 
     /**
      * ZIP 바이트 배열을 검증한다.
@@ -43,7 +44,7 @@ public final class BuildZipValidator {
      * <p>다음 조건을 검사:
      * <ul>
      *   <li>최소 1개 이상의 엔트리가 있어야 함</li>
-     *   <li>모든 엔트리의 루트 1단계가 {@code web/}, {@code engine/}, {@code etc/} 중 하나여야 함</li>
+     *   <li>모든 엔트리의 루트 1단계가 {@code web/}, {@code engine/} 중 하나여야 함</li>
      *   <li>루트(슬래시 없는) 위치의 파일은 거부</li>
      * </ul>
      *
@@ -134,7 +135,7 @@ public final class BuildZipValidator {
         if (!invalidRootEntries.isEmpty()) {
             throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
                     String.format(
-                            "빌드 ZIP 루트는 web/, engine/, etc/ 만 허용됩니다. 허용되지 않은 항목: %s",
+                            "빌드 ZIP 루트는 web/, engine/ 만 허용됩니다. 허용되지 않은 항목: %s",
                             String.join(", ", invalidRootEntries)));
         }
     }

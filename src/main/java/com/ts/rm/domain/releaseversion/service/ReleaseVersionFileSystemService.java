@@ -375,7 +375,6 @@ public class ReleaseVersionFileSystemService {
      * <pre>
      * versions/{...}/builds/{buildVersion}/web/
      * versions/{...}/builds/{buildVersion}/engine/
-     * versions/{...}/builds/{buildVersion}/etc/
      * </pre>
      *
      * @param buildVersion 빌드 버전 엔티티
@@ -386,7 +385,6 @@ public class ReleaseVersionFileSystemService {
         try {
             Files.createDirectories(buildBase.resolve("web"));
             Files.createDirectories(buildBase.resolve("engine"));
-            Files.createDirectories(buildBase.resolve("etc"));
             log.info("빌드 디렉토리 구조 생성 완료: {}", buildBase);
         } catch (IOException e) {
             log.error("빌드 디렉토리 생성 실패: {}", buildVersion.getFullVersion(), e);
@@ -396,16 +394,16 @@ public class ReleaseVersionFileSystemService {
     }
 
     /**
-     * 빌드 카테고리(web/engine/etc) 경로 반환
+     * 빌드 카테고리(web/engine) 경로 반환
      *
      * @param baseVersion  빌드 원본 버전
      * @param buildVersion 빌드 버전 번호
-     * @param category     "web", "engine", "etc" 중 하나
+     * @param category     "web", "engine" 중 하나
      * @return 카테고리 경로
      */
     public Path resolveBuildCategoryPath(ReleaseVersion baseVersion, Integer buildVersion, String category) {
-        if (!"web".equals(category) && !"engine".equals(category) && !"etc".equals(category)) {
-            throw new IllegalArgumentException("빌드 카테고리는 web, engine, etc 중 하나여야 합니다: " + category);
+        if (!"web".equals(category) && !"engine".equals(category)) {
+            throw new IllegalArgumentException("빌드 카테고리는 web, engine 중 하나여야 합니다: " + category);
         }
         return resolveBuildBasePath(baseVersion, buildVersion).resolve(category);
     }

@@ -33,7 +33,6 @@ import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -1011,10 +1010,10 @@ public class PatchGenerationService {
     }
 
     /**
-     * picker 입력에 따라 빌드 디렉토리에서 web/, engine/{engineName}/, etc/ 를 outputDir 로 복사.
+     * picker 입력에 따라 빌드 디렉토리에서 web/, engine/{engineName}/ 를 outputDir 로 복사.
      *
-     * <p>spec §5.1 / Q-S3: ETC 는 selectedBuildIds 의 합집합을 buildVersion 오름차순으로 순차 복사하여
-     * 같은 경로 충돌 시 큰 buildVersion 의 내용이 살아남게 한다.
+     * <p>빌드의 etc 는 더 이상 다루지 않는다 — 운영자 자산은 release version 의 ETC ReleaseFile
+     * 로 등록되어 patch 의 etc/{version}/* 으로 자연 포함된다 (DATABASE 카테고리와 동일 패턴).
      *
      * <p>반환 selectedBuilds map 은 buildIncludedBuilds / persistIncludedBuilds 가
      * 동일한 ReleaseVersion 객체를 재사용할 수 있도록 호출자에게 노출한다.
@@ -1044,19 +1043,6 @@ public class PatchGenerationService {
                         .resolve("engine").resolve(se.engineName());
                 copyDirectoryReplaceExisting(src, outputDir.resolve("engine").resolve(se.engineName()));
                 selectedBuilds.putIfAbsent(bv.getReleaseVersionId(), bv);
-            }
-        }
-
-        // c. ETC 동행: buildVersion 오름차순 순차 복사 (REPLACE_EXISTING)
-        List<ReleaseVersion> sortedByBuildVersion = selectedBuilds.values().stream()
-                .sorted(Comparator.comparingInt(ReleaseVersion::getBuildVersion))
-                .toList();
-        log.info("ETC 동행 복사 순서: {}",
-                sortedByBuildVersion.stream().map(ReleaseVersion::getFullVersion).toList());
-        for (ReleaseVersion bv : sortedByBuildVersion) {
-            Path src = fileSystemService.resolveBuildBasePath(bv.getBuildBaseVersion(), bv.getBuildVersion()).resolve("etc");
-            if (Files.isDirectory(src)) {
-                copyDirectoryReplaceExisting(src, outputDir.resolve("etc"));
             }
         }
 
@@ -1195,10 +1181,11 @@ public class PatchGenerationService {
      * 대상 파일 경로 결정 (카테고리 기반)
      * <p>디렉토리 구조:
      * <ul>
-     *   <li>DATABASE: {db_type}/{version}/{file_name}</li>
-     *   <li>WEB/API/BATCH: {category}/{version}/{file_name}</li>
-     *   <li>CONFIG: config/{file_name}</li>
+     *   <li>DATABASE: database/{db_type}/{version}/{file_name}</li>
+     *   <li>WEB / ENGINE: {category}/{version}/{file_name}</li>
+     *   <li>그 외 (ETC / CONFIG / RESOURCE / null): etc/{version}/{file_name}</li>
      * </ul>
+     * etc 도 DATABASE 와 동일하게 버전별 디렉토리 구조를 가져 모든 포함 버전의 파일이 보존된다.
      */
     private Path determineTargetPath(ReleaseFile file, ReleaseVersion version, Path outputDir) {
         FileCategory category = file.getFileCategory();
@@ -1235,8 +1222,11 @@ public class PatchGenerationService {
                 );
 
             default:
+                // ETC / CONFIG / RESOURCE 등 — 버전별 디렉토리로 보존
                 return outputDir.resolve(
-                        String.format("etc/%s", file.getFileName())
+                        String.format("etc/%s/%s",
+                                version.getVersion(),
+                                file.getFileName())
                 );
         }
     }
