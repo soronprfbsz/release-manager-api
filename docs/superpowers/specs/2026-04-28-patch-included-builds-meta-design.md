@@ -31,7 +31,7 @@
 | --- | --- | --- |
 | Q1 | **별도 테이블 풀 정규화** | `patch_included_build`, `patch_hotfix_in_range` 두 테이블 신설. patch 테이블에 `is_build_only`, `is_build_included` boolean 캐시 추가. 향후 검색·필터·집계에 강함. |
 | Q2 | **빌드 row 삭제 시 SET NULL** | 메타에 저장된 `build_version_id` / `hotfix_version_id` 는 원본 row 삭제 시 NULL 로. `full_version` snapshot 은 보존. |
-| Q3 | **마이그레이션은 수동 SQL 스크립트** | Flyway 마이그레이션 파일 추가 X. 본 spec §8 의 SQL 을 운영자가 직접 적용. |
+| Q3 | **DDL 은 Flyway 마이그레이션** (2026-04-29 정정) | `V6__add_patch_included_builds_and_hotfix_meta.sql` 로 추가, 부팅 시 자동 적용. 신규 환경 구축 보장. 초안의 「수동 SQL」 결정은 사용자 결정으로 뒤집힘. |
 | Q4 | **기존 패치 row 의 메타는 비워둠** | 백필 안 함. 신규 패치 생성부터 메타가 채워진다. 기존 row 의 목록 배지는 "—" 또는 미노출. |
 | Q5 | **검색/필터는 본 spec 비목표** | 목록의 keyword/customer/releaseType 필터는 그대로. 빌드 기준 필터는 별도 후속 사이클. |
 | Q6 | **응답 통합** | `GenerateResponse` (생성 응답) 와 `DetailResponse` (상세 조회) 와 `ListResponse` (목록) 가 일관된 필드명을 쓴다 (`isBuildOnly`, `isBuildIncluded`, `includedBuilds`, `hotfixesInRange`). 목록은 요약 문자열 (`includedBuildsSummary`) 도 추가 제공. |
@@ -260,17 +260,22 @@ export interface PatchDetailResponse {
 
 ## 7. 마이그레이션 / 배포 순서
 
-1. **운영 DB 수동 SQL 적용** (§3 의 두 CREATE + ALTER). 트랜잭션 안에 묶어 실행.
-2. **백엔드 코드 배포** — entity + repository + 저장 로직 + DetailResponse / ListResponse 확장.
-3. **프론트엔드 코드 배포** — 타입 추가 + 목록 배지 + 상세 섹션.
-4. **운영 검증** — 신규 패치 생성 1건으로 메타 저장 + 목록 배지 + 상세 섹션 동작 확인. 기존 패치 row 들이 "빌드 미포함" 으로 표시되는지 확인.
+1. **백엔드 코드 배포** — Flyway 가 부팅 시 `V6__add_patch_included_builds_and_hotfix_meta.sql` 을 자동 적용 (FLYWAY_ENABLED=true). entity + repository + 저장 로직 + DetailResponse / ListResponse 확장도 동시.
+2. **프론트엔드 코드 배포** — 타입 추가 + 목록 배지 + 상세 섹션.
+3. **운영 검증** — 신규 패치 생성 1건으로 메타 저장 + 목록 배지 + 상세 섹션 동작 확인. 기존 패치 row 들이 "빌드 미포함" 으로 표시되는지 확인.
+
+> **2026-04-29 정정**: 초안은 사용자 룰 「마이그레이션 파일 추가 지양」 에 따라 수동 SQL 로 갔으나, 신규 환경 구축 / 회귀 보장을 위해 사용자 결정으로 Flyway 마이그레이션을 도입하는 쪽으로 변경. DDL 은 마이그레이션으로 관리하는 표준 원칙을 따른다.
 
 ---
 
-## 8. 운영 DB 수동 SQL (운영자 적용용)
+## 8. 적용 SQL (Flyway 마이그레이션으로 자동 적용)
+
+> **2026-04-29 정정**: 본 SQL 은 `release-manager-api/src/main/resources/db/migration/V6__add_patch_included_builds_and_hotfix_meta.sql` 로 커밋되어 Flyway 가 부팅 시 자동 적용한다 (V5 의 `add_build_version` 스타일 따름 — ALTER 분리, COMMENT 명시). 신규 환경 구축 시에도 동일 스키마가 자동 동기화. 운영자는 별도 수동 적용 불필요.
+>
+> 아래는 마이그레이션 파일에 들어가는 DDL 을 spec 안에서도 가독성 차원에서 한 번 더 보여준다 (사전 백업 줄은 마이그레이션엔 포함되지 않음 — 환경 의존이라 운영 정책에 따라 별도 수행).
 
 ```sql
--- 사전 백업 (선택, 운영 정책에 따라):
+-- 사전 백업 (선택, 운영 정책에 따라 — 마이그레이션에 포함되지 않음):
 CREATE TABLE patch_backup_20260428 AS SELECT * FROM patch_file;
 
 -- 1) patch 테이블에 캐시 컬럼 추가
@@ -313,7 +318,7 @@ CREATE TABLE patch_hotfix_in_range (
 );
 ```
 
-> Flyway 마이그레이션 파일 추가하지 않음 (사용자 룰).
+> 위 DDL 은 V6 마이그레이션으로 자동 적용되므로 운영 DB 에 직접 실행하지 말 것 (Flyway schema_history 와 충돌).
 
 ---
 
@@ -367,4 +372,4 @@ CREATE TABLE patch_hotfix_in_range (
 - **검색·필터** — 빌드 기준 ("NC_SMS 가 포함된 패치만") 은 본 spec 비목표 (Q5). 향후 별도 사이클.
 - **기존 패치 백필** — 비목표 (Q4). 정확도 한계.
 - **메타 export / 감사 리포트** — 본 spec 비목표.
-- **Flyway 마이그레이션 도입** — 사용자 룰 (마이그레이션 지양). 향후 운영 정책 변경 시 별도 결정.
+- ~~Flyway 마이그레이션 도입~~ — 2026-04-29 사용자 결정으로 도입 결정. V6 마이그레이션 추가됨. (비목표에서 제외)

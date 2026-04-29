@@ -45,7 +45,8 @@
 
 | 경로 | 비고 |
 | --- | --- |
-| `docs/superpowers/specs/2026-04-28-patch-included-builds-meta-design.md` | spec 본문 §8 의 수동 SQL 스크립트 그대로 |
+| `docs/superpowers/specs/2026-04-28-patch-included-builds-meta-design.md` | spec 본문 §8 의 SQL — V6 Flyway 마이그레이션과 동일 (2026-04-29 정정) |
+| `release-manager-api/src/main/resources/db/migration/V6__add_patch_included_builds_and_hotfix_meta.sql` | 신규 — DDL Flyway 마이그레이션 (2026-04-29 정정) |
 
 ---
 
@@ -321,7 +322,7 @@ sed -i 's/languageVersion = JavaLanguageVersion.of(21)/languageVersion = JavaLan
 grep -n "languageVersion" build.gradle | head -1
 ```
 
-기대: `BUILD SUCCESSFUL`. (이 시점에서 ddl-auto=create-drop 인 H2 가 새 컬럼/테이블을 자동 생성함. 운영 DB 는 spec §8 의 수동 SQL 적용 필요.)
+기대: `BUILD SUCCESSFUL`. (이 시점에서 ddl-auto=create-drop 인 H2 가 새 컬럼/테이블을 자동 생성함. 운영/dev DB 는 V6 Flyway 마이그레이션이 부팅 시 자동 적용 — 2026-04-29 정정.)
 
 - [ ] **Step 4: 커밋**
 
@@ -1081,9 +1082,11 @@ npm run type-check 2>&1 | tail -10
 
 기대: 에러 0건.
 
-- [ ] **Step 3: 운영 DB 수동 SQL 안내**
+- [ ] **Step 3: Flyway 마이그레이션 자동 적용 (2026-04-29 정정)**
 
-운영자에게 spec `§8` (`docs/superpowers/specs/2026-04-28-patch-included-builds-meta-design.md` 의 §8 운영 DB 수동 SQL) 을 적용하도록 안내. 본 plan 으로 코드 배포 전 SQL 적용이 선행되어야 ALTER TABLE / CREATE TABLE 누락으로 인한 운영 장애를 막는다.
+DDL 은 `release-manager-api/src/main/resources/db/migration/V6__add_patch_included_builds_and_hotfix_meta.sql` 로 추가되어 백엔드 부팅 시 Flyway 가 자동 적용한다. 운영 / dev / 신규 환경 모두 동일 스키마 자동 동기화 — 별도 수동 SQL 불필요.
+
+> 초안에는 사용자 룰 「마이그레이션 파일 추가 지양」 으로 운영자 수동 SQL 적용을 가정했으나, DDL 표준 관행에 어긋나 사용자 결정으로 마이그레이션 도입으로 정정.
 
 - [ ] **Step 4: 수동 시나리오 검증 (운영 / dev 환경)**
 
@@ -1110,4 +1113,4 @@ npm run type-check 2>&1 | tail -10
 - 빌드 기준 검색·필터.
 - 기존 패치 row 백필.
 - 메타 export / 감사 리포트.
-- Flyway 마이그레이션 도입.
+- ~~Flyway 마이그레이션 도입~~ (2026-04-29 정정 — V6 도입됨).
