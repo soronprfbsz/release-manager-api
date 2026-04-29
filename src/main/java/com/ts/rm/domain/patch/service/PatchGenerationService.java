@@ -446,25 +446,26 @@ public class PatchGenerationService {
         try {
             Path readmePath = Paths.get(releaseBasePath, outputPath, "README.md");
 
-            // 빌드/핫픽스 정보까지 포함한 fullVersion 사용
-            String fromStr = fromVersion.getFullVersion();
-            String toStr = toVersion.getFullVersion();
+            // VERSION 라인은 base/custom 구분 없이 version 필드 그대로,
+            // Build VERSION 라인은 to 가 빌드 행일 때만 표시
+            String fromBaseLabel = isBaseVersion(fromVersion) ? " (베이스)" : "";
+            String buildVersionStr = toVersion.isBuild() ? toVersion.getFullVersion() : null;
             String includedStr = includedVersions.stream()
-                    .map(ReleaseVersion::getFullVersion)
+                    .map(ReleaseVersion::getVersion)
                     .distinct()
                     .reduce((a, b) -> a + ", " + b)
                     .orElse("");
 
             StringBuilder content = new StringBuilder();
-            content.append(String.format("# 커스텀 누적 패치: %s → %s\n\n", fromStr, toStr));
-
-            content.append("## 생성 정보\n");
-            content.append(String.format("- 생성일: %s\n",
+            content.append("# 생성 정보\n");
+            content.append(String.format("- 패치 생성일시: %s\n",
                     LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))));
             content.append(String.format("- 고객사: %s (%s)\n", customer.getCustomerName(), customer.getCustomerCode()));
-            content.append(String.format("- From: %s%s\n", fromStr,
-                    isBaseVersion(fromVersion) ? " (베이스)" : ""));
-            content.append(String.format("- To: %s\n", toStr));
+            content.append(String.format("- VERSION: %s%s -> %s\n",
+                    fromVersion.getVersion(), fromBaseLabel, toVersion.getVersion()));
+            if (buildVersionStr != null) {
+                content.append(String.format("- Build VERSION: %s\n", buildVersionStr));
+            }
             content.append(String.format("- 포함된 버전: %s\n\n", includedStr));
 
             content.append("## 패치 방법\n");
@@ -1306,22 +1307,28 @@ public class PatchGenerationService {
         try {
             Path readmePath = Paths.get(releaseBasePath, outputPath, "README.md");
 
-            String fromStr = fromVersion.getFullVersion();
-            String toStr = webBuild != null ? webBuild.getFullVersion() : toVersion.getFullVersion();
+            // VERSION 라인은 base 만, Build VERSION 라인은 빌드 정보가 있을 때만 표시
+            String buildVersionStr = null;
+            if (webBuild != null) {
+                buildVersionStr = webBuild.getFullVersion();
+            } else if (toVersion.isBuild()) {
+                buildVersionStr = toVersion.getFullVersion();
+            }
             String includedStr = includedVersions.stream()
-                    .map(ReleaseVersion::getFullVersion)
+                    .map(ReleaseVersion::getVersion)
                     .distinct()
                     .reduce((a, b) -> a + ", " + b)
                     .orElse("");
 
             StringBuilder content = new StringBuilder();
-            content.append(String.format("# 누적 패치: %s → %s\n\n", fromStr, toStr));
-
-            content.append("## 생성 정보\n");
-            content.append(String.format("- 생성일: %s\n",
+            content.append("# 생성 정보\n");
+            content.append(String.format("- 패치 생성일시: %s\n",
                     LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))));
-            content.append(String.format("- From: %s\n", fromStr));
-            content.append(String.format("- To: %s\n", toStr));
+            content.append(String.format("- VERSION: %s -> %s\n",
+                    fromVersion.getVersion(), toVersion.getVersion()));
+            if (buildVersionStr != null) {
+                content.append(String.format("- Build VERSION: %s\n", buildVersionStr));
+            }
             content.append(String.format("- 포함된 버전: %s\n\n", includedStr));
 
             content.append("## 패치 방법\n");
