@@ -68,11 +68,15 @@ public class ReleaseFileSyncAdapter implements FileSyncAdapter {
     @Override
     @Transactional
     public Long registerFile(FileSyncMetadata metadata, @Nullable Map<String, Object> additionalData) {
-        // additionalData에서 필수 정보 추출
+        // additionalData에서 필수 정보 추출 (없으면 metadata 의 filePath 에서 자동 추론)
         Long releaseVersionId = extractLong(additionalData, "releaseVersionId");
         if (releaseVersionId == null) {
+            releaseVersionId = resolveReleaseVersionIdFromPath(metadata.getFilePath());
+        }
+        if (releaseVersionId == null) {
             throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
-                    "릴리즈 파일 등록에는 releaseVersionId가 필요합니다");
+                    "릴리즈 파일 등록에 필요한 releaseVersionId 를 결정할 수 없습니다 (path: "
+                            + metadata.getFilePath() + ")");
         }
 
         ReleaseVersion releaseVersion = releaseVersionRepository.findById(releaseVersionId)
@@ -144,6 +148,20 @@ public class ReleaseFileSyncAdapter implements FileSyncAdapter {
     }
 
     /**
+     * 스캔 제외 디렉토리.
+     *
+     * <p>빌드 디렉토리({@code builds/}) 안의 web/engine 산출물은 디렉토리 단위로 관리되며
+     * release_file 행으로 개별 등록하지 않는다 (BuildFileService.uploadBuildZip 참조).
+     * 따라서 file-sync 분석에서 항상 UNREGISTERED 로 잡혀 노이즈가 되므로 스캔 대상에서 제외한다.
+     *
+     * <p>{@code hotfix/} 는 별도 ReleaseVersion + ReleaseFile 등록 흐름을 갖고 있어 제외하지 않는다.
+     */
+    @Override
+    public List<String> getExcludedDirectories() {
+        return List.of("builds");
+    }
+
+    /**
      * 주어진 경로가 동기화 대상으로 유효한지 확인
      *
      * <p>해당 경로에 대응하는 ReleaseVersion이 DB에 존재하는 경우에만 true를 반환합니다.
@@ -199,6 +217,41 @@ public class ReleaseFileSyncAdapter implements FileSyncAdapter {
         }
 
         return false;
+    }
+
+    /**
+     * filePath 에서 ReleaseVersion ID 를 추론한다.
+     *
+     * <p>운영자가 file-sync UI 의 register 폼에서 releaseVersionId 를 명시 입력하지 않더라도
+     * 경로의 standard/custom + version 토큰으로 base 행(hotfix=0, build=0) 을 자동 매칭한다.
+     *
+     * @return 매칭된 ReleaseVersion ID 또는 null (매칭 실패)
+     */
+    private Long resolveReleaseVersionIdFromPath(String filePath) {
+        if (filePath == null || filePath.isEmpty()) {
+            return null;
+        }
+        String[] pathParts = filePath.split("/");
+        if (pathParts.length < 5) {
+            return null;
+        }
+        String projectId = pathParts[1];
+        String releaseType = pathParts[2].toLowerCase();
+
+        if ("standard".equals(releaseType)) {
+            // versions/{projectId}/standard/{majorMinor}/{version}/...
+            String version = pathParts[4];
+            if (!isValidVersionFormat(version)) {
+                return null;
+            }
+            return releaseVersionRepository
+                    .findByProject_ProjectIdAndReleaseTypeAndVersionAndHotfixVersionAndBuildVersion(
+                            projectId, "STANDARD", version, 0, 0)
+                    .map(ReleaseVersion::getReleaseVersionId)
+                    .orElse(null);
+        }
+        // custom 은 별도 매칭 메서드(customer + version) 가 필요. 향후 운영 케이스 발생 시 보강.
+        return null;
     }
 
     /**
