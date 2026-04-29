@@ -134,8 +134,9 @@ public class ReleaseVersionFileSystemService {
                     customerCode, version.getMajorMinor(), version.getVersion());
         }
 
+        log.info("버전 디렉토리 삭제 시도: {} (exists: {})", versionPath, Files.exists(versionPath));
         if (Files.exists(versionPath)) {
-            deleteDirectory(versionPath);
+            deleteDirectoryStrict(versionPath);
             log.info("버전 디렉토리 삭제 완료: {}", versionPath);
 
             // 빈 major.minor 디렉토리도 정리
@@ -152,29 +153,56 @@ public class ReleaseVersionFileSystemService {
     }
 
     /**
-     * 디렉토리 재귀 삭제
+     * 디렉토리 재귀 삭제 (best-effort).
+     *
+     * <p>롤백 / 임시 디렉토리 정리처럼 실패해도 호출자가 진행해야 하는 경로에서 사용한다.
+     * IOException 은 로그만 남기고 swallow 한다.
      */
     public void deleteDirectory(Path directory) {
         try {
-            if (Files.exists(directory)) {
-                Files.walkFileTree(directory, new SimpleFileVisitor<>() {
-                    @Override
-                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                        Files.delete(file);
-                        return FileVisitResult.CONTINUE;
-                    }
+            walkAndDelete(directory);
+        } catch (IOException e) {
+            log.error("디렉토리 삭제 실패 (best-effort): {}", directory, e);
+        }
+    }
 
-                    @Override
-                    public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
-                        Files.delete(dir);
-                        return FileVisitResult.CONTINUE;
-                    }
-                });
-                log.info("디렉토리 삭제 완료: {}", directory);
-            }
+    /**
+     * 디렉토리 재귀 삭제 (strict).
+     *
+     * <p>사용자가 명시적으로 요청한 삭제 경로에서 사용한다. IOException 발생 시
+     * {@link BusinessException} 으로 변환하여 트랜잭션 롤백 + 명시적 에러 응답을 유도한다.
+     */
+    public void deleteDirectoryStrict(Path directory) {
+        try {
+            walkAndDelete(directory);
         } catch (IOException e) {
             log.error("디렉토리 삭제 실패: {}", directory, e);
+            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                    "디렉토리 삭제에 실패했습니다: " + directory + " - " + e.getMessage());
         }
+    }
+
+    private void walkAndDelete(Path directory) throws IOException {
+        if (!Files.exists(directory)) {
+            return;
+        }
+        Files.walkFileTree(directory, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                Files.delete(file);
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+                if (exc != null) {
+                    throw exc;
+                }
+                Files.delete(dir);
+                return FileVisitResult.CONTINUE;
+            }
+        });
+        log.info("디렉토리 삭제 완료: {}", directory);
     }
 
     /**
@@ -294,8 +322,9 @@ public class ReleaseVersionFileSystemService {
                     "hotfix", String.valueOf(hotfixVersion.getHotfixVersion()));
         }
 
+        log.info("핫픽스 디렉토리 삭제 시도: {} (exists: {})", hotfixPath, Files.exists(hotfixPath));
         if (Files.exists(hotfixPath)) {
-            deleteDirectory(hotfixPath);
+            deleteDirectoryStrict(hotfixPath);
             log.info("핫픽스 디렉토리 삭제 완료: {}", hotfixPath);
 
             // 빈 hotfix 디렉토리도 정리
@@ -388,14 +417,18 @@ public class ReleaseVersionFileSystemService {
      */
     public void deleteBuildDirectory(ReleaseVersion buildVersion) {
         if (buildVersion.getBuildBaseVersion() == null) {
-            log.warn("빌드의 원본 버전이 없습니다: {}", buildVersion.getReleaseVersionId());
-            return;
+            log.error("빌드의 원본 버전(build_base_version_id)이 없어 디렉토리 경로를 계산할 수 없습니다 - buildVersionId: {}",
+                    buildVersion.getReleaseVersionId());
+            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                    "빌드의 원본 버전 정보가 없어 빌드 디렉토리를 삭제할 수 없습니다 (buildVersionId: "
+                            + buildVersion.getReleaseVersionId() + "). 데이터를 확인해주세요.");
         }
 
         Path buildPath = resolveBuildBasePath(buildVersion.getBuildBaseVersion(), buildVersion.getBuildVersion());
+        log.info("빌드 디렉토리 삭제 시도: {} (exists: {})", buildPath, Files.exists(buildPath));
 
         if (Files.exists(buildPath)) {
-            deleteDirectory(buildPath);
+            deleteDirectoryStrict(buildPath);
             log.info("빌드 디렉토리 삭제 완료: {}", buildPath);
 
             // 빈 builds 디렉토리도 정리
@@ -408,6 +441,8 @@ public class ReleaseVersionFileSystemService {
             } catch (IOException e) {
                 log.warn("builds 디렉토리 삭제 실패: {}", buildPath.getParent(), e);
             }
+        } else {
+            log.warn("빌드 디렉토리가 파일시스템에 존재하지 않습니다 (이미 삭제되었거나 경로 mismatch): {}", buildPath);
         }
     }
 }

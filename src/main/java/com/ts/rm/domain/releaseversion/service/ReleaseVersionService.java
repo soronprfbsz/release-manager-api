@@ -172,25 +172,11 @@ public class ReleaseVersionService {
         // 1. 버전 존재 검증
         ReleaseVersion version = findVersionById(versionId);
         String versionNumber = version.getVersion();
-        String releaseType = version.getReleaseType();
 
         try {
-            // 2. release_file 삭제 (명시적으로)
-            List<ReleaseFile> releaseFiles = releaseFileRepository
-                    .findAllByReleaseVersion_ReleaseVersionIdOrderByExecutionOrderAsc(versionId);
-            releaseFileRepository.deleteAll(releaseFiles);
-            log.info("release_file 삭제 완료 - {} 개", releaseFiles.size());
-
-            // 3. release_version_hierarchy 삭제
-            hierarchyRepository.deleteByDescendantId(versionId);
-            hierarchyRepository.deleteByAncestorId(versionId);
-            log.info("release_version_hierarchy 삭제 완료");
-
-            // 4. release_version 삭제
-            releaseVersionRepository.delete(version);
-            log.info("release_version 삭제 완료");
-
-            // 5. 파일 시스템 삭제 (핫픽스/빌드인 경우 해당 디렉토리만 삭제)
+            // 2. 파일 시스템 삭제 (DB 작업 이전에 수행)
+            //    - 영속성 컨텍스트가 살아 있는 동안 lazy 관계(buildBaseVersion 등) 안전하게 접근 가능
+            //    - 파일 삭제 실패 시 BusinessException → 트랜잭션 롤백 → DB 행 보존 (사용자에게 명시적 에러)
             if (version.isHotfix()) {
                 fileSystemService.deleteHotfixDirectory(version);
             } else if (version.isBuild()) {
@@ -199,8 +185,27 @@ public class ReleaseVersionService {
                 fileSystemService.deleteVersionDirectory(version);
             }
 
+            // 3. release_file 삭제 (명시적으로)
+            List<ReleaseFile> releaseFiles = releaseFileRepository
+                    .findAllByReleaseVersion_ReleaseVersionIdOrderByExecutionOrderAsc(versionId);
+            releaseFileRepository.deleteAll(releaseFiles);
+            log.info("release_file 삭제 완료 - {} 개", releaseFiles.size());
+
+            // 4. release_version_hierarchy 삭제
+            hierarchyRepository.deleteByDescendantId(versionId);
+            hierarchyRepository.deleteByAncestorId(versionId);
+            log.info("release_version_hierarchy 삭제 완료");
+
+            // 5. release_version 삭제
+            releaseVersionRepository.delete(version);
+            log.info("release_version 삭제 완료");
+
             log.info("버전 삭제 완료 - version: {}", versionNumber);
 
+        } catch (BusinessException e) {
+            // 파일/DB 삭제 도중 발생한 BusinessException 은 메시지를 보존하여 그대로 전파
+            log.error("버전 삭제 실패 - versionId: {}, version: {}, reason: {}", versionId, versionNumber, e.getMessage());
+            throw e;
         } catch (Exception e) {
             log.error("버전 삭제 실패 - versionId: {}, version: {}", versionId, versionNumber, e);
             throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
