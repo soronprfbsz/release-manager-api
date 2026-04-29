@@ -51,7 +51,6 @@ EOF
 
 # CLI 패치 (자기 자신을 /usr/bin/InfraEye 로 설치)
 # - 최초 1회: 기존 레거시 파일을 /usr/bin/InfraEye.legacy-bak 로 보존
-# - 항상 강제 재설치 (이전 --force 옵션의 동작이 기본 동작)
 # - 롤백: --rollback 옵션
 function cli_patch()
 {
