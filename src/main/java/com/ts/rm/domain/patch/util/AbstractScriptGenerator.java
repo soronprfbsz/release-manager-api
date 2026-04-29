@@ -4,6 +4,8 @@ import com.ts.rm.domain.releaseversion.entity.ReleaseVersion;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -13,6 +15,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ClassPathResource;
 
 /**
  * 스크립트 생성 추상 클래스
@@ -31,25 +34,27 @@ public abstract class AbstractScriptGenerator implements ScriptGenerator {
     /**
      * 템플릿 파일 경로 반환 (구현체에서 정의)
      *
-     * @return 템플릿 파일 상대 경로 (예: templates/MARIADB/mariadb_patch_template.sh)
+     * @return 템플릿 classpath 상대 경로 (예: templates/MARIADB/mariadb_patch_template.sh)
      */
     protected abstract String getTemplatePath();
 
     /**
-     * 템플릿 로드 (파일 시스템 기반)
+     * 템플릿 로드 (classpath resource).
      *
-     * @return 템플릿 내용
+     * <p>jar 안의 {@code src/main/resources/templates/...} 에서 읽으므로 backend 재빌드만으로
+     * 템플릿 변경이 반영된다 (NAS / 외부 마운트 디렉토리 수동 갱신 불필요).
      */
     protected String loadTemplate() {
-        try {
-            Path templatePath = Paths.get(baseReleasePath, getTemplatePath());
-            if (!Files.exists(templatePath)) {
-                throw new BusinessException(ErrorCode.DATA_NOT_FOUND,
-                        "템플릿 파일을 찾을 수 없습니다: " + templatePath);
-            }
-            return Files.readString(templatePath);
+        String resourcePath = getTemplatePath();
+        ClassPathResource resource = new ClassPathResource(resourcePath);
+        if (!resource.exists()) {
+            throw new BusinessException(ErrorCode.DATA_NOT_FOUND,
+                    "템플릿 파일을 찾을 수 없습니다: classpath:" + resourcePath);
+        }
+        try (InputStream is = resource.getInputStream()) {
+            return new String(is.readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException e) {
-            log.error("템플릿 로드 실패: {}", getTemplatePath(), e);
+            log.error("템플릿 로드 실패: classpath:{}", resourcePath, e);
             throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
                     "템플릿 로드 실패: " + e.getMessage());
         }
