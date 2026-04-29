@@ -149,10 +149,10 @@ public class ReleaseFileSyncAdapter implements FileSyncAdapter {
      * <p>해당 경로에 대응하는 ReleaseVersion이 DB에 존재하는 경우에만 true를 반환합니다.
      * 존재하지 않는 버전의 파일은 UNREGISTERED로 간주하지 않습니다.
      *
-     * <p>경로 형식:
+     * <p>경로 형식 (createDirectoryStructure / createCustomVersionDirectory 참조):
      * <ul>
-     *   <li>Standard: versions/{projectId}/standard/{version}/...</li>
-     *   <li>Custom: versions/{projectId}/custom/{customerCode}/{version}/...</li>
+     *   <li>Standard: versions/{projectId}/standard/{majorMinor}/{version}/...</li>
+     *   <li>Custom:   versions/{projectId}/custom/{customerCode}/{majorMinor}/{version}/...</li>
      * </ul>
      *
      * @param filePath 확인할 파일 경로
@@ -166,8 +166,8 @@ public class ReleaseFileSyncAdapter implements FileSyncAdapter {
         }
 
         String[] pathParts = filePath.split("/");
-        // 최소 4개 필요: versions/{projectId}/{releaseType}/{version}/...
-        if (pathParts.length < 4) {
+        // 최소 5개 필요: versions/{projectId}/{releaseType}/{majorMinor}/{version}/...
+        if (pathParts.length < 5) {
             return false;
         }
 
@@ -176,20 +176,21 @@ public class ReleaseFileSyncAdapter implements FileSyncAdapter {
         String releaseType = pathParts[2].toLowerCase();
 
         if ("standard".equals(releaseType)) {
-            // Standard: versions/{projectId}/standard/{version}/...
-            String version = pathParts[3];
+            // Standard: versions/{projectId}/standard/{majorMinor}/{version}/...
+            // pathParts[3] = majorMinor (예: "1.0.x"), pathParts[4] = version (예: "1.0.0")
+            String version = pathParts[4];
             if (!isValidVersionFormat(version)) {
                 return false;
             }
             return releaseVersionRepository.existsByProject_ProjectIdAndReleaseTypeAndVersion(
                     projectId, "STANDARD", version);
         } else if ("custom".equals(releaseType)) {
-            // Custom: versions/{projectId}/custom/{customerCode}/{version}/...
-            if (pathParts.length < 5) {
+            // Custom: versions/{projectId}/custom/{customerCode}/{majorMinor}/{version}/...
+            if (pathParts.length < 6) {
                 return false;
             }
             String customerCode = pathParts[3];
-            String version = pathParts[4];
+            String version = pathParts[5];
             if (!isValidVersionFormat(version)) {
                 return false;
             }
