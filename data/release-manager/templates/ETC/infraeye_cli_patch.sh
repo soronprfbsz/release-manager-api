@@ -336,17 +336,19 @@ function _record_site_version()
 }
 
 # --version / info version 공용 출력
+# - Version       : db patch 시 mariadb_patch.sh 가 CM_DB.VERSION_HISTORY 갱신 후
+#                   ${INFRAEYE_VERSION_DIR}/mariadb 에 mirror 한 to_version
+# - Build Version : was/eng patch 시 .infraeye-site-version 의 to_version 을
+#                   ${INFRAEYE_VERSION_DIR}/site 에 기록한 값
 function _show_version()
 {
-    local site mdb cdb
-    site=$(_read_site_version "site")
-    mdb=$(_read_site_version "mariadb")
-    cdb=$(_read_site_version "cratedb")
+    local version build
+    version=$(_read_site_version "mariadb")
+    build=$(_read_site_version "site")
     cat <<EOF
 InfraEye CLI ${INFRAEYE_CLI_VERSION} (Release Manager edition)
-  Site: ${site}
-  MariaDB: ${mdb}
-  CrateDB: ${cdb}
+  Version: ${version}
+  Build Version: ${build}
 EOF
 }
 
