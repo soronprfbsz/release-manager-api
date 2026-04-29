@@ -168,7 +168,7 @@ stages:
 .deploy-template:
   stage: deploy
   before_script:
-    - apk add --no-cache curl rsync
+    - apk add --no-cache curl
     - |
       echo "SERVER_NAME=${SERVER_NAME}" > .env
       echo "SERVER_ENVIRONMENT=${SERVER_ENVIRONMENT}" >> .env
@@ -193,19 +193,9 @@ stages:
     - echo "$HARBOR_PASSWORD" | docker login http://$HARBOR_REGISTRY -u $HARBOR_USERNAME --password-stdin || true
   script:
     - |
-      # 템플릿 파일 동기화 (Git에서 추적되는 templates 폴더만 동기화)
-      # 다른 동적 폴더(versions, patches 등)는 이미 서버에 존재하므로 동기화 불필요
-      echo "=== 템플릿 파일 동기화 ==="
-      TEMPLATES_SRC="data/release-manager/templates"
-
-      if [ -d "${TEMPLATES_SRC}" ]; then
-        mkdir -p ${RELEASE_DIR}/templates
-        rsync -av ${TEMPLATES_SRC}/ ${RELEASE_DIR}/templates/
-        echo "✅ 템플릿 동기화 완료"
-      else
-        echo "⚠️  템플릿 폴더 없음: ${TEMPLATES_SRC}"
-      fi
-      chmod -R 755 ${RELEASE_DIR}
+      # 패치 템플릿(*_patch_template.sh)이 jar 의 classpath 에 포함되어 있어 외부 동기화 불필요.
+      # 동적 폴더(versions/, patches/, backup/ 등)는 docker compose 의 볼륨 마운트로 처리되며
+      # CI 단계에서 손대지 않는다.
 
     - |
       echo "=== 기존 컨테이너 정리 ==="
