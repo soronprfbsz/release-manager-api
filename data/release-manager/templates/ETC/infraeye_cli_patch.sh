@@ -32,7 +32,6 @@ function _show_cli_patch_help()
 옵션:
   --install-path=<경로>      INSTALL_PATH 값을 명시적으로 지정
   --nms-container=<이름>     NMS_CONTAINER_NM 값을 명시적으로 지정
-  --force                    동일 버전이어도 강제 재설치
   --rollback                 /usr/bin/InfraEye.legacy-bak 을 /usr/bin/InfraEye 로 복원
 
 CLI 소스 파일 탐색 경로:
@@ -52,7 +51,7 @@ EOF
 
 # CLI 패치 (자기 자신을 /usr/bin/InfraEye 로 설치)
 # - 최초 1회: 기존 레거시 파일을 /usr/bin/InfraEye.legacy-bak 로 보존
-# - 멱등: 이미 같은 버전이면 skip (--force 로 강제)
+# - 항상 강제 재설치 (이전 --force 옵션의 동작이 기본 동작)
 # - 롤백: --rollback 옵션
 function cli_patch()
 {
@@ -66,13 +65,11 @@ function cli_patch()
         local NEW_VERSION="${INFRAEYE_CLI_VERSION}"
 
         local rollback=0
-        local force=0
         local cli_install_path=""
         local cli_nms_container=""
         for arg in "$@"; do
             case "$arg" in
                 --rollback)          rollback=1 ;;
-                --force)             force=1 ;;
                 --install-path=*)    cli_install_path="${arg#*=}" ;;
                 --nms-container=*)   cli_nms_container="${arg#*=}" ;;
                 --help|-h)           _show_cli_patch_help; exit 0 ;;
@@ -155,16 +152,6 @@ function cli_patch()
         if pgrep -f "$TARGET" >/dev/null 2>&1; then
             echo "[cli-patch] 경고: $TARGET 실행 중 — 5초 대기 후 진행"
             sleep 5
-        fi
-
-        # --- 멱등: 같은 버전이면 skip ---
-        if [[ -x "$TARGET" && $force -eq 0 ]]; then
-            local current
-            current=$("$TARGET" --version 2>/dev/null | awk 'NR==1 {print $3}' || echo "")
-            if [[ "$current" == "$NEW_VERSION" ]]; then
-                echo "[cli-patch] 이미 $NEW_VERSION 설치됨. skip. (--force 로 강제 재설치)"
-                exit 0
-            fi
         fi
 
         # --- 소유권 승계 (기존 → 그대로, 없으면 infraeye:infraeye 기본값) ---
@@ -384,7 +371,7 @@ function _show_help()
   eng patch                  엔진 패치 (대화식)
   was patch                  WAS 패치 (대화식)
   db  patch [--db=...]       DB 패치 (대화식 메뉴 또는 --db=mariadb|cratedb)
-  cli patch [--force|--rollback]
+  cli patch [--rollback]
                              CLI 자기 자신을 /usr/bin/InfraEye 로 설치/교체
                              (최초 1회: sudo ./InfraEye cli patch)
 
