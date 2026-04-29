@@ -283,7 +283,7 @@ public class PatchGenerationService {
 
             // 8. README 생성
             generateCustomReadme(fromVersion, toVersion, betweenVersions, outputPath, customer);
-            generateSiteVersionFile(fromVersion, toVersion, outputPath);
+            generateBuildVersionFile(fromVersion, toVersion, outputPath);
 
             // 9. 생성자 Account 조회
             Account creator = accountLookupService.findByEmail(createdByEmail);
@@ -587,7 +587,7 @@ public class PatchGenerationService {
 
             // 8. README 생성
             generateReadme(fromVersion, toVersion, betweenVersions, outputPath);
-            generateSiteVersionFile(fromVersion, toVersion, outputPath);
+            generateBuildVersionFile(fromVersion, toVersion, outputPath);
 
             // 9. 생성자 Account 조회
             Account creator = accountLookupService.findByEmail(createdByEmail);
@@ -1378,12 +1378,12 @@ public class PatchGenerationService {
     }
 
     /**
-     * InfraEye CLI가 DB 패치 없이도 WAS/ENG 패치 성공 후 사이트 적용 버전을 기록할 수 있도록
-     * 패치 루트에 fullVersion 메타파일을 생성한다.
+     * InfraEye CLI가 DB 패치 없이도 WAS/ENG 패치 성공 후 빌드 버전을 기록할 수 있도록
+     * 패치 루트에 fullVersion 메타파일(.build_version)을 생성한다.
      */
-    private void generateSiteVersionFile(ReleaseVersion fromVersion, ReleaseVersion toVersion, String outputPath) {
+    private void generateBuildVersionFile(ReleaseVersion fromVersion, ReleaseVersion toVersion, String outputPath) {
         try {
-            Path versionPath = Paths.get(releaseBasePath, outputPath, ".infraeye-site-version");
+            Path versionPath = Paths.get(releaseBasePath, outputPath, ".build_version");
 
             String content = String.join("\n",
                     "from_version=" + fromVersion.getFullVersion(),
@@ -1392,11 +1392,11 @@ public class PatchGenerationService {
                     "");
 
             Files.writeString(versionPath, content);
-            log.info("InfraEye 사이트 버전 메타파일 생성 완료: {}", versionPath);
+            log.info("InfraEye 빌드 버전 메타파일 생성 완료: {}", versionPath);
         } catch (IOException e) {
-            log.error("InfraEye 사이트 버전 메타파일 생성 실패: {}", outputPath, e);
+            log.error("InfraEye 빌드 버전 메타파일 생성 실패: {}", outputPath, e);
             throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
-                    "사이트 버전 메타파일 생성 실패: " + e.getMessage());
+                    "빌드 버전 메타파일 생성 실패: " + e.getMessage());
         }
     }
 

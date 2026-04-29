@@ -277,8 +277,8 @@ function _find_patch_metadata_file()
     local current="$start_dir"
 
     while [ -n "$current" ] && [[ "$current" == "$base_dir"* ]]; do
-        if [ -f "$current/.infraeye-site-version" ]; then
-            echo "$current/.infraeye-site-version"
+        if [ -f "$current/.build_version" ]; then
+            echo "$current/.build_version"
             return 0
         fi
         if [ "$current" = "$base_dir" ]; then
@@ -291,7 +291,7 @@ function _find_patch_metadata_file()
     local matches=()
     while IFS= read -r -d '' f; do
         matches+=("$f")
-    done < <(find "$base_dir" -path "$backup_dir" -prune -o -type f -name ".infraeye-site-version" -print0 2>/dev/null)
+    done < <(find "$base_dir" -path "$backup_dir" -prune -o -type f -name ".build_version" -print0 2>/dev/null)
 
     if [ "${#matches[@]}" -eq 1 ]; then
         echo "${matches[0]}"
@@ -299,7 +299,7 @@ function _find_patch_metadata_file()
     fi
 
     if [ "${#matches[@]}" -ge 2 ]; then
-        echo "[WARN] .infraeye-site-version 파일이 2개 이상 발견되어 Site 버전을 결정할 수 없습니다." >&2
+        echo "[WARN] .build_version 파일이 2개 이상 발견되어 빌드 버전을 결정할 수 없습니다." >&2
     fi
 
     return 1
@@ -325,7 +325,7 @@ function _record_site_version()
     local version="$2"
 
     if [ -z "$version" ]; then
-        echo "[WARN] 사이트 버전 메타파일(.infraeye-site-version)을 찾지 못해 Site 버전을 갱신하지 않습니다."
+        echo "[WARN] 빌드 버전 메타파일(.build_version)을 찾지 못해 빌드 버전을 갱신하지 않습니다."
         return 0
     fi
 
@@ -361,7 +361,7 @@ function _read_db_version()
 #                   값. mariadb_patch.sh 는 CM_DB.VERSION_HISTORY 와 함께
 #                   ${INFRAEYE_VERSION_DIR}/mariadb 를, cratedb_patch.sh 는
 #                   ${INFRAEYE_VERSION_DIR}/cratedb 를 mirror 한다.
-# - Build Version : was/eng patch 시 .infraeye-site-version 의 to_version 을
+# - Build Version : was/eng patch 시 .build_version 의 to_version 을
 #                   ${INFRAEYE_VERSION_DIR}/site 에 기록한 값.
 function _show_version()
 {
