@@ -561,7 +561,7 @@ function _find_and_run_db_script()
 # - 레거시는 /docker_dir/patch/was/*.war + /docker_dir/patch/was/webobjects/ 고정 경로 사용.
 # - 1.0.0부터는 ${INFRAEYE_PATCH_BASE_DIR}/ 아래에서 .war 파일을 재귀 탐색 (backup/ 제외).
 #   .war 가 정확히 1개 발견되면 그 디렉토리를 패치 소스로 사용.
-#   .war 와 같은 디렉토리의 .zip 을 webobjects 패치 소스로 사용 (압축 해제 후 적용).
+#   .war 와 같은 디렉토리의 .tar.gz 를 webobjects 패치 소스로 사용 (압축 해제 후 적용).
 # - 인터랙티브 메뉴/백업/server.xml 갱신/WAS 재시작 등 흐름은 레거시 그대로 유지.
 # =============================================================================
 function web_patch()
@@ -609,22 +609,22 @@ function web_patch()
         # 호스트 → 컨테이너 경로 매핑 (/opt/infraeye/patch -> /docker_dir/patch)
         local patch_src_ctn_dir="/docker_dir/patch${patch_src_host_dir#$INFRAEYE_PATCH_BASE_DIR}"
 
-        # 같은 디렉토리에서 .zip 파일 탐색 (webobjects 패치용)
-        local zip_files=()
+        # 같은 디렉토리에서 .tar.gz 파일 탐색 (webobjects 패치용)
+        local tar_files=()
         local f
-        for f in "$patch_src_host_dir"/*.zip; do
-                [ -f "$f" ] && zip_files+=("$f")
+        for f in "$patch_src_host_dir"/*.tar.gz; do
+                [ -f "$f" ] && tar_files+=("$f")
         done
-        local zip_count=${#zip_files[@]}
-        local zip_file_host=""
-        local zip_available="N"
-        if [ "$zip_count" -eq 1 ]; then
-                zip_file_host="${zip_files[0]}"
-                zip_available="Y"
-        elif [ "$zip_count" -ge 2 ]; then
-                echo "[WARN] ${patch_src_host_dir} 에 .zip 파일이 ${zip_count}개 있어 webobjects 패치 대상을 결정할 수 없습니다."
-                echo "       발견된 .zip:"
-                for f in "${zip_files[@]}"; do
+        local tar_count=${#tar_files[@]}
+        local tar_file_host=""
+        local tar_available="N"
+        if [ "$tar_count" -eq 1 ]; then
+                tar_file_host="${tar_files[0]}"
+                tar_available="Y"
+        elif [ "$tar_count" -ge 2 ]; then
+                echo "[WARN] ${patch_src_host_dir} 에 .tar.gz 파일이 ${tar_count}개 있어 webobjects 패치 대상을 결정할 수 없습니다."
+                echo "       발견된 .tar.gz:"
+                for f in "${tar_files[@]}"; do
                         echo "         - $f"
                 done
                 echo "       webobjects 관련 옵션(1, 3) 은 사용할 수 없습니다."
@@ -632,8 +632,8 @@ function web_patch()
 
         echo "[InfraEye] WAS 패치 소스 디렉토리: $patch_src_host_dir"
         echo "[InfraEye]   - .war 파일: $war_file_name"
-        if [ "$zip_available" = "Y" ]; then
-                echo "[InfraEye]   - webobjects .zip: $(basename "$zip_file_host")"
+        if [ "$tar_available" = "Y" ]; then
+                echo "[InfraEye]   - webobjects .tar.gz: $(basename "$tar_file_host")"
         fi
 
         # ------ 이하 레거시 인터랙티브 흐름 유지 ------
@@ -676,7 +676,7 @@ function web_patch()
 
 
         echo "1. 패치 진행시 패치 관련된 디렉터리가 덮어 씌워집니다.(백업 필수)"
-        echo "2. war파일 및 webobjects.zip 은 patch 경로 아래에 꼭 하나만 있어야 합니다."
+        echo "2. war파일 및 webobjects.tar.gz 는 patch 경로 아래에 꼭 하나만 있어야 합니다."
         echo "3. was가 재시작 됩니다."
 
         echo "패치를 진행 하시겠습니까?(Y/N)"
@@ -692,29 +692,29 @@ function web_patch()
                 exit 1
         fi
 
-        if [ "$wabPathType" == 1 ] && [ "$zip_available" != "Y" ]; then
-                echo -e "전체 패치를 하기 위한 webobjects.zip 파일이 존재하지 않습니다."
+        if [ "$wabPathType" == 1 ] && [ "$tar_available" != "Y" ]; then
+                echo -e "전체 패치를 하기 위한 webobjects.tar.gz 파일이 존재하지 않습니다."
                 exit 1
-        elif [ "$wabPathType" == 3 ] && [ "$zip_available" != "Y" ]; then
-                echo -e "webobjects 패치를 진행하기 위한 webobjects.zip 파일이 존재하지 않습니다."
+        elif [ "$wabPathType" == 3 ] && [ "$tar_available" != "Y" ]; then
+                echo -e "webobjects 패치를 진행하기 위한 webobjects.tar.gz 파일이 존재하지 않습니다."
                 exit 1
         fi
 
-        # webobjects .zip 압축 해제 (옵션 1, 3 인 경우)
+        # webobjects .tar.gz 압축 해제 (옵션 1, 3 인 경우)
         local extract_dir_host=""
         local extract_dir_ctn=""
         if [ "$wabPathType" == 1 ] || [ "$wabPathType" == 3 ]; then
-                if ! command -v unzip >/dev/null 2>&1; then
-                        echo "unzip 명령어가 없어 webobjects .zip 압축 해제를 진행할 수 없습니다."
+                if ! command -v tar >/dev/null 2>&1; then
+                        echo "tar 명령어가 없어 webobjects .tar.gz 압축 해제를 진행할 수 없습니다."
                         exit 1
                 fi
                 extract_dir_host="$(mktemp -d "${patch_src_host_dir}/.webobjects_extract.XXXXXX")"
-                if ! unzip -oq "$zip_file_host" -d "$extract_dir_host"; then
-                        echo "webobjects .zip 압축 해제 실패: $zip_file_host"
+                if ! tar -xzf "$tar_file_host" -C "$extract_dir_host"; then
+                        echo "webobjects .tar.gz 압축 해제 실패: $tar_file_host"
                         rm -rf "$extract_dir_host"
                         exit 1
                 fi
-                # zip 내부 구조 결정: webobjects/ 하위에만 모든 게 있으면 그 디렉토리를, 아니면 추출 dir 자체를 사용
+                # tar.gz 내부 구조 결정: webobjects/ 하위에만 모든 게 있으면 그 디렉토리를, 아니면 추출 dir 자체를 사용
                 local extract_source_host="$extract_dir_host"
                 if [ -d "$extract_dir_host/webobjects" ]; then
                         extract_source_host="$extract_dir_host/webobjects"
