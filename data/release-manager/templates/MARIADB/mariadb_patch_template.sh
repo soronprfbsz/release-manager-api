@@ -428,12 +428,14 @@ log_info "로그 파일: $LOG_FILE"
 echo ""
 
 # 버전 레지스트리 업데이트 (InfraEye --version / info version 용)
+# mariadb / cratedb 어느 쪽이든 단일 ${INFRAEYE_VERSION_DIR}/version 파일에 덮어쓴다.
+# log 줄에는 db 종류(mariadb)를 함께 남겨 어느 패치가 마지막이었는지 추적할 수 있다.
 if [ -n "${INFRAEYE_VERSION_DIR:-}" ]; then
     mkdir -p "$INFRAEYE_VERSION_DIR"
-    echo "{{TO_VERSION}}" > "$INFRAEYE_VERSION_DIR/mariadb"
-    echo "$(date +"%Y-%m-%d %H:%M:%S") mariadb {{FROM_VERSION}} -> {{TO_VERSION}} success (by $APPLIED_BY)" \
+    echo "{{TO_VERSION}}" > "$INFRAEYE_VERSION_DIR/version"
+    echo "$(date +"%Y-%m-%d %H:%M:%S") version mariadb {{FROM_VERSION}} -> {{TO_VERSION}} success (by $APPLIED_BY)" \
         >> "$INFRAEYE_VERSION_DIR/log"
-    log_success "버전 레지스트리 업데이트: $INFRAEYE_VERSION_DIR/mariadb = {{TO_VERSION}}"
+    log_success "버전 레지스트리 업데이트: $INFRAEYE_VERSION_DIR/version = {{TO_VERSION}} (mariadb)"
 fi
 
 # 최종 로그 기록

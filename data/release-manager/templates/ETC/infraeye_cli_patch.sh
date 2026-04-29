@@ -245,11 +245,10 @@ function cli_patch()
     )
 }
 
-# 버전 파일 읽기 (없으면 안내 문자열 반환)
-function _read_site_version()
+# 빌드 버전 파일(${INFRAEYE_VERSION_DIR}/build_version) 읽기 (없으면 안내 문자열)
+function _read_build_version()
 {
-    local db="$1"
-    local f="${INFRAEYE_VERSION_DIR}/${db}"
+    local f="${INFRAEYE_VERSION_DIR}/build_version"
     if [ -f "$f" ]; then
         cat "$f"
     else
@@ -314,7 +313,7 @@ function _read_patch_to_version()
     return 0
 }
 
-function _record_site_version()
+function _record_build_version()
 {
     local component="$1"
     local version="$2"
@@ -325,46 +324,36 @@ function _record_site_version()
     fi
 
     mkdir -p "$INFRAEYE_VERSION_DIR"
-    echo "$version" > "$INFRAEYE_VERSION_DIR/site"
-    echo "$(date +"%Y-%m-%d %H:%M:%S") site ${component} -> ${version} success" >> "$INFRAEYE_VERSION_DIR/log"
-    echo "[InfraEye] Site 버전 레지스트리 업데이트: $INFRAEYE_VERSION_DIR/site = $version"
+    echo "$version" > "$INFRAEYE_VERSION_DIR/build_version"
+    echo "$(date +"%Y-%m-%d %H:%M:%S") build_version ${component} -> ${version} success" >> "$INFRAEYE_VERSION_DIR/log"
+    echo "[InfraEye] Build Version 레지스트리 업데이트: $INFRAEYE_VERSION_DIR/build_version = $version"
 }
 
-# db patch 의 마지막 적용 버전 — mariadb / cratedb 중 더 최근 mtime 의 to_version.
-# db patch 는 mariadb 만 / cratedb 만 / 둘 다 적용될 수 있어, 마지막에 갱신된 쪽을 따라간다.
+# db patch 의 마지막 적용 to_version — mariadb / cratedb 어느 쪽이든 갱신 시
+# 단일 ${INFRAEYE_VERSION_DIR}/version 파일에 덮어쓰므로 그대로 읽어 반환.
 function _read_db_version()
 {
-    local mdb_file="${INFRAEYE_VERSION_DIR}/mariadb"
-    local cdb_file="${INFRAEYE_VERSION_DIR}/cratedb"
-    if [ -f "$mdb_file" ] && [ -f "$cdb_file" ]; then
-        if [ "$mdb_file" -nt "$cdb_file" ]; then
-            cat "$mdb_file"
-        else
-            cat "$cdb_file"
-        fi
-    elif [ -f "$mdb_file" ]; then
-        cat "$mdb_file"
-    elif [ -f "$cdb_file" ]; then
-        cat "$cdb_file"
+    local f="${INFRAEYE_VERSION_DIR}/version"
+    if [ -f "$f" ]; then
+        cat "$f"
     else
         echo "(not yet applied)"
     fi
 }
 
 # --version / info version 공용 출력
-# - Version       : db patch (mariadb 또는 cratedb) 시 갱신된 to_version 중 가장 최근
-#                   값. mariadb_patch.sh 는 CM_DB.VERSION_HISTORY 와 함께
-#                   ${INFRAEYE_VERSION_DIR}/mariadb 를, cratedb_patch.sh 는
-#                   ${INFRAEYE_VERSION_DIR}/cratedb 를 mirror 한다.
+# - Version       : db patch 의 to_version. mariadb_patch.sh / cratedb_patch.sh
+#                   가 모두 단일 ${INFRAEYE_VERSION_DIR}/version 파일에 덮어쓰므로
+#                   마지막 갱신된 값이 그대로 반환된다.
 # - Build Version : was/eng patch 시 .build_version 의 web_build_full_version
-#                   (있으면) 또는 to_version 을 ${INFRAEYE_VERSION_DIR}/site
+#                   (있으면) 또는 to_version 을 ${INFRAEYE_VERSION_DIR}/build_version
 #                   에 기록한 값. 빌드가 포함된 패치인 경우 base.build (예: 1.1.0.260429).
 # - CLI Version   : 본 CLI 자체의 버전 (Release Manager 가 빌드 시점에 주입).
 function _show_version()
 {
     local version build
     version=$(_read_db_version)
-    build=$(_read_site_version "site")
+    build=$(_read_build_version)
     cat <<EOF
 Version: ${version}
 Build Version: ${build}
@@ -453,7 +442,7 @@ function eng_patch()
                         docker exec --user $cmd_user "$container_nm" bash -c "/usr/bin/cp -rf /docker_dir/patch/eng/bin /opt/infraeye/nms && chmod -R 755 /opt/infraeye/nms/bin && chown -R infraeye:infraeye /opt/infraeye/nms/bin"
                         docker exec --user root:root "$container_nm" bash -c "/opt/infraeye/nms/bin/capabilities.sh add"
                         docker exec --user $cmd_user "$container_nm" bash -c "InfraEye_eng start"
-                        _record_site_version "eng" "$(_read_patch_to_version "${INFRAEYE_PATCH_BASE_DIR}" 2>/dev/null || true)"
+                        _record_build_version "eng" "$(_read_patch_to_version "${INFRAEYE_PATCH_BASE_DIR}" 2>/dev/null || true)"
                 fi
         elif [ "$engPathType" -eq 2 ]; then
 
@@ -466,7 +455,7 @@ function eng_patch()
                         #docker exec --user $cmd_user "$container_nm" bash -c "/usr/bin/cp -rf /docker_dir/patch/eng/* /opt/infraeye/nms/bin/ && chmod -R 755 /opt/infraeye/nms/bin && chown -R infraeye:infraeye /opt/infraeye/nms/bin"
                         docker exec --user $cmd_user "$container_nm" bash -c "rsync -av --exclude 'bin' /docker_dir/patch/eng/ /opt/infraeye/nms/bin/ && chmod -R 755 /opt/infraeye/nms/bin && chown -R infraeye:infraeye /opt/infraeye/nms/bin"
                         docker exec --user root:root "$container_nm" bash -c "/opt/infraeye/nms/bin/capabilities.sh add"
-                        _record_site_version "eng" "$(_read_patch_to_version "${INFRAEYE_PATCH_BASE_DIR}" 2>/dev/null || true)"
+                        _record_build_version "eng" "$(_read_patch_to_version "${INFRAEYE_PATCH_BASE_DIR}" 2>/dev/null || true)"
                 fi
 
         else
@@ -787,7 +776,7 @@ function web_patch()
         fi
 
         docker exec --user $cmd_user "$container_nm" bash -c "InfraEye_was start"
-        _record_site_version "was" "$(_read_patch_to_version "$patch_src_host_dir" 2>/dev/null || true)"
+        _record_build_version "was" "$(_read_patch_to_version "$patch_src_host_dir" 2>/dev/null || true)"
 }
 
 
