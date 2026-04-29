@@ -446,39 +446,40 @@ public class PatchGenerationService {
         try {
             Path readmePath = Paths.get(releaseBasePath, outputPath, "README.md");
 
-            // 버전 표시: 전체 version 필드 사용 (베이스/커스텀 모두 지원)
-            String fromVersionStr = fromVersion.getVersion();
-            String toVersionStr = toVersion.getVersion();
+            // 빌드/핫픽스 정보까지 포함한 fullVersion 사용
+            String fromStr = fromVersion.getFullVersion();
+            String toStr = toVersion.getFullVersion();
+            String includedStr = includedVersions.stream()
+                    .map(ReleaseVersion::getFullVersion)
+                    .distinct()
+                    .reduce((a, b) -> a + ", " + b)
+                    .orElse("");
 
             StringBuilder content = new StringBuilder();
-            content.append(String.format("# 커스텀 누적 패치: from-%s to %s\n\n",
-                    fromVersionStr, toVersionStr));
-            content.append("## 개요\n");
-            content.append(String.format(
-                    "이 패치는 **%s** 고객사의 **%s** 버전에서 **%s** 버전으로 업그레이드하기 위한 커스텀 누적 패치입니다.\n\n",
-                    customer.getCustomerName(), fromVersionStr, toVersionStr));
+            content.append(String.format("# 커스텀 누적 패치: %s → %s\n\n", fromStr, toStr));
 
             content.append("## 생성 정보\n");
-            content.append(String.format("- **생성일**: %s\n",
+            content.append(String.format("- 생성일: %s\n",
                     LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))));
-            content.append(String.format("- **고객사**: %s (%s)\n", customer.getCustomerName(), customer.getCustomerCode()));
-            content.append(String.format("- **From Version**: %s%s\n", fromVersionStr,
-                    isBaseVersion(fromVersion) ? " (베이스 버전)" : ""));
-            content.append(String.format("- **To Version**: %s\n", toVersionStr));
-            content.append("- **포함된 버전**: ");
-            content.append(includedVersions.stream()
-                    .map(ReleaseVersion::getVersion)
-                    .reduce((a, b) -> a + ", " + b)
-                    .orElse(""));
-            content.append("\n\n");
+            content.append(String.format("- 고객사: %s (%s)\n", customer.getCustomerName(), customer.getCustomerCode()));
+            content.append(String.format("- From: %s%s\n", fromStr,
+                    isBaseVersion(fromVersion) ? " (베이스)" : ""));
+            content.append(String.format("- To: %s\n", toStr));
+            content.append(String.format("- 포함된 버전: %s\n\n", includedStr));
 
-            content.append("## 주의사항\n");
-            content.append("⚠️ **중요**: 이 패치는 커스텀 버전의 변경사항을 누적한 것입니다.\n");
-            content.append("- 패치 실행 전 반드시 백업을 수행하세요.\n");
-            content.append("- 패치 실행 중 오류 발생 시 로그를 확인하세요.\n\n");
+            content.append("## 패치 방법\n");
+            content.append("1. `InfraEye info version` — 사이트 버전 확인 (사전)\n");
+            content.append("2. 본 패치 파일을 `/{설치경로}/infraeye/patch/` 에 복사 후 압축 해제\n");
+            content.append("3. `InfraEye db patch` — DB 패치 (mariadb / cratedb)\n");
+            content.append("4. `InfraEye was patch` — WAS 패치\n");
+            content.append("5. `InfraEye eng patch` — 엔진 패치\n");
+            content.append("6. `InfraEye info version` — 변경된 사이트 버전 확인 (사후)\n\n");
 
-            content.append("---\n");
-            content.append("CREATED BY - Release Manager (Custom Patch)\n");
+            content.append("## 주의\n");
+            content.append("- 실행 전 반드시 백업 수행\n");
+            content.append("- 오류 발생 시 패치 디렉토리의 `logs/` 확인\n\n");
+
+            content.append("---\nCREATED BY - Release Manager (Custom Patch)\n");
 
             Files.writeString(readmePath, content.toString());
 
@@ -586,13 +587,13 @@ public class PatchGenerationService {
             String assigneeEmail = assignee != null ? assignee.getEmail() : null;
             generatePatchScripts(fromVersion, toVersion, betweenVersions, outputPath, assigneeEmail);
 
-            // 8. README 생성
-            generateReadme(fromVersion, toVersion, betweenVersions, outputPath);
-            // 빌드 picker 로 선택된 WEB 빌드가 있으면 메타파일에 함께 기록 (CLI 의 Build Version 표기에 사용)
+            // 8. README / 빌드 메타 생성
+            // 빌드 picker 로 선택된 WEB 빌드가 있으면 README 의 To 표기와 .build_version 메타파일에 함께 사용
             ReleaseVersion webBuildForMeta = null;
             if (buildSelection != null && buildSelection.enabled() && buildSelection.web() != null) {
                 webBuildForMeta = selectedBuilds.get(buildSelection.web().buildVersionId());
             }
+            generateReadme(fromVersion, toVersion, betweenVersions, outputPath, webBuildForMeta);
             generateBuildVersionFile(fromVersion, toVersion, outputPath, webBuildForMeta);
 
             // 9. 생성자 Account 조회
@@ -1297,57 +1298,47 @@ public class PatchGenerationService {
 
     /**
      * README.md 생성
+     *
+     * @param webBuild 빌드 picker 로 선택된 WEB 빌드 (없으면 null) — To 표기에 우선 사용
      */
     private void generateReadme(ReleaseVersion fromVersion, ReleaseVersion toVersion,
-            List<ReleaseVersion> includedVersions, String outputPath) {
+            List<ReleaseVersion> includedVersions, String outputPath, ReleaseVersion webBuild) {
         try {
             Path readmePath = Paths.get(releaseBasePath, outputPath, "README.md");
 
+            String fromStr = fromVersion.getFullVersion();
+            String toStr = webBuild != null ? webBuild.getFullVersion() : toVersion.getFullVersion();
+            String includedStr = includedVersions.stream()
+                    .map(ReleaseVersion::getFullVersion)
+                    .distinct()
+                    .reduce((a, b) -> a + ", " + b)
+                    .orElse("");
+
             StringBuilder content = new StringBuilder();
-            content.append(String.format("# 누적 패치: from-%s to %s\n\n",
-                    fromVersion.getVersion(), toVersion.getVersion()));
-            content.append("## 개요\n");
-            content.append(String.format(
-                    "이 패치는 **%s** 버전에서 **%s** 버전으로 업그레이드하기 위한 누적 패치입니다.\n\n",
-                    fromVersion.getVersion(), toVersion.getVersion()));
+            content.append(String.format("# 누적 패치: %s → %s\n\n", fromStr, toStr));
 
             content.append("## 생성 정보\n");
-            content.append(String.format("- **생성일**: %s\n",
+            content.append(String.format("- 생성일: %s\n",
                     LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))));
-            content.append(String.format("- **From Version**: %s\n", fromVersion.getVersion()));
-            content.append(String.format("- **To Version**: %s\n", toVersion.getVersion()));
-            content.append("- **포함된 버전**: ");
-            content.append(includedVersions.stream()
-                    .map(ReleaseVersion::getVersion)
-                    .reduce((a, b) -> a + ", " + b)
-                    .orElse(""));
-            content.append("\n\n");
+            content.append(String.format("- From: %s\n", fromStr));
+            content.append(String.format("- To: %s\n", toStr));
+            content.append(String.format("- 포함된 버전: %s\n\n", includedStr));
 
-            content.append("## 디렉토리 구조\n");
-            content.append("```\n");
-            content.append(".\n");
-            content.append("├── mariadb_patch.sh            # MariaDB 패치 실행 스크립트\n");
-            content.append("├── cratedb_patch.sh            # CrateDB 패치 실행 스크립트 (파일 있을 때만)\n");
-            content.append("├── database/\n");
-            content.append("│   ├── mariadb/\n");
-            content.append("│   │   ├── {version}/          # 누적된 SQL 파일들\n");
-            content.append("│   │   │   └── *.sql\n");
-            content.append("│   └── cratedb/\n");
-            content.append("│       ├── {version}/          # 누적된 SQL 파일들\n");
-            content.append("│       │   └── *.sql\n");
-            content.append("└── README.md                   # 이 파일\n");
-            content.append("```\n\n");
+            content.append("## 패치 방법\n");
+            content.append("1. `InfraEye info version` — 사이트 버전 확인 (사전)\n");
+            content.append("2. 본 패치 파일을 `/{설치경로}/infraeye/patch/` 에 복사 후 압축 해제\n");
+            content.append("3. `InfraEye db patch` — DB 패치 (mariadb / cratedb)\n");
+            content.append("4. `InfraEye was patch` — WAS 패치\n");
+            content.append("5. `InfraEye eng patch` — 엔진 패치\n");
+            content.append("6. `InfraEye info version` — 변경된 사이트 버전 확인 (사후)\n\n");
 
-            content.append("## 주의사항\n");
-            content.append("⚠️ **중요**: 이 패치는 여러 버전의 변경사항을 누적한 것입니다.\n");
-            content.append("- 패치 실행 전 반드시 백업을 수행하세요.\n");
-            content.append("- 패치 실행 중 오류 발생 시 로그를 확인하세요.\n\n");
+            content.append("## 주의\n");
+            content.append("- 실행 전 반드시 백업 수행\n");
+            content.append("- 오류 발생 시 패치 디렉토리의 `logs/` 확인\n\n");
 
-            content.append("---\n");
-            content.append("CREATED BY - Release Manager\n");
+            content.append("---\nCREATED BY - Release Manager\n");
 
             Files.writeString(readmePath, content.toString());
-
             log.info("README.md 생성 완료: {}", readmePath);
 
         } catch (IOException e) {
