@@ -168,21 +168,20 @@ public class PatchService {
     }
 
     /**
-     * spec §4.3 의 includedBuildsSummary 형식: 'WEB · NC_SMS · NC_FAULT_MS'.
+     * 패치 목록의 빌드 포함 요약. 엔진 종류는 많아질 수 있어 개별로 노출하지 않고
+     * 'WEB' / 'ENGINE' 두 토큰으로만 표기한다 (예: "WEB", "ENGINE", "WEB,ENGINE").
      * 빌드 미포함 시 null.
      */
     private String buildIncludedBuildsSummary(List<PatchIncludedBuild> rows) {
         if (rows.isEmpty()) return null;
         List<String> tokens = new ArrayList<>();
-        boolean hasWeb = rows.stream().anyMatch(r -> "WEB".equals(r.getKind()));
-        if (hasWeb) tokens.add("WEB");
-        rows.stream()
-                .filter(r -> "ENGINE".equals(r.getKind()))
-                .map(PatchIncludedBuild::getEngineName)
-                .filter(Objects::nonNull)
-                .sorted()
-                .forEach(tokens::add);
-        return String.join(" · ", tokens);
+        if (rows.stream().anyMatch(r -> "WEB".equals(r.getKind()))) {
+            tokens.add("WEB");
+        }
+        if (rows.stream().anyMatch(r -> "ENGINE".equals(r.getKind()))) {
+            tokens.add("ENGINE");
+        }
+        return tokens.isEmpty() ? null : String.join(",", tokens);
     }
 
     /**
