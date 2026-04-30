@@ -282,8 +282,8 @@ public class PatchGenerationService {
 
             // 8. README 생성
             generateCustomReadme(fromVersion, toVersion, betweenVersions, outputPath, customer);
-            // 커스텀 패치는 빌드 picker 미사용 → web build 정보 없음
-            generateBuildVersionFile(fromVersion, toVersion, outputPath, null);
+            // 커스텀 패치는 빌드 picker 미사용 → build_* 라인 없음
+            generateBuildVersionFile(fromVersion, toVersion, outputPath, null, null);
 
             // 9. 생성자 Account 조회
             Account creator = accountLookupService.findByEmail(createdByEmail);
@@ -588,13 +588,13 @@ public class PatchGenerationService {
             generatePatchScripts(fromVersion, toVersion, betweenVersions, outputPath, assigneeEmail);
 
             // 8. README / 빌드 메타 생성
-            // 빌드 picker 로 선택된 WEB 빌드가 있으면 README 의 To 표기와 .build_version 메타파일에 함께 사용
+            // README 의 To 표기에는 web 빌드 fullVersion 만 사용. .build_version 메타파일에는 web + 모든 engine 기록.
             ReleaseVersion webBuildForMeta = null;
             if (buildSelection != null && buildSelection.enabled() && buildSelection.web() != null) {
                 webBuildForMeta = selectedBuilds.get(buildSelection.web().buildVersionId());
             }
             generateReadme(fromVersion, toVersion, betweenVersions, outputPath, webBuildForMeta);
-            generateBuildVersionFile(fromVersion, toVersion, outputPath, webBuildForMeta);
+            generateBuildVersionFile(fromVersion, toVersion, outputPath, buildSelection, selectedBuilds);
 
             // 9. 생성자 Account 조회
             Account creator = accountLookupService.findByEmail(createdByEmail);
@@ -1377,27 +1377,53 @@ public class PatchGenerationService {
      *
      * <p>빌드 picker 로 WEB 빌드가 포함된 경우 추가로 {@code web_build_full_version} 줄을
      * 기록한다. CLI 의 {@code _read_patch_to_version} 은 이 값이 있으면 우선 사용해
-     * Build Version 표기에 빌드 번호까지 포함되도록 한다 (예: 1.1.0.260429).
+     * Build Version 표기에 빌드 번호 + 회차 (예: 1.1.0.260429-1) 까지 포함되도록 한다.
      *
-     * @param webBuild 빌드 picker 로 선택된 WEB 빌드 ReleaseVersion (없으면 null)
+     * <p>빌드 picker 로 선택된 web/engine 빌드들을 모두 별도 키로 기록한다:
+     * <pre>
+     * build_web=1.1.0.260429-1
+     * build_engine_NC_SMS=1.2.0.260301-1
+     * build_engine_NC_CONF=1.8.2.260402-2
+     * </pre>
+     *
+     * @param buildSelection  빌드 picker 입력 (null/disabled 면 build_* 라인 없음)
+     * @param selectedBuilds  applyBuildSelection 의 결과 (buildVersionId → ReleaseVersion)
      */
     private void generateBuildVersionFile(ReleaseVersion fromVersion, ReleaseVersion toVersion,
-                                           String outputPath, ReleaseVersion webBuild) {
+                                           String outputPath,
+                                           PatchDto.BuildSelection buildSelection,
+                                           Map<Long, ReleaseVersion> selectedBuilds) {
         try {
             Path versionPath = Paths.get(releaseBasePath, outputPath, ".build_version");
 
             List<String> lines = new ArrayList<>();
             lines.add("from_version=" + fromVersion.getFullVersion());
             lines.add("to_version=" + toVersion.getFullVersion());
-            if (webBuild != null) {
-                lines.add("web_build_full_version=" + webBuild.getFullVersion());
-            }
             lines.add("generated_at=" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+
+            int recorded = 0;
+            if (buildSelection != null && buildSelection.enabled() && selectedBuilds != null) {
+                if (buildSelection.web() != null) {
+                    ReleaseVersion bv = selectedBuilds.get(buildSelection.web().buildVersionId());
+                    if (bv != null) {
+                        // bv.getFullVersion() 은 항상 yyMMdd-iteration 형태 (예: 1.0.0.260401-1)
+                        lines.add("build_web=" + bv.getFullVersion());
+                        recorded++;
+                    }
+                }
+                if (buildSelection.engines() != null) {
+                    for (PatchDto.SelectedEngine se : buildSelection.engines()) {
+                        ReleaseVersion bv = selectedBuilds.get(se.buildVersionId());
+                        if (bv == null) continue;
+                        lines.add("build_engine_" + se.engineName() + "=" + bv.getFullVersion());
+                        recorded++;
+                    }
+                }
+            }
             lines.add("");
 
             Files.writeString(versionPath, String.join("\n", lines));
-            log.info("InfraEye 빌드 버전 메타파일 생성 완료: {} (web_build={})",
-                    versionPath, webBuild != null ? webBuild.getFullVersion() : "(없음)");
+            log.info("InfraEye 빌드 버전 메타파일 생성 완료: {} (build entries={})", versionPath, recorded);
         } catch (IOException e) {
             log.error("InfraEye 빌드 버전 메타파일 생성 실패: {}", outputPath, e);
             throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
