@@ -567,15 +567,16 @@ public class ReleaseVersionService {
      *
      * <p>비즈니스 룰:
      * <ul>
-     *   <li>핫픽스 버전 위에는 빌드를 생성할 수 없음 (Q3 결정)</li>
-     *   <li>빌드 버전 위에는 빌드를 생성할 수 없음 (단순화)</li>
-     *   <li>{@code buildVersion} 이 null/0 이면 오늘 날짜(yyMMdd) 로 자동 채움</li>
-     *   <li>같은 base 에 동일 build_version 이 이미 있으면 +1 후 재시도 (최대 100회)</li>
+     *   <li>핫픽스 버전 위에는 빌드를 생성할 수 없음</li>
+     *   <li>빌드 버전 위에는 빌드를 생성할 수 없음</li>
+     *   <li>buildVersion 은 항상 오늘 날짜(yyMMdd) 자동, 사용자 입력 무시</li>
+     *   <li>buildIteration 은 같은 base + 같은 buildVersion 안에서 max+1 (최초는 1)</li>
+     *   <li>동시성 race 로 UNIQUE 충돌 시 +1 후 재시도 (최대 MAX_BUILD_VERSION_RETRY)</li>
      *   <li>빌드는 즉시 활성: {@code is_approved=true}, approver/approvedAt 자동 설정</li>
      * </ul>
      *
      * @param baseVersionId  빌드 원본 버전 ID
-     * @param request        생성 요청 (comment, buildVersion?)
+     * @param request        생성 요청 (comment) — buildVersion 필드는 사용하지 않음
      * @param createdByEmail 생성자 이메일
      * @return 생성된 빌드 응답
      */
@@ -584,8 +585,7 @@ public class ReleaseVersionService {
             Long baseVersionId,
             ReleaseVersionDto.CreateBuildRequest request,
             String createdByEmail) {
-        log.info("빌드 생성 요청 - baseVersionId: {}, buildVersion: {}, createdByEmail: {}",
-                baseVersionId, request.buildVersion(), createdByEmail);
+        log.info("빌드 생성 요청 - baseVersionId: {}, createdByEmail: {}", baseVersionId, createdByEmail);
 
         // 1. base 조회
         ReleaseVersion baseVersion = findVersionById(baseVersionId);
@@ -603,24 +603,21 @@ public class ReleaseVersionService {
         // 3. 생성자 조회
         Account creator = accountLookupService.findByEmail(createdByEmail);
 
-        // 4. 시작 buildVersion 결정 (null/0 이면 오늘 yyMMdd)
-        int candidate = (request.buildVersion() == null || request.buildVersion() <= 0)
-                ? todayYyMmDd()
-                : request.buildVersion();
+        // 4. buildVersion = 오늘 yyMMdd (고정)
+        final int buildVersion = todayYyMmDd();
 
-        // 5. 충돌 회피 retry (최대 MAX_BUILD_VERSION_RETRY)
+        // 5. 시작 iteration = 같은 base+buildVersion 의 max(iteration) + 1
+        int candidateIteration = releaseVersionRepository
+                .findTopByBuildBaseVersion_ReleaseVersionIdAndBuildVersionOrderByBuildIterationDesc(
+                        baseVersionId, buildVersion)
+                .map(ReleaseVersion::getBuildIteration)
+                .orElse(0) + 1;
+
+        // 6. 동시성 race 회피 retry (최대 MAX_BUILD_VERSION_RETRY)
         for (int i = 0; i < MAX_BUILD_VERSION_RETRY; i++) {
-            // 사전 체크 (UI 흐름 상 충돌이 빈번하지 않음을 가정)
-            boolean exists = releaseVersionRepository
-                    .existsByBuildBaseVersion_ReleaseVersionIdAndBuildVersion(baseVersionId, candidate);
-            if (exists) {
-                candidate++;
-                continue;
-            }
-
             try {
-                ReleaseVersion saved = saveBuildEntity(baseVersion, creator, candidate, request.comment(),
-                        createdByEmail);
+                ReleaseVersion saved = saveBuildEntity(baseVersion, creator, buildVersion, candidateIteration,
+                        request.comment(), createdByEmail);
 
                 // 클로저 테이블에 self-row(depth=0) 등록.
                 // 트리 조회(findAllByProjectIdAndReleaseTypeWithHierarchy)는 hierarchy 와의
@@ -640,9 +637,10 @@ public class ReleaseVersionService {
                         0  // 빌드만 생성 (파일 업로드 없음). createBuildWithZip 가 enrich.
                 );
             } catch (DataIntegrityViolationException e) {
-                // 동시성 race: 다른 트랜잭션이 같은 build_version 을 선점한 경우
-                log.warn("빌드 저장 시 UNIQUE 충돌 발생 (build_version={}). +1 후 재시도", candidate);
-                candidate++;
+                // 동시성 race: 다른 트랜잭션이 같은 (buildVersion, iteration) 을 선점한 경우
+                log.warn("빌드 저장 시 UNIQUE 충돌 (build_version={}, iteration={}). +1 후 재시도",
+                        buildVersion, candidateIteration);
+                candidateIteration++;
             }
         }
 
@@ -654,7 +652,7 @@ public class ReleaseVersionService {
      * 빌드 엔티티 저장 (saveAndFlush 로 UNIQUE 위반을 즉시 감지)
      */
     private ReleaseVersion saveBuildEntity(ReleaseVersion baseVersion, Account creator, int buildVersion,
-            String comment, String createdByEmail) {
+            int buildIteration, String comment, String createdByEmail) {
         LocalDateTime nowUtc = LocalDateTime.now(ZoneOffset.UTC);
         ReleaseVersion build = ReleaseVersion.builder()
                 .project(baseVersion.getProject())
@@ -666,6 +664,7 @@ public class ReleaseVersionService {
                 .patchVersion(baseVersion.getPatchVersion())
                 .hotfixVersion(0)
                 .buildVersion(buildVersion)
+                .buildIteration(buildIteration)
                 .buildBaseVersion(baseVersion)
                 .isApproved(true)
                 .approver(creator)

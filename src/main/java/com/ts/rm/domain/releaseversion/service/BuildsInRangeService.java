@@ -45,8 +45,7 @@ public class BuildsInRangeService {
         Map<String, List<ReleaseVersionDto.BuildCandidate>> engineMap = new LinkedHashMap<>();
 
         for (ReleaseVersion bv : builds) {
-            Path buildBasePath = fileSystemService.resolveBuildBasePath(
-                    bv.getBuildBaseVersion(), bv.getBuildVersion());
+            Path buildBasePath = fileSystemService.resolveBuildBasePath(bv);
             if (!Files.isDirectory(buildBasePath)) {
                 continue;
             }

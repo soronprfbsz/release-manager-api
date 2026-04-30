@@ -252,13 +252,11 @@ public interface ReleaseVersionRepository extends JpaRepository<ReleaseVersion, 
     List<ReleaseVersion> findAllByBuildBaseVersion_ReleaseVersionIdOrderByBuildVersionDesc(Long buildBaseVersionId);
 
     /**
-     * 특정 base 버전에 동일 build_version 존재 여부
-     *
-     * @param buildBaseVersionId 빌드 원본 버전 ID
-     * @param buildVersion       빌드 버전 (예: 260427)
-     * @return 존재 여부
+     * 같은 base + 같은 buildVersion(yyMMdd) 안에서 build_iteration 이 가장 큰 행.
+     * caller 는 {@code .map(ReleaseVersion::getBuildIteration)} 으로 max 값을 얻을 수 있다.
      */
-    boolean existsByBuildBaseVersion_ReleaseVersionIdAndBuildVersion(Long buildBaseVersionId, Integer buildVersion);
+    Optional<ReleaseVersion> findTopByBuildBaseVersion_ReleaseVersionIdAndBuildVersionOrderByBuildIterationDesc(
+            Long buildBaseVersionId, Integer buildVersion);
 
     /**
      * 프로젝트, 릴리즈 타입, 버전, 핫픽스 버전, 빌드 버전으로 정확히 1행 조회.

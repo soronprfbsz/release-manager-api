@@ -1030,7 +1030,7 @@ public class PatchGenerationService {
         // a. WEB 부분 복사
         if (sel.web() != null) {
             ReleaseVersion bv = loadBuildVersion(sel.web().buildVersionId());
-            Path src = fileSystemService.resolveBuildBasePath(bv.getBuildBaseVersion(), bv.getBuildVersion()).resolve("web");
+            Path src = fileSystemService.resolveBuildBasePath(bv).resolve("web");
             copyDirectoryReplaceExisting(src, outputDir.resolve("web"));
             selectedBuilds.put(bv.getReleaseVersionId(), bv);
         }
@@ -1039,7 +1039,7 @@ public class PatchGenerationService {
         if (sel.engines() != null) {
             for (PatchDto.SelectedEngine se : sel.engines()) {
                 ReleaseVersion bv = loadBuildVersion(se.buildVersionId());
-                Path src = fileSystemService.resolveBuildBasePath(bv.getBuildBaseVersion(), bv.getBuildVersion())
+                Path src = fileSystemService.resolveBuildBasePath(bv)
                         .resolve("engine").resolve(se.engineName());
                 copyDirectoryReplaceExisting(src, outputDir.resolve("engine").resolve(se.engineName()));
                 selectedBuilds.putIfAbsent(bv.getReleaseVersionId(), bv);

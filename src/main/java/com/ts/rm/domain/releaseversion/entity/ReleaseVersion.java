@@ -108,6 +108,11 @@ public class ReleaseVersion {
     @Builder.Default
     private Integer buildVersion = 0;
 
+    /** 같은 날짜(buildVersion)의 회차. 0=일반/핫픽스, 1+=빌드 N번째. */
+    @Column(name = "build_iteration", nullable = false)
+    @Builder.Default
+    private Integer buildIteration = 0;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "build_base_version_id")
     private ReleaseVersion buildBaseVersion;
@@ -230,20 +235,22 @@ public class ReleaseVersion {
      * 전체 버전 문자열 반환 (핫픽스/빌드 포함)
      * <p>표준 버전:       1.3.2
      * <p>핫픽스:          1.3.2.1
-     * <p>빌드:            1.3.2.260427
+     * <p>빌드:            1.3.2.260430-1  (yyMMdd-iteration)
      * <p>커스텀:          1.1.0-customerA.1.0.0
      * <p>커스텀+핫픽스:   1.1.0-customerA.1.0.0.1
-     * <p>커스텀+빌드:     1.1.0-customerA.1.0.0.260427
+     * <p>커스텀+빌드:     1.1.0-customerA.1.0.0.260430-1
      */
     @Transient
     public String getFullVersion() {
+        int iter = buildIteration != null ? buildIteration : 0;
+
         // 커스텀 버전인 경우 version 필드 기반으로 반환
         if ("CUSTOM".equals(releaseType) || customMajorVersion != null) {
             if (isHotfix()) {
                 return version + "." + hotfixVersion;
             }
             if (isBuild()) {
-                return version + "." + buildVersion;
+                return version + "." + buildVersion + "-" + iter;
             }
             return version;
         }
@@ -252,7 +259,7 @@ public class ReleaseVersion {
             return majorVersion + "." + minorVersion + "." + patchVersion + "." + hotfixVersion;
         }
         if (isBuild()) {
-            return majorVersion + "." + minorVersion + "." + patchVersion + "." + buildVersion;
+            return majorVersion + "." + minorVersion + "." + patchVersion + "." + buildVersion + "-" + iter;
         }
         return majorVersion + "." + minorVersion + "." + patchVersion;
     }

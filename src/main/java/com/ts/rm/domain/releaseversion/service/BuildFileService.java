@@ -193,7 +193,7 @@ public class BuildFileService {
         BuildZipValidator.validate(zipPath);
 
         // 3. 빌드 디렉토리 준비 + 압축 해제
-        Path buildBasePath = fileSystemService.resolveBuildBasePath(baseVersion, build.getBuildVersion());
+        Path buildBasePath = fileSystemService.resolveBuildBasePath(build);
         try {
             Files.createDirectories(buildBasePath);
         } catch (IOException e) {

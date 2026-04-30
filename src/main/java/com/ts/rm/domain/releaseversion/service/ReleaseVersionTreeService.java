@@ -628,7 +628,7 @@ public class ReleaseVersionTreeService {
             return ReleaseVersionDto.FileTreeNode.directory("", "", new ArrayList<>());
         }
 
-        Path buildBasePath = fileSystemService.resolveBuildBasePath(baseVersion, buildVersion.getBuildVersion());
+        Path buildBasePath = fileSystemService.resolveBuildBasePath(buildVersion);
         if (!Files.exists(buildBasePath)) {
             log.warn("빌드 산출물 디렉토리가 없어 파일 트리를 비워 반환: {}", buildBasePath);
             return ReleaseVersionDto.FileTreeNode.directory("", "", new ArrayList<>());

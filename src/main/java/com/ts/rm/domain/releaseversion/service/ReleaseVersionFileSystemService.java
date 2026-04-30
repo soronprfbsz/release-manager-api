@@ -341,24 +341,31 @@ public class ReleaseVersionFileSystemService {
     }
 
     /**
-     * 빌드 디렉토리 베이스 경로 계산 (생성하지 않음)
+     * 빌드 디렉토리 베이스 경로 계산 (생성하지 않음).
      *
      * <pre>
-     * STANDARD: versions/{projectId}/standard/{majorMinor}/{version}/builds/{buildVersion}
-     * CUSTOM:   versions/{projectId}/custom/{customerCode}/{majorMinor}/{version}/builds/{buildVersion}
+     * STANDARD: versions/{projectId}/standard/{majorMinor}/{version}/builds/{buildVersion}-{iteration}
+     * CUSTOM:   versions/{projectId}/custom/{customerCode}/{majorMinor}/{version}/builds/{buildVersion}-{iteration}
      * </pre>
      *
-     * @param baseVersion  빌드의 원본 버전 (STANDARD 또는 CUSTOM)
-     * @param buildVersion 빌드 버전 번호 (예: 260427)
-     * @return 빌드 디렉토리 경로
+     * @param buildVersionEntity 빌드 버전 엔티티 (buildBaseVersion / buildVersion / buildIteration 포함)
+     * @return 빌드 디렉토리 경로 (예: .../builds/260430-1)
      */
-    public Path resolveBuildBasePath(ReleaseVersion baseVersion, Integer buildVersion) {
+    public Path resolveBuildBasePath(ReleaseVersion buildVersionEntity) {
+        ReleaseVersion baseVersion = buildVersionEntity.getBuildBaseVersion();
+        if (baseVersion == null) {
+            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                    "빌드의 원본 버전이 비어있어 경로를 계산할 수 없습니다 (buildVersionId: "
+                            + buildVersionEntity.getReleaseVersionId() + ")");
+        }
         String projectId = baseVersion.getProject() != null ? baseVersion.getProject().getProjectId() : "infraeye2";
+        String dirName = buildVersionEntity.getBuildVersion()
+                + "-" + (buildVersionEntity.getBuildIteration() != null ? buildVersionEntity.getBuildIteration() : 0);
 
         if ("STANDARD".equals(baseVersion.getReleaseType())) {
             return Paths.get(baseReleasePath, "versions", projectId, "standard",
                     baseVersion.getMajorMinor(), baseVersion.getVersion(),
-                    "builds", String.valueOf(buildVersion));
+                    "builds", dirName);
         }
 
         String customerCode = baseVersion.getCustomer() != null
@@ -366,7 +373,7 @@ public class ReleaseVersionFileSystemService {
                 : "unknown";
         return Paths.get(baseReleasePath, "versions", projectId, "custom",
                 customerCode, baseVersion.getMajorMinor(), baseVersion.getVersion(),
-                "builds", String.valueOf(buildVersion));
+                "builds", dirName);
     }
 
     /**
@@ -381,7 +388,7 @@ public class ReleaseVersionFileSystemService {
      * @param baseVersion  빌드 원본 버전 엔티티
      */
     public void createBuildDirectoryStructure(ReleaseVersion buildVersion, ReleaseVersion baseVersion) {
-        Path buildBase = resolveBuildBasePath(baseVersion, buildVersion.getBuildVersion());
+        Path buildBase = resolveBuildBasePath(buildVersion);
         try {
             Files.createDirectories(buildBase.resolve("web"));
             Files.createDirectories(buildBase.resolve("engine"));
@@ -401,11 +408,11 @@ public class ReleaseVersionFileSystemService {
      * @param category     "web", "engine" 중 하나
      * @return 카테고리 경로
      */
-    public Path resolveBuildCategoryPath(ReleaseVersion baseVersion, Integer buildVersion, String category) {
+    public Path resolveBuildCategoryPath(ReleaseVersion buildVersionEntity, String category) {
         if (!"web".equals(category) && !"engine".equals(category)) {
             throw new IllegalArgumentException("빌드 카테고리는 web, engine 중 하나여야 합니다: " + category);
         }
-        return resolveBuildBasePath(baseVersion, buildVersion).resolve(category);
+        return resolveBuildBasePath(buildVersionEntity).resolve(category);
     }
 
     /**
@@ -422,7 +429,7 @@ public class ReleaseVersionFileSystemService {
                             + buildVersion.getReleaseVersionId() + "). 데이터를 확인해주세요.");
         }
 
-        Path buildPath = resolveBuildBasePath(buildVersion.getBuildBaseVersion(), buildVersion.getBuildVersion());
+        Path buildPath = resolveBuildBasePath(buildVersion);
         log.info("빌드 디렉토리 삭제 시도: {} (exists: {})", buildPath, Files.exists(buildPath));
 
         if (Files.exists(buildPath)) {
