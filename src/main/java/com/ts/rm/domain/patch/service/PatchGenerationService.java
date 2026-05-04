@@ -1244,37 +1244,53 @@ public class PatchGenerationService {
                 return;
             }
 
-            // 프로젝트 ID 추출 (versions 목록의 첫 번째 버전에서)
-            String projectId = versions.get(0).getProject().getProjectId();
+            // SQL 실행은 base 버전 단위로 한 번만 수행해야 한다.
+            // betweenVersions 에는 빌드 행이 enriched 로 포함될 수 있고, 빌드는 base 와 같은
+            // version 문자열을 가지므로 그대로 두면 동일 SQL 디렉토리가 여러 번 cd/execute 된다.
+            // → 빌드 행 제거 + version 문자열 기준 distinct (copySqlFiles 와 동일 정책).
+            java.util.Set<String> seenVersions = new java.util.LinkedHashSet<>();
+            List<ReleaseVersion> sqlVersions = versions.stream()
+                    .filter(v -> !v.isBuild())
+                    .filter(v -> seenVersions.add(v.getVersion()))
+                    .toList();
+
+            if (sqlVersions.isEmpty()) {
+                log.info("SQL 실행 대상 base 버전이 없어 DB 스크립트 생성을 생략합니다.");
+                return;
+            }
+
+            // 프로젝트 ID 추출 (sqlVersions 의 첫 번째 버전에서)
+            String projectId = sqlVersions.get(0).getProject().getProjectId();
 
             List<ReleaseFile> mariadbFiles = releaseFileRepository.findReleaseFilesBetweenVersionsBySubCategory(
                     projectId,
-                    versions.get(0).getVersion(),
-                    versions.get(versions.size() - 1).getVersion(),
+                    sqlVersions.get(0).getVersion(),
+                    sqlVersions.get(sqlVersions.size() - 1).getVersion(),
                     "MARIADB"
             );
 
             List<ReleaseFile> cratedbFiles = releaseFileRepository.findReleaseFilesBetweenVersionsBySubCategory(
                     projectId,
-                    versions.get(0).getVersion(),
-                    versions.get(versions.size() - 1).getVersion(),
+                    sqlVersions.get(0).getVersion(),
+                    sqlVersions.get(sqlVersions.size() - 1).getVersion(),
                     "CRATEDB"
             );
 
             // MariaDB 스크립트는 항상 생성 (VERSION_HISTORY INSERT를 위해 필수 - 단, infraeye1/infraeye2만)
             // SQL 파일이 없더라도 VERSION_HISTORY에 버전 이력을 기록해야 함
             mariaDBScriptGenerator.generatePatchScript(projectId, fromVersion.getVersion(),
-                    toVersion.getVersion(), versions, mariadbFiles, outputPath, patchedBy);
+                    toVersion.getVersion(), sqlVersions, mariadbFiles, outputPath, patchedBy);
             if (mariadbFiles.isEmpty()) {
                 log.info("MariaDB SQL 파일은 없지만 스크립트 생성: {}/{}", outputPath, mariaDBScriptGenerator.getScriptFileName());
             } else {
-                log.info("MariaDB 패치 스크립트 생성 완료: {}/{} (SQL 파일 {}개)", outputPath, mariaDBScriptGenerator.getScriptFileName(), mariadbFiles.size());
+                log.info("MariaDB 패치 스크립트 생성 완료: {}/{} (SQL 파일 {}개, base 버전 {}개)",
+                        outputPath, mariaDBScriptGenerator.getScriptFileName(), mariadbFiles.size(), sqlVersions.size());
             }
 
             // CrateDB 스크립트는 파일이 있을 때만 생성
             if (!cratedbFiles.isEmpty()) {
                 crateDBScriptGenerator.generatePatchScript(projectId, fromVersion.getVersion(),
-                        toVersion.getVersion(), versions, cratedbFiles, outputPath, null);
+                        toVersion.getVersion(), sqlVersions, cratedbFiles, outputPath, null);
                 log.info("CrateDB 패치 스크립트 생성 완료: {}/{}", outputPath, crateDBScriptGenerator.getScriptFileName());
             } else {
                 log.info("CrateDB 파일이 없어 스크립트를 생성하지 않습니다.");
