@@ -804,22 +804,13 @@ public class ReleaseVersionUploadService {
                 .forEach(subDir -> {
                     String subCategory = subDir.getFileName().toString();
 
-                    // DATABASE와 ENGINE 카테고리: CODE 테이블에 존재하는 값만 대문자 검증
+                    // DATABASE / ENGINE: 대소문자 무관 입력을 받아 CODE 테이블 등록값(대문자)으로 자동 정규화.
+                    // CODE 테이블에 없는 사용자 정의 값은 입력 그대로 유지 (ReleaseFileUploadService.determineSubCategory 와 동일 정책).
                     if (fileCategory == FileCategory.DATABASE || fileCategory == FileCategory.ENGINE) {
                         String upperSubCategory = subCategory.toUpperCase();
-
-                        // CODE 테이블에 대문자 버전이 존재하는지 확인
                         if (SubCategoryValidator.isValid(fileCategory, upperSubCategory)) {
-                            // CODE 테이블에 있는 값인 경우 → 반드시 대문자로 작성되어야 함
-                            if (!subCategory.equals(upperSubCategory)) {
-                                throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
-                                        String.format("CODE 테이블에 등록된 %s 하위 카테고리는 반드시 대문자로 작성해야 합니다. " +
-                                                "현재: '%s', 올바른 형식: '%s'",
-                                                fileCategory.getCode(), subCategory, upperSubCategory));
-                            }
-                            // 대문자로 유지
+                            subCategory = upperSubCategory;
                         } else {
-                            // CODE 테이블에 없는 값 → 사용자가 작성한 대로 사용 (대소문자 자유)
                             log.debug("CODE 테이블에 없는 사용자 정의 하위 카테고리: {}/{}", fileCategory.getCode(), subCategory);
                         }
                     } else {
