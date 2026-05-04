@@ -88,42 +88,38 @@ _abort_on_sql_failure() {
     echo -e "${RED}${divider}${NC}" >&2
 
     # 수동 복원 안내 (사전 백업이 있을 때만)
+    # NMC_DB 는 시계열 DB 라 복원 대상이 아니므로 안내에서 의도적으로 제외한다.
     if [ -n "${BACKUP_DIR:-}" ] && [ -d "${BACKUP_DIR}" ]; then
         log_to_file ""
         log_to_file "[수동 복원 안내]"
         log_to_file "  DDL 은 implicit commit 이라 자동 롤백되지 않습니다. 필요 시 아래 dump 로 수동 복원하세요."
+        log_to_file "  dump 는 --add-drop-database --databases 옵션으로 만들어져 self-contained 입니다."
+        log_to_file "  → DROP DATABASE / CREATE DATABASE / USE 문이 dump 첫머리에 자동 포함."
         log_to_file "  사전 백업 : $BACKUP_DIR"
-        log_to_file "  포함 파일 :"
-        log_to_file "    - CM_DB.sql           (full dump)"
-        log_to_file "    - NMS_DB.sql          (full dump)"
-        log_to_file "    - NMC_DB.schema.sql   (schema-only, 시계열 데이터 제외)"
-        log_to_file "  복원 예시 :"
+        log_to_file "  복원 예시 (반드시 CM_DB → NMS_DB 순서):"
         if [ "${EXECUTION_MODE:-1}" = "1" ]; then
-            log_to_file "    docker exec -i ${DOCKER_CONTAINER_NAME:-<container>} mariadb -u${DB_USER:-<user>} -p'<PW>' CM_DB  < $BACKUP_DIR/CM_DB.sql"
-            log_to_file "    docker exec -i ${DOCKER_CONTAINER_NAME:-<container>} mariadb -u${DB_USER:-<user>} -p'<PW>' NMS_DB < $BACKUP_DIR/NMS_DB.sql"
+            log_to_file "    docker exec -i ${DOCKER_CONTAINER_NAME:-<container>} mariadb -u${DB_USER:-<user>} -p'<PW>' < $BACKUP_DIR/CM_DB.sql"
+            log_to_file "    docker exec -i ${DOCKER_CONTAINER_NAME:-<container>} mariadb -u${DB_USER:-<user>} -p'<PW>' < $BACKUP_DIR/NMS_DB.sql"
         else
-            log_to_file "    mariadb -h${DB_HOST:-<host>} -P${DB_PORT:-3306} -u${DB_USER:-<user>} -p'<PW>' CM_DB  < $BACKUP_DIR/CM_DB.sql"
-            log_to_file "    mariadb -h${DB_HOST:-<host>} -P${DB_PORT:-3306} -u${DB_USER:-<user>} -p'<PW>' NMS_DB < $BACKUP_DIR/NMS_DB.sql"
+            log_to_file "    mariadb -h${DB_HOST:-<host>} -P${DB_PORT:-3306} -u${DB_USER:-<user>} -p'<PW>' < $BACKUP_DIR/CM_DB.sql"
+            log_to_file "    mariadb -h${DB_HOST:-<host>} -P${DB_PORT:-3306} -u${DB_USER:-<user>} -p'<PW>' < $BACKUP_DIR/NMS_DB.sql"
         fi
-        log_to_file "  주의 : NMC_DB 는 schema-only 백업 — 시계열 데이터는 수집 시스템 재수집이 필요합니다."
+        log_to_file "  주의 : NMC_DB.schema.sql 은 참고용이며 복원 대상이 아닙니다 (시계열 DB)."
 
         echo "" >&2
         echo -e "${YELLOW}[수동 복원 안내]${NC}" >&2
         echo -e "  DDL 은 implicit commit 이라 자동 롤백되지 않습니다. 필요 시 아래 dump 로 수동 복원하세요." >&2
+        echo -e "  dump 는 self-contained — DROP/CREATE DATABASE/USE 문이 자동 포함되어 있습니다." >&2
         echo -e "  ${YELLOW}사전 백업${NC} : $BACKUP_DIR" >&2
-        echo -e "  ${YELLOW}포함 파일${NC} :" >&2
-        echo -e "    - CM_DB.sql           (full dump)" >&2
-        echo -e "    - NMS_DB.sql          (full dump)" >&2
-        echo -e "    - NMC_DB.schema.sql   (schema-only, 시계열 데이터 제외)" >&2
-        echo -e "  ${YELLOW}복원 예시${NC} :" >&2
+        echo -e "  ${YELLOW}복원 예시${NC} (반드시 CM_DB → NMS_DB 순서):" >&2
         if [ "${EXECUTION_MODE:-1}" = "1" ]; then
-            echo -e "    docker exec -i ${DOCKER_CONTAINER_NAME:-<container>} mariadb -u${DB_USER:-<user>} -p'<PW>' CM_DB  < $BACKUP_DIR/CM_DB.sql" >&2
-            echo -e "    docker exec -i ${DOCKER_CONTAINER_NAME:-<container>} mariadb -u${DB_USER:-<user>} -p'<PW>' NMS_DB < $BACKUP_DIR/NMS_DB.sql" >&2
+            echo -e "    docker exec -i ${DOCKER_CONTAINER_NAME:-<container>} mariadb -u${DB_USER:-<user>} -p'<PW>' < $BACKUP_DIR/CM_DB.sql" >&2
+            echo -e "    docker exec -i ${DOCKER_CONTAINER_NAME:-<container>} mariadb -u${DB_USER:-<user>} -p'<PW>' < $BACKUP_DIR/NMS_DB.sql" >&2
         else
-            echo -e "    mariadb -h${DB_HOST:-<host>} -P${DB_PORT:-3306} -u${DB_USER:-<user>} -p'<PW>' CM_DB  < $BACKUP_DIR/CM_DB.sql" >&2
-            echo -e "    mariadb -h${DB_HOST:-<host>} -P${DB_PORT:-3306} -u${DB_USER:-<user>} -p'<PW>' NMS_DB < $BACKUP_DIR/NMS_DB.sql" >&2
+            echo -e "    mariadb -h${DB_HOST:-<host>} -P${DB_PORT:-3306} -u${DB_USER:-<user>} -p'<PW>' < $BACKUP_DIR/CM_DB.sql" >&2
+            echo -e "    mariadb -h${DB_HOST:-<host>} -P${DB_PORT:-3306} -u${DB_USER:-<user>} -p'<PW>' < $BACKUP_DIR/NMS_DB.sql" >&2
         fi
-        echo -e "  ${YELLOW}주의${NC} : NMC_DB 는 schema-only 백업 — 시계열 데이터는 수집 시스템 재수집이 필요합니다." >&2
+        echo -e "  ${YELLOW}주의${NC} : NMC_DB.schema.sql 은 참고용이며 복원 대상이 아닙니다 (시계열 DB)." >&2
     fi
 
     exit "$exit_code"
@@ -261,9 +257,13 @@ if [ "$EXECUTION_MODE" = "1" ]; then
         fi
     }
 
-    _backup_db_docker "CM_DB"  "--single-transaction --routines --triggers" "$BACKUP_DIR/CM_DB.sql"
-    _backup_db_docker "NMS_DB" "--single-transaction --routines --triggers" "$BACKUP_DIR/NMS_DB.sql"
-    _backup_db_docker "NMC_DB" "--single-transaction --no-data --routines --triggers" "$BACKUP_DIR/NMC_DB.schema.sql"
+    # --add-drop-database --databases : dump 첫머리에 'DROP DATABASE IF EXISTS X; CREATE DATABASE X; USE X;' 자동 삽입
+    #                                   → 사이트 어떤 상태든 DROP DATABASE 수동 작업 없이 그대로 복원 가능 (idempotent)
+    # --add-drop-table --add-drop-trigger : 모든 객체 앞에 DROP IF EXISTS 자동 동행 (FK 제약은 SET FOREIGN_KEY_CHECKS=0 가 처리)
+    DUMP_COMMON_OPTS="--single-transaction --routines --triggers --add-drop-table --add-drop-trigger --add-drop-database --databases"
+    _backup_db_docker "CM_DB"  "$DUMP_COMMON_OPTS" "$BACKUP_DIR/CM_DB.sql"
+    _backup_db_docker "NMS_DB" "$DUMP_COMMON_OPTS" "$BACKUP_DIR/NMS_DB.sql"
+    _backup_db_docker "NMC_DB" "$DUMP_COMMON_OPTS --no-data" "$BACKUP_DIR/NMC_DB.schema.sql"
 
     cat > "$BACKUP_DIR/manifest.txt" <<EOF
 backup_at: $(date +"%Y-%m-%d %H:%M:%S")
@@ -272,10 +272,10 @@ patch_to: {{TO_VERSION}}
 db_type: mariadb
 execution_mode: docker
 container: $DOCKER_CONTAINER_NAME
-CM_DB: full
-NMS_DB: full
-NMC_DB: schema-only (시계열 데이터 제외)
-note: NMC_DB 데이터 복구 필요 시 수집 시스템 재수집
+CM_DB: full          (복원 대상)
+NMS_DB: full         (복원 대상)
+NMC_DB: schema-only  (참고용 — 복원 대상 아님. 시계열 DB 라 데이터 dump 의 의미가 약하며,
+                      schema 를 임의로 복원하면 운영 중 시계열 적재가 깨질 수 있습니다.)
 EOF
     log_info "백업 manifest: $BACKUP_DIR/manifest.txt"
     echo ""
@@ -361,9 +361,10 @@ else
         fi
     }
 
-    _backup_db_network "CM_DB"  "--single-transaction --routines --triggers" "$BACKUP_DIR/CM_DB.sql"
-    _backup_db_network "NMS_DB" "--single-transaction --routines --triggers" "$BACKUP_DIR/NMS_DB.sql"
-    _backup_db_network "NMC_DB" "--single-transaction --no-data --routines --triggers" "$BACKUP_DIR/NMC_DB.schema.sql"
+    DUMP_COMMON_OPTS="--single-transaction --routines --triggers --add-drop-table --add-drop-trigger --add-drop-database --databases"
+    _backup_db_network "CM_DB"  "$DUMP_COMMON_OPTS" "$BACKUP_DIR/CM_DB.sql"
+    _backup_db_network "NMS_DB" "$DUMP_COMMON_OPTS" "$BACKUP_DIR/NMS_DB.sql"
+    _backup_db_network "NMC_DB" "$DUMP_COMMON_OPTS --no-data" "$BACKUP_DIR/NMC_DB.schema.sql"
 
     cat > "$BACKUP_DIR/manifest.txt" <<EOF
 backup_at: $(date +"%Y-%m-%d %H:%M:%S")
@@ -372,10 +373,10 @@ patch_to: {{TO_VERSION}}
 db_type: mariadb
 execution_mode: network
 host: $DB_HOST:$DB_PORT
-CM_DB: full
-NMS_DB: full
-NMC_DB: schema-only (시계열 데이터 제외)
-note: NMC_DB 데이터 복구 필요 시 수집 시스템 재수집
+CM_DB: full          (복원 대상)
+NMS_DB: full         (복원 대상)
+NMC_DB: schema-only  (참고용 — 복원 대상 아님. 시계열 DB 라 데이터 dump 의 의미가 약하며,
+                      schema 를 임의로 복원하면 운영 중 시계열 적재가 깨질 수 있습니다.)
 EOF
     log_info "백업 manifest: $BACKUP_DIR/manifest.txt"
     echo ""
