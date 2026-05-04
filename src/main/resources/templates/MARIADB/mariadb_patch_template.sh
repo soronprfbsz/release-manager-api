@@ -99,11 +99,11 @@ _abort_on_sql_failure() {
         log_to_file "    - NMC_DB.schema.sql   (schema-only, 시계열 데이터 제외)"
         log_to_file "  복원 예시 :"
         if [ "${EXECUTION_MODE:-1}" = "1" ]; then
-            log_to_file "    docker exec -i ${DOCKER_CONTAINER_NAME:-<container>} mariadb -u${DB_USER:-<user>} -p<PW> CM_DB  < $BACKUP_DIR/CM_DB.sql"
-            log_to_file "    docker exec -i ${DOCKER_CONTAINER_NAME:-<container>} mariadb -u${DB_USER:-<user>} -p<PW> NMS_DB < $BACKUP_DIR/NMS_DB.sql"
+            log_to_file "    docker exec -i ${DOCKER_CONTAINER_NAME:-<container>} mariadb -u${DB_USER:-<user>} -p'<PW>' CM_DB  < $BACKUP_DIR/CM_DB.sql"
+            log_to_file "    docker exec -i ${DOCKER_CONTAINER_NAME:-<container>} mariadb -u${DB_USER:-<user>} -p'<PW>' NMS_DB < $BACKUP_DIR/NMS_DB.sql"
         else
-            log_to_file "    mariadb -h${DB_HOST:-<host>} -P${DB_PORT:-3306} -u${DB_USER:-<user>} -p<PW> CM_DB  < $BACKUP_DIR/CM_DB.sql"
-            log_to_file "    mariadb -h${DB_HOST:-<host>} -P${DB_PORT:-3306} -u${DB_USER:-<user>} -p<PW> NMS_DB < $BACKUP_DIR/NMS_DB.sql"
+            log_to_file "    mariadb -h${DB_HOST:-<host>} -P${DB_PORT:-3306} -u${DB_USER:-<user>} -p'<PW>' CM_DB  < $BACKUP_DIR/CM_DB.sql"
+            log_to_file "    mariadb -h${DB_HOST:-<host>} -P${DB_PORT:-3306} -u${DB_USER:-<user>} -p'<PW>' NMS_DB < $BACKUP_DIR/NMS_DB.sql"
         fi
         log_to_file "  주의 : NMC_DB 는 schema-only 백업 — 시계열 데이터는 수집 시스템 재수집이 필요합니다."
 
@@ -117,11 +117,11 @@ _abort_on_sql_failure() {
         echo -e "    - NMC_DB.schema.sql   (schema-only, 시계열 데이터 제외)" >&2
         echo -e "  ${YELLOW}복원 예시${NC} :" >&2
         if [ "${EXECUTION_MODE:-1}" = "1" ]; then
-            echo -e "    docker exec -i ${DOCKER_CONTAINER_NAME:-<container>} mariadb -u${DB_USER:-<user>} -p<PW> CM_DB  < $BACKUP_DIR/CM_DB.sql" >&2
-            echo -e "    docker exec -i ${DOCKER_CONTAINER_NAME:-<container>} mariadb -u${DB_USER:-<user>} -p<PW> NMS_DB < $BACKUP_DIR/NMS_DB.sql" >&2
+            echo -e "    docker exec -i ${DOCKER_CONTAINER_NAME:-<container>} mariadb -u${DB_USER:-<user>} -p'<PW>' CM_DB  < $BACKUP_DIR/CM_DB.sql" >&2
+            echo -e "    docker exec -i ${DOCKER_CONTAINER_NAME:-<container>} mariadb -u${DB_USER:-<user>} -p'<PW>' NMS_DB < $BACKUP_DIR/NMS_DB.sql" >&2
         else
-            echo -e "    mariadb -h${DB_HOST:-<host>} -P${DB_PORT:-3306} -u${DB_USER:-<user>} -p<PW> CM_DB  < $BACKUP_DIR/CM_DB.sql" >&2
-            echo -e "    mariadb -h${DB_HOST:-<host>} -P${DB_PORT:-3306} -u${DB_USER:-<user>} -p<PW> NMS_DB < $BACKUP_DIR/NMS_DB.sql" >&2
+            echo -e "    mariadb -h${DB_HOST:-<host>} -P${DB_PORT:-3306} -u${DB_USER:-<user>} -p'<PW>' CM_DB  < $BACKUP_DIR/CM_DB.sql" >&2
+            echo -e "    mariadb -h${DB_HOST:-<host>} -P${DB_PORT:-3306} -u${DB_USER:-<user>} -p'<PW>' NMS_DB < $BACKUP_DIR/NMS_DB.sql" >&2
         fi
         echo -e "  ${YELLOW}주의${NC} : NMC_DB 는 schema-only 백업 — 시계열 데이터는 수집 시스템 재수집이 필요합니다." >&2
     fi
