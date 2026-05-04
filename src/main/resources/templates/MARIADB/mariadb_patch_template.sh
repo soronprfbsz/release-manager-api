@@ -65,6 +65,9 @@ log_success() {
 # SQL 실행 실패 시 화면/로그에 강조된 박스로 안내한 뒤 즉시 종료한다.
 # 이전에는 'cmd | tee' 의 exit code 가 tee(=0) 로 잡혀서 ERROR 가 나도
 # 다음 SQL 이 계속 실행되고 마지막엔 누적 패치 '완료' 로 표시되던 문제 방지.
+#
+# DDL 은 implicit commit 이라 자동 롤백 불가하므로, 사전 백업 dump 위치와
+# 복원 명령 예시를 함께 출력해 운영자가 즉시 수동 복원 절차로 넘어갈 수 있게 한다.
 _abort_on_sql_failure() {
     local label="$1"     # 실패 위치 식별자 (sql 파일명 또는 'SQL 문자열')
     local exit_code="$2"
@@ -83,6 +86,46 @@ _abort_on_sql_failure() {
     echo -e "  ${RED}exit code${NC} : $exit_code" >&2
     echo -e "  ${RED}로그 파일${NC} : $LOG_FILE" >&2
     echo -e "${RED}${divider}${NC}" >&2
+
+    # 수동 복원 안내 (사전 백업이 있을 때만)
+    if [ -n "${BACKUP_DIR:-}" ] && [ -d "${BACKUP_DIR}" ]; then
+        log_to_file ""
+        log_to_file "[수동 복원 안내]"
+        log_to_file "  DDL 은 implicit commit 이라 자동 롤백되지 않습니다. 필요 시 아래 dump 로 수동 복원하세요."
+        log_to_file "  사전 백업 : $BACKUP_DIR"
+        log_to_file "  포함 파일 :"
+        log_to_file "    - CM_DB.sql           (full dump)"
+        log_to_file "    - NMS_DB.sql          (full dump)"
+        log_to_file "    - NMC_DB.schema.sql   (schema-only, 시계열 데이터 제외)"
+        log_to_file "  복원 예시 :"
+        if [ "${EXECUTION_MODE:-1}" = "1" ]; then
+            log_to_file "    docker exec -i ${DOCKER_CONTAINER_NAME:-<container>} mariadb -u${DB_USER:-<user>} -p<PW> CM_DB  < $BACKUP_DIR/CM_DB.sql"
+            log_to_file "    docker exec -i ${DOCKER_CONTAINER_NAME:-<container>} mariadb -u${DB_USER:-<user>} -p<PW> NMS_DB < $BACKUP_DIR/NMS_DB.sql"
+        else
+            log_to_file "    mariadb -h${DB_HOST:-<host>} -P${DB_PORT:-3306} -u${DB_USER:-<user>} -p<PW> CM_DB  < $BACKUP_DIR/CM_DB.sql"
+            log_to_file "    mariadb -h${DB_HOST:-<host>} -P${DB_PORT:-3306} -u${DB_USER:-<user>} -p<PW> NMS_DB < $BACKUP_DIR/NMS_DB.sql"
+        fi
+        log_to_file "  주의 : NMC_DB 는 schema-only 백업 — 시계열 데이터는 수집 시스템 재수집이 필요합니다."
+
+        echo "" >&2
+        echo -e "${YELLOW}[수동 복원 안내]${NC}" >&2
+        echo -e "  DDL 은 implicit commit 이라 자동 롤백되지 않습니다. 필요 시 아래 dump 로 수동 복원하세요." >&2
+        echo -e "  ${YELLOW}사전 백업${NC} : $BACKUP_DIR" >&2
+        echo -e "  ${YELLOW}포함 파일${NC} :" >&2
+        echo -e "    - CM_DB.sql           (full dump)" >&2
+        echo -e "    - NMS_DB.sql          (full dump)" >&2
+        echo -e "    - NMC_DB.schema.sql   (schema-only, 시계열 데이터 제외)" >&2
+        echo -e "  ${YELLOW}복원 예시${NC} :" >&2
+        if [ "${EXECUTION_MODE:-1}" = "1" ]; then
+            echo -e "    docker exec -i ${DOCKER_CONTAINER_NAME:-<container>} mariadb -u${DB_USER:-<user>} -p<PW> CM_DB  < $BACKUP_DIR/CM_DB.sql" >&2
+            echo -e "    docker exec -i ${DOCKER_CONTAINER_NAME:-<container>} mariadb -u${DB_USER:-<user>} -p<PW> NMS_DB < $BACKUP_DIR/NMS_DB.sql" >&2
+        else
+            echo -e "    mariadb -h${DB_HOST:-<host>} -P${DB_PORT:-3306} -u${DB_USER:-<user>} -p<PW> CM_DB  < $BACKUP_DIR/CM_DB.sql" >&2
+            echo -e "    mariadb -h${DB_HOST:-<host>} -P${DB_PORT:-3306} -u${DB_USER:-<user>} -p<PW> NMS_DB < $BACKUP_DIR/NMS_DB.sql" >&2
+        fi
+        echo -e "  ${YELLOW}주의${NC} : NMC_DB 는 schema-only 백업 — 시계열 데이터는 수집 시스템 재수집이 필요합니다." >&2
+    fi
+
     exit "$exit_code"
 }
 

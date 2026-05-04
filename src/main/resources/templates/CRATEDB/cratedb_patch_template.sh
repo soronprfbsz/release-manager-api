@@ -65,6 +65,9 @@ log_success() {
 # SQL 실행 실패 시 화면/로그에 강조된 박스로 안내한 뒤 즉시 종료한다.
 # 호출자(execute_sql / execute_sql_string)가 실패 후에도 다음 SQL 로 진행되어
 # 결과적으로 false success 가 표시되던 것을 막는다.
+#
+# CrateDB 백업은 DDL snapshot 만 (시계열 데이터 백업 없음). 실패 시 운영자에게
+# DDL 복원 명령 + '시계열 데이터 재수집 필요' 안내를 함께 노출한다.
 _abort_on_sql_failure() {
     local label="$1"
     local exit_code="$2"
@@ -86,6 +89,36 @@ _abort_on_sql_failure() {
     [ -n "$detail" ] && echo -e "  ${RED}상세${NC}      : $detail" >&2
     echo -e "  ${RED}로그 파일${NC} : $LOG_FILE" >&2
     echo -e "${RED}${divider}${NC}" >&2
+
+    # 수동 복원 안내 (사전 백업이 있을 때만)
+    if [ -n "${BACKUP_DIR:-}" ] && [ -d "${BACKUP_DIR}" ]; then
+        log_to_file ""
+        log_to_file "[수동 복원 안내]"
+        log_to_file "  CrateDB DDL 은 자동 롤백되지 않습니다. 필요 시 아래 DDL snapshot 으로 스키마만 복원하세요."
+        log_to_file "  사전 백업 : $BACKUP_DIR"
+        log_to_file "  포함 파일 : cratedb.ddl.sql (DDL snapshot 만, 데이터 백업 없음)"
+        log_to_file "  복원 예시 :"
+        if [ "${EXECUTION_MODE:-1}" = "1" ]; then
+            log_to_file "    docker exec -i ${DOCKER_CONTAINER_NAME:-<container>} crash --username ${CRATEDB_USER:-<user>} < $BACKUP_DIR/cratedb.ddl.sql"
+        else
+            log_to_file "    crash --hosts ${CRATEDB_HOST:-<host>}:${CRATEDB_PORT:-4200} --username ${CRATEDB_USER:-<user>} < $BACKUP_DIR/cratedb.ddl.sql"
+        fi
+        log_to_file "  주의 : CrateDB 는 시계열 DB 라 데이터 dump 가 없습니다. 데이터는 수집 시스템 재수집이 필요합니다."
+
+        echo "" >&2
+        echo -e "${YELLOW}[수동 복원 안내]${NC}" >&2
+        echo -e "  CrateDB DDL 은 자동 롤백되지 않습니다. 필요 시 아래 DDL snapshot 으로 스키마만 복원하세요." >&2
+        echo -e "  ${YELLOW}사전 백업${NC} : $BACKUP_DIR" >&2
+        echo -e "  ${YELLOW}포함 파일${NC} : cratedb.ddl.sql (DDL snapshot 만, 데이터 백업 없음)" >&2
+        echo -e "  ${YELLOW}복원 예시${NC} :" >&2
+        if [ "${EXECUTION_MODE:-1}" = "1" ]; then
+            echo -e "    docker exec -i ${DOCKER_CONTAINER_NAME:-<container>} crash --username ${CRATEDB_USER:-<user>} < $BACKUP_DIR/cratedb.ddl.sql" >&2
+        else
+            echo -e "    crash --hosts ${CRATEDB_HOST:-<host>}:${CRATEDB_PORT:-4200} --username ${CRATEDB_USER:-<user>} < $BACKUP_DIR/cratedb.ddl.sql" >&2
+        fi
+        echo -e "  ${YELLOW}주의${NC} : CrateDB 는 시계열 DB 라 데이터 dump 가 없습니다. 데이터는 수집 시스템 재수집이 필요합니다." >&2
+    fi
+
     exit "$exit_code"
 }
 
