@@ -62,6 +62,33 @@ log_success() {
     log_to_file "[SUCCESS] $message"
 }
 
+# SQL 실행 실패 시 화면/로그에 강조된 박스로 안내한 뒤 즉시 종료한다.
+# 호출자(execute_sql / execute_sql_string)가 실패 후에도 다음 SQL 로 진행되어
+# 결과적으로 false success 가 표시되던 것을 막는다.
+_abort_on_sql_failure() {
+    local label="$1"
+    local exit_code="$2"
+    local detail="${3:-}"
+    local divider="=================================================="
+    log_to_file ""
+    log_to_file "$divider"
+    log_to_file "[ERROR] 패치 중단 — SQL 실행 실패"
+    log_to_file "  대상      : $label"
+    log_to_file "  exit code : $exit_code"
+    [ -n "$detail" ] && log_to_file "  상세      : $detail"
+    log_to_file "  로그 파일 : $LOG_FILE"
+    log_to_file "$divider"
+    echo "" >&2
+    echo -e "${RED}${divider}${NC}" >&2
+    echo -e "${RED}[ERROR] 패치 중단 — SQL 실행 실패${NC}" >&2
+    echo -e "  ${RED}대상${NC}      : $label" >&2
+    echo -e "  ${RED}exit code${NC} : $exit_code" >&2
+    [ -n "$detail" ] && echo -e "  ${RED}상세${NC}      : $detail" >&2
+    echo -e "  ${RED}로그 파일${NC} : $LOG_FILE" >&2
+    echo -e "${RED}${divider}${NC}" >&2
+    exit "$exit_code"
+}
+
 # 기본값
 DEFAULT_DOCKER_CONTAINER_NAME="infraeye_2.0"
 DEFAULT_CRATEDB_USER="infraeye"
@@ -240,14 +267,10 @@ EOF
         log_step "SQL 파일 실행: $sql_file"
         log_to_file "--- SQL 파일 실행 시작: $sql_file ---"
 
-        # SQL 파일 존재 여부 확인
         if [ ! -f "$sql_file" ]; then
-            log_error "SQL 파일을 찾을 수 없습니다: $sql_file"
-            log_to_file "--- SQL 파일을 찾을 수 없음: $sql_file ---"
-            return 1
+            _abort_on_sql_failure "$sql_file" 1 "SQL 파일을 찾을 수 없습니다"
         fi
 
-        # SQL 파일 크기 확인
         local file_size=$(wc -c < "$sql_file")
         if [ "$file_size" -eq 0 ]; then
             log_warning "SQL 파일이 비어있습니다: $sql_file"
@@ -257,36 +280,24 @@ EOF
 
         log_to_file "SQL 파일 크기: $file_size bytes"
 
-        # Docker 컨테이너 내부에서 crash CLI로 SQL 파일 실행
         if [ -z "$CRATEDB_PASSWORD" ]; then
-            # 비밀번호 없음
             SQL_RESULT=$(docker exec -i "$DOCKER_CONTAINER_NAME" crash --username "$CRATEDB_USER" < "$sql_file" 2>&1)
             EXIT_CODE=$?
         else
-            # 비밀번호 있음
             SQL_RESULT=$(docker exec -i -e CRATEPW="$CRATEDB_PASSWORD" "$DOCKER_CONTAINER_NAME" crash --username "$CRATEDB_USER" < "$sql_file" 2>&1)
             EXIT_CODE=$?
         fi
 
+        echo "$SQL_RESULT"
         log_to_file "crash CLI 종료 코드: $EXIT_CODE"
         log_to_file "crash CLI 출력:"
         log_to_file "$SQL_RESULT"
 
-        # 에러 확인
         if [ $EXIT_CODE -ne 0 ]; then
-            log_error "SQL 파일 실행 실패: $sql_file (종료 코드: $EXIT_CODE)"
-            log_error "crash CLI 출력:"
-            log_error "$SQL_RESULT"
-            log_to_file "--- SQL 파일 실행 실패: $sql_file ---"
-            return 1
+            _abort_on_sql_failure "$sql_file" "$EXIT_CODE" "$SQL_RESULT"
         fi
-
         if echo "$SQL_RESULT" | grep -qi "error\|exception\|failed"; then
-            log_error "SQL 실행 중 에러 발생: $sql_file"
-            log_error "에러 내용:"
-            log_error "$SQL_RESULT"
-            log_to_file "--- SQL 실행 에러: $sql_file ---"
-            return 1
+            _abort_on_sql_failure "$sql_file" 1 "$SQL_RESULT"
         fi
 
         log_success "SQL 파일 실행 성공: $sql_file"
@@ -299,36 +310,24 @@ EOF
         log_to_file "--- SQL 문자열 실행 시작 ---"
         log_to_file "$sql_string"
 
-        # Docker 컨테이너 내부에서 crash CLI로 SQL 문자열 실행
         if [ -z "$CRATEDB_PASSWORD" ]; then
-            # 비밀번호 없음
             SQL_RESULT=$(echo "$sql_string" | docker exec -i "$DOCKER_CONTAINER_NAME" crash --username "$CRATEDB_USER" 2>&1)
             EXIT_CODE=$?
         else
-            # 비밀번호 있음
             SQL_RESULT=$(echo "$sql_string" | docker exec -i -e CRATEPW="$CRATEDB_PASSWORD" "$DOCKER_CONTAINER_NAME" crash --username "$CRATEDB_USER" 2>&1)
             EXIT_CODE=$?
         fi
 
+        echo "$SQL_RESULT"
         log_to_file "crash CLI 종료 코드: $EXIT_CODE"
         log_to_file "crash CLI 출력:"
         log_to_file "$SQL_RESULT"
 
-        # 에러 확인
         if [ $EXIT_CODE -ne 0 ]; then
-            log_error "SQL 문자열 실행 실패 (종료 코드: $EXIT_CODE)"
-            log_error "crash CLI 출력:"
-            log_error "$SQL_RESULT"
-            log_to_file "--- SQL 문자열 실행 실패 ---"
-            return 1
+            _abort_on_sql_failure "SQL 문자열" "$EXIT_CODE" "$SQL_RESULT"
         fi
-
         if echo "$SQL_RESULT" | grep -qi "error\|exception\|failed"; then
-            log_error "SQL 실행 중 에러 발생"
-            log_error "에러 내용:"
-            log_error "$SQL_RESULT"
-            log_to_file "--- SQL 실행 에러 ---"
-            return 1
+            _abort_on_sql_failure "SQL 문자열" 1 "$SQL_RESULT"
         fi
 
         log_to_file "--- SQL 문자열 실행 성공 ---"
@@ -457,14 +456,10 @@ EOF
         log_step "SQL 파일 실행: $sql_file"
         log_to_file "--- SQL 파일 실행 시작: $sql_file ---"
 
-        # SQL 파일 존재 여부 확인
         if [ ! -f "$sql_file" ]; then
-            log_error "SQL 파일을 찾을 수 없습니다: $sql_file"
-            log_to_file "--- SQL 파일을 찾을 수 없음: $sql_file ---"
-            return 1
+            _abort_on_sql_failure "$sql_file" 1 "SQL 파일을 찾을 수 없습니다"
         fi
 
-        # SQL 파일 크기 확인
         local file_size=$(wc -c < "$sql_file")
         if [ "$file_size" -eq 0 ]; then
             log_warning "SQL 파일이 비어있습니다: $sql_file"
@@ -474,36 +469,24 @@ EOF
 
         log_to_file "SQL 파일 크기: $file_size bytes"
 
-        # crash CLI로 SQL 파일 실행
         if [ -z "$CRATEDB_PASSWORD" ]; then
-            # 비밀번호 없음
             SQL_RESULT=$(crash --hosts "$CRATEDB_HOST:$CRATEDB_PORT" --username "$CRATEDB_USER" < "$sql_file" 2>&1)
             EXIT_CODE=$?
         else
-            # 비밀번호 있음
             SQL_RESULT=$(CRATEPW="$CRATEDB_PASSWORD" crash --hosts "$CRATEDB_HOST:$CRATEDB_PORT" --username "$CRATEDB_USER" < "$sql_file" 2>&1)
             EXIT_CODE=$?
         fi
 
+        echo "$SQL_RESULT"
         log_to_file "crash CLI 종료 코드: $EXIT_CODE"
         log_to_file "crash CLI 출력:"
         log_to_file "$SQL_RESULT"
 
-        # 에러 확인
         if [ $EXIT_CODE -ne 0 ]; then
-            log_error "SQL 파일 실행 실패: $sql_file (종료 코드: $EXIT_CODE)"
-            log_error "crash CLI 출력:"
-            log_error "$SQL_RESULT"
-            log_to_file "--- SQL 파일 실행 실패: $sql_file ---"
-            return 1
+            _abort_on_sql_failure "$sql_file" "$EXIT_CODE" "$SQL_RESULT"
         fi
-
         if echo "$SQL_RESULT" | grep -qi "error\|exception\|failed"; then
-            log_error "SQL 실행 중 에러 발생: $sql_file"
-            log_error "에러 내용:"
-            log_error "$SQL_RESULT"
-            log_to_file "--- SQL 실행 에러: $sql_file ---"
-            return 1
+            _abort_on_sql_failure "$sql_file" 1 "$SQL_RESULT"
         fi
 
         log_success "SQL 파일 실행 성공: $sql_file"
@@ -516,36 +499,24 @@ EOF
         log_to_file "--- SQL 문자열 실행 시작 ---"
         log_to_file "$sql_string"
 
-        # crash CLI로 SQL 문자열 실행
         if [ -z "$CRATEDB_PASSWORD" ]; then
-            # 비밀번호 없음
             SQL_RESULT=$(echo "$sql_string" | crash --hosts "$CRATEDB_HOST:$CRATEDB_PORT" --username "$CRATEDB_USER" 2>&1)
             EXIT_CODE=$?
         else
-            # 비밀번호 있음
             SQL_RESULT=$(echo "$sql_string" | CRATEPW="$CRATEDB_PASSWORD" crash --hosts "$CRATEDB_HOST:$CRATEDB_PORT" --username "$CRATEDB_USER" 2>&1)
             EXIT_CODE=$?
         fi
 
+        echo "$SQL_RESULT"
         log_to_file "crash CLI 종료 코드: $EXIT_CODE"
         log_to_file "crash CLI 출력:"
         log_to_file "$SQL_RESULT"
 
-        # 에러 확인
         if [ $EXIT_CODE -ne 0 ]; then
-            log_error "SQL 문자열 실행 실패 (종료 코드: $EXIT_CODE)"
-            log_error "crash CLI 출력:"
-            log_error "$SQL_RESULT"
-            log_to_file "--- SQL 문자열 실행 실패 ---"
-            return 1
+            _abort_on_sql_failure "SQL 문자열" "$EXIT_CODE" "$SQL_RESULT"
         fi
-
         if echo "$SQL_RESULT" | grep -qi "error\|exception\|failed"; then
-            log_error "SQL 실행 중 에러 발생"
-            log_error "에러 내용:"
-            log_error "$SQL_RESULT"
-            log_to_file "--- SQL 실행 에러 ---"
-            return 1
+            _abort_on_sql_failure "SQL 문자열" 1 "$SQL_RESULT"
         fi
 
         log_to_file "--- SQL 문자열 실행 성공 ---"

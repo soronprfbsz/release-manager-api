@@ -62,6 +62,30 @@ log_success() {
     log_to_file "[SUCCESS] $message"
 }
 
+# SQL 실행 실패 시 화면/로그에 강조된 박스로 안내한 뒤 즉시 종료한다.
+# 이전에는 'cmd | tee' 의 exit code 가 tee(=0) 로 잡혀서 ERROR 가 나도
+# 다음 SQL 이 계속 실행되고 마지막엔 누적 패치 '완료' 로 표시되던 문제 방지.
+_abort_on_sql_failure() {
+    local label="$1"     # 실패 위치 식별자 (sql 파일명 또는 'SQL 문자열')
+    local exit_code="$2"
+    local divider="=================================================="
+    log_to_file ""
+    log_to_file "$divider"
+    log_to_file "[ERROR] 패치 중단 — SQL 실행 실패"
+    log_to_file "  대상      : $label"
+    log_to_file "  exit code : $exit_code"
+    log_to_file "  로그 파일 : $LOG_FILE"
+    log_to_file "$divider"
+    echo "" >&2
+    echo -e "${RED}${divider}${NC}" >&2
+    echo -e "${RED}[ERROR] 패치 중단 — SQL 실행 실패${NC}" >&2
+    echo -e "  ${RED}대상${NC}      : $label" >&2
+    echo -e "  ${RED}exit code${NC} : $exit_code" >&2
+    echo -e "  ${RED}로그 파일${NC} : $LOG_FILE" >&2
+    echo -e "${RED}${divider}${NC}" >&2
+    exit "$exit_code"
+}
+
 # 기본값
 DEFAULT_DOCKER_CONTAINER_NAME="infraeye_2.0"
 DEFAULT_DB_USER="infraeye"
@@ -218,16 +242,16 @@ EOF
         log_step "SQL 파일 실행: $sql_file"
         log_to_file "--- SQL 파일 실행 시작: $sql_file ---"
 
-        if docker exec -i "$DOCKER_CONTAINER_NAME" mariadb -u"$DB_USER" -p"$DB_PASSWORD" \
-            --show-warnings < "$sql_file" 2>&1 | tee -a "$LOG_FILE"; then
+        docker exec -i "$DOCKER_CONTAINER_NAME" mariadb -u"$DB_USER" -p"$DB_PASSWORD" \
+            --show-warnings < "$sql_file" 2>&1 | tee -a "$LOG_FILE"
+        local exit_code=${PIPESTATUS[0]}
+
+        if [ "$exit_code" -eq 0 ]; then
             log_to_file "--- SQL 파일 실행 성공: $sql_file ---"
             return 0
-        else
-            local exit_code=$?
-            log_error "SQL 파일 실행 실패: $sql_file (exit code: $exit_code)"
-            log_to_file "--- SQL 파일 실행 실패: $sql_file (exit code: $exit_code) ---"
-            return $exit_code
         fi
+        log_to_file "--- SQL 파일 실행 실패: $sql_file (exit code: $exit_code) ---"
+        _abort_on_sql_failure "$sql_file" "$exit_code"
     }
 
     execute_sql_string() {
@@ -235,16 +259,16 @@ EOF
         log_to_file "--- SQL 문자열 실행 시작 ---"
         log_to_file "$sql_string"
 
-        if echo "$sql_string" | docker exec -i "$DOCKER_CONTAINER_NAME" mariadb -u"$DB_USER" -p"$DB_PASSWORD" \
-            --show-warnings 2>&1 | tee -a "$LOG_FILE"; then
+        echo "$sql_string" | docker exec -i "$DOCKER_CONTAINER_NAME" mariadb -u"$DB_USER" -p"$DB_PASSWORD" \
+            --show-warnings 2>&1 | tee -a "$LOG_FILE"
+        local exit_code=${PIPESTATUS[1]}
+
+        if [ "$exit_code" -eq 0 ]; then
             log_to_file "--- SQL 문자열 실행 성공 ---"
             return 0
-        else
-            local exit_code=$?
-            log_error "SQL 문자열 실행 실패 (exit code: $exit_code)"
-            log_to_file "--- SQL 문자열 실행 실패 (exit code: $exit_code) ---"
-            return $exit_code
         fi
+        log_to_file "--- SQL 문자열 실행 실패 (exit code: $exit_code) ---"
+        _abort_on_sql_failure "SQL 문자열 (VERSION_HISTORY 등)" "$exit_code"
     }
 
 else
@@ -318,16 +342,16 @@ EOF
         log_step "SQL 파일 실행: $sql_file"
         log_to_file "--- SQL 파일 실행 시작: $sql_file ---"
 
-        if mariadb -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" \
-            --show-warnings < "$sql_file" 2>&1 | tee -a "$LOG_FILE"; then
+        mariadb -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" \
+            --show-warnings < "$sql_file" 2>&1 | tee -a "$LOG_FILE"
+        local exit_code=${PIPESTATUS[0]}
+
+        if [ "$exit_code" -eq 0 ]; then
             log_to_file "--- SQL 파일 실행 성공: $sql_file ---"
             return 0
-        else
-            local exit_code=$?
-            log_error "SQL 파일 실행 실패: $sql_file (exit code: $exit_code)"
-            log_to_file "--- SQL 파일 실행 실패: $sql_file (exit code: $exit_code) ---"
-            return $exit_code
         fi
+        log_to_file "--- SQL 파일 실행 실패: $sql_file (exit code: $exit_code) ---"
+        _abort_on_sql_failure "$sql_file" "$exit_code"
     }
 
     execute_sql_string() {
@@ -335,16 +359,16 @@ EOF
         log_to_file "--- SQL 문자열 실행 시작 ---"
         log_to_file "$sql_string"
 
-        if echo "$sql_string" | mariadb -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" \
-            --show-warnings 2>&1 | tee -a "$LOG_FILE"; then
+        echo "$sql_string" | mariadb -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" \
+            --show-warnings 2>&1 | tee -a "$LOG_FILE"
+        local exit_code=${PIPESTATUS[1]}
+
+        if [ "$exit_code" -eq 0 ]; then
             log_to_file "--- SQL 문자열 실행 성공 ---"
             return 0
-        else
-            local exit_code=$?
-            log_error "SQL 문자열 실행 실패 (exit code: $exit_code)"
-            log_to_file "--- SQL 문자열 실행 실패 (exit code: $exit_code) ---"
-            return $exit_code
         fi
+        log_to_file "--- SQL 문자열 실행 실패 (exit code: $exit_code) ---"
+        _abort_on_sql_failure "SQL 문자열 (VERSION_HISTORY 등)" "$exit_code"
     }
 fi
 
