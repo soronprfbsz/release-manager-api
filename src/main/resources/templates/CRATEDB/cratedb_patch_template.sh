@@ -63,8 +63,8 @@ log_success() {
 }
 
 # 기본값
-DEFAULT_DOCKER_CONTAINER_NAME="cratedb"
-DEFAULT_CRATEDB_USER="crate"
+DEFAULT_DOCKER_CONTAINER_NAME="infraeye_2.0"
+DEFAULT_CRATEDB_USER="infraeye"
 DEFAULT_CRATEDB_PORT="4200"
 
 # 버전 메타데이터 배열
@@ -136,7 +136,7 @@ if [ "$EXECUTION_MODE" = "1" ]; then
     read -p "CrateDB 사용자명 [$DEFAULT_CRATEDB_USER]: " CRATEDB_USER
     CRATEDB_USER=${CRATEDB_USER:-$DEFAULT_CRATEDB_USER}
 
-    read -sp "CrateDB 비밀번호 (없으면 Enter): " CRATEDB_PASSWORD
+    read -sp "CrateDB 비밀번호: " CRATEDB_PASSWORD
     echo ""
 
     echo ""
@@ -348,7 +348,7 @@ else
     read -p "CrateDB 사용자명 [$DEFAULT_CRATEDB_USER]: " CRATEDB_USER
     CRATEDB_USER=${CRATEDB_USER:-$DEFAULT_CRATEDB_USER}
 
-    read -sp "CrateDB 비밀번호 (없으면 Enter): " CRATEDB_PASSWORD
+    read -sp "CrateDB 비밀번호: " CRATEDB_PASSWORD
     echo ""
 
     echo ""

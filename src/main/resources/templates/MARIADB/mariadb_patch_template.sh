@@ -63,8 +63,8 @@ log_success() {
 }
 
 # 기본값
-DEFAULT_DOCKER_CONTAINER_NAME="mariadb"
-DEFAULT_DB_USER="root"
+DEFAULT_DOCKER_CONTAINER_NAME="infraeye_2.0"
+DEFAULT_DB_USER="infraeye"
 DEFAULT_PATCHED_BY="{{DEFAULT_PATCHED_BY}}"
 
 # 버전 메타데이터 배열
