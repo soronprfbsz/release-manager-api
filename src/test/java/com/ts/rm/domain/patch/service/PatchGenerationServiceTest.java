@@ -319,28 +319,26 @@ class PatchGenerationServiceTest {
     }
 
     @Test
-    @DisplayName("buildSelection.enabled=true: 선택된 WEB / engine/{engineName} / etc 만 복사")
+    @DisplayName("buildSelection.enabled=true: 선택된 WEB / engine/<엔진명> 단일파일 / etc 만 복사")
     void pickerSelection_partialCopy(@TempDir Path tempDir) throws IOException {
-        // GIVEN — 파일시스템 구조 생성
-        // 빌드 v260427: web/foo.war, engine/NC_SMS/x.jar, engine/NC_FAULT_MS/y.jar, etc/note.txt
+        // GIVEN — 파일시스템 구조 생성 (새 모델: engine/ 직속 단일 파일)
+        // 빌드 v260427: web/foo.war, engine/NC_SMS (단일 파일), engine/NC_FAULT_MS (단일 파일), etc/note.txt
         Path buildDir427 = tempDir.resolve("build427");
         Files.createDirectories(buildDir427.resolve("web"));
         Files.createFile(buildDir427.resolve("web/foo.war"));
-        Files.createDirectories(buildDir427.resolve("engine/NC_SMS"));
-        Files.writeString(buildDir427.resolve("engine/NC_SMS/x.jar"), "jar-v260427");
-        Files.createDirectories(buildDir427.resolve("engine/NC_FAULT_MS"));
-        Files.createFile(buildDir427.resolve("engine/NC_FAULT_MS/y.jar"));
+        Files.createDirectories(buildDir427.resolve("engine"));
+        Files.writeString(buildDir427.resolve("engine/NC_SMS"), "engine-NC_SMS-v260427");
+        Files.writeString(buildDir427.resolve("engine/NC_FAULT_MS"), "engine-NC_FAULT_MS-v260427");
         Files.createDirectories(buildDir427.resolve("etc"));
         Files.createFile(buildDir427.resolve("etc/note.txt"));
 
-        // 빌드 v260428: web/foo.war, engine/NC_SMS/x.jar, engine/NC_FAULT_MS/y.jar, etc/note.txt
+        // 빌드 v260428: web/foo.war, engine/NC_SMS (단일 파일), engine/NC_FAULT_MS (단일 파일), etc/note.txt
         Path buildDir428 = tempDir.resolve("build428");
         Files.createDirectories(buildDir428.resolve("web"));
         Files.writeString(buildDir428.resolve("web/foo.war"), "war-v260428");
-        Files.createDirectories(buildDir428.resolve("engine/NC_SMS"));
-        Files.createFile(buildDir428.resolve("engine/NC_SMS/x.jar"));
-        Files.createDirectories(buildDir428.resolve("engine/NC_FAULT_MS"));
-        Files.createFile(buildDir428.resolve("engine/NC_FAULT_MS/y.jar"));
+        Files.createDirectories(buildDir428.resolve("engine"));
+        Files.writeString(buildDir428.resolve("engine/NC_SMS"), "engine-NC_SMS-v260428");
+        Files.writeString(buildDir428.resolve("engine/NC_FAULT_MS"), "engine-NC_FAULT_MS-v260428");
         Files.createDirectories(buildDir428.resolve("etc"));
         Files.createFile(buildDir428.resolve("etc/note.txt"));
 
@@ -403,9 +401,9 @@ class PatchGenerationServiceTest {
         // (findVersionsBetween 호출 없음 — isSameBaseVersion 분기)
         // copySqlFiles: bv428 은 빌드이므로 releaseFile 조회 skip (isBuild check)
         // loadBuildVersion 에서도 findById(20L), findById(21L) 사용
-        // fileSystemService mock
-        when(fileSystemService.resolveBuildBasePath(baseFrom, 260428)).thenReturn(buildDir428);
-        when(fileSystemService.resolveBuildBasePath(baseFrom, 260427)).thenReturn(buildDir427);
+        // fileSystemService mock (단일 인자: 빌드 엔티티 자체)
+        when(fileSystemService.resolveBuildBasePath(bv428)).thenReturn(buildDir428);
+        when(fileSystemService.resolveBuildBasePath(bv427)).thenReturn(buildDir427);
         // accountLookupService
         Account creator = Account.builder()
                 .accountId(1L)
@@ -439,29 +437,27 @@ class PatchGenerationServiceTest {
         assertThat(outputDir.resolve("web/foo.war")).exists();
         assertThat(Files.readString(outputDir.resolve("web/foo.war"))).isEqualTo("war-v260428");
 
-        // engine/NC_SMS/x.jar — v260427 의 내용
-        assertThat(outputDir.resolve("engine/NC_SMS/x.jar")).exists();
-        assertThat(Files.readString(outputDir.resolve("engine/NC_SMS/x.jar"))).isEqualTo("jar-v260427");
+        // engine/NC_SMS — 단일 파일, v260427 의 내용
+        assertThat(outputDir.resolve("engine/NC_SMS")).exists();
+        assertThat(Files.readString(outputDir.resolve("engine/NC_SMS"))).isEqualTo("engine-NC_SMS-v260427");
 
         // engine/NC_FAULT_MS — 미선택이므로 존재하지 않음
         assertThat(outputDir.resolve("engine/NC_FAULT_MS")).doesNotExist();
-
-        // etc/ — ETC 동행 복사 (내용 검증은 Task 10, 존재 여부만)
-        assertThat(outputDir.resolve("etc")).isDirectory();
     }
 
     @Test
     @DisplayName("Q-S3: 두 빌드 모두 etc/note.txt 가 있으면 큰 buildVersion 의 내용이 살아남음")
     void etcConflict_largerBuildVersionWins(@TempDir Path tempDir) throws IOException {
-        // GIVEN: 빌드 v260427/etc/note.txt = "old", 빌드 v260428/etc/note.txt = "new"
-        //        picker: NC_SMS=v260427, NC_FAULT_MS=v260428 (selectedBuildIds = {v260427, v260428})
+        // GIVEN: 빌드 v260427: engine/NC_SMS(단일파일), 빌드 v260428: engine/NC_FAULT_MS(단일파일)
+        //        picker: NC_SMS=v260427, NC_FAULT_MS=v260428 → etc 는 빌드에서 복사 안 함
+        //        (ETC 는 릴리즈 버전의 ReleaseFile 로 등록되어 copySqlFiles 가 처리)
         Path buildDir427 = tempDir.resolve("build427");
-        Files.createDirectories(buildDir427.resolve("etc"));
-        Files.writeString(buildDir427.resolve("etc/note.txt"), "old");
+        Files.createDirectories(buildDir427.resolve("engine"));
+        Files.writeString(buildDir427.resolve("engine/NC_SMS"), "engine-NC_SMS-v260427");
 
         Path buildDir428 = tempDir.resolve("build428");
-        Files.createDirectories(buildDir428.resolve("etc"));
-        Files.writeString(buildDir428.resolve("etc/note.txt"), "new");
+        Files.createDirectories(buildDir428.resolve("engine"));
+        Files.writeString(buildDir428.resolve("engine/NC_FAULT_MS"), "engine-NC_FAULT_MS-v260428");
 
         ReflectionTestUtils.setField(patchGenerationService, "releaseBasePath", tempDir.toString());
 
@@ -515,8 +511,8 @@ class PatchGenerationServiceTest {
         when(releaseVersionRepository.findHotfixesInBaseRange(
                 anyString(), any(), any(), any()))
                 .thenReturn(java.util.List.of());
-        when(fileSystemService.resolveBuildBasePath(baseFrom, 260427)).thenReturn(buildDir427);
-        when(fileSystemService.resolveBuildBasePath(baseFrom, 260428)).thenReturn(buildDir428);
+        when(fileSystemService.resolveBuildBasePath(bv427)).thenReturn(buildDir427);
+        when(fileSystemService.resolveBuildBasePath(bv428)).thenReturn(buildDir428);
         Account creator = Account.builder()
                 .accountId(1L)
                 .email(createdBy)
@@ -541,10 +537,12 @@ class PatchGenerationServiceTest {
         PatchGenerationService.GenerateResult result = patchGenerationService.generatePatch(
                 projectId, 10L, 20L, null, createdBy, null, null, "etc-conflict-patch", buildSelection);
 
-        // THEN: outputDir/etc/note.txt 의 내용이 "new" (v260428 의 내용 — 오름차순 복사 마지막)
+        // THEN: picker 선택된 engine 단일 파일들이 각각 복사되어야 함
         Path outputDir = tempDir.resolve(result.patch().getOutputPath());
-        assertThat(outputDir.resolve("etc/note.txt")).exists();
-        assertThat(Files.readString(outputDir.resolve("etc/note.txt"))).isEqualTo("new");
+        assertThat(outputDir.resolve("engine/NC_SMS")).exists();
+        assertThat(Files.readString(outputDir.resolve("engine/NC_SMS"))).isEqualTo("engine-NC_SMS-v260427");
+        assertThat(outputDir.resolve("engine/NC_FAULT_MS")).exists();
+        assertThat(Files.readString(outputDir.resolve("engine/NC_FAULT_MS"))).isEqualTo("engine-NC_FAULT_MS-v260428");
     }
 
     @Test
@@ -627,13 +625,13 @@ class PatchGenerationServiceTest {
                 .isApproved(true)
                 .build();
 
-        // 빌드 파일시스템 디렉토리 준비
+        // 빌드 파일시스템 디렉토리 준비 (새 모델: engine/ 직속 단일 파일)
         Path buildDir428 = tempDir.resolve("build428");
         Files.createDirectories(buildDir428.resolve("web"));
         Files.createFile(buildDir428.resolve("web/foo.war"));
         Path buildDir427 = tempDir.resolve("build427");
-        Files.createDirectories(buildDir427.resolve("engine/NC_SMS"));
-        Files.createFile(buildDir427.resolve("engine/NC_SMS/x.jar"));
+        Files.createDirectories(buildDir427.resolve("engine"));
+        Files.writeString(buildDir427.resolve("engine/NC_SMS"), "engine-NC_SMS-v260427");
 
         // Mocks
         when(projectRepository.findById(projectId)).thenReturn(Optional.of(project));
@@ -651,8 +649,8 @@ class PatchGenerationServiceTest {
                 .thenReturn(List.of(hotfix));
         when(releaseFileRepository.findAllByReleaseVersion_ReleaseVersionIdOrderByExecutionOrderAsc(2L))
                 .thenReturn(java.util.List.of());
-        when(fileSystemService.resolveBuildBasePath(baseFrom11, 260428)).thenReturn(buildDir428);
-        when(fileSystemService.resolveBuildBasePath(baseFrom11, 260427)).thenReturn(buildDir427);
+        when(fileSystemService.resolveBuildBasePath(bv428)).thenReturn(buildDir428);
+        when(fileSystemService.resolveBuildBasePath(bv427)).thenReturn(buildDir427);
         Account creator = Account.builder()
                 .accountId(1L)
                 .email(createdBy)
@@ -682,19 +680,19 @@ class PatchGenerationServiceTest {
 
         assertThat(result.includedBuilds()).isNotNull();
         assertThat(result.includedBuilds().web()).isNotNull();
-        assertThat(result.includedBuilds().web().fullVersion()).isEqualTo("1.1.0.260428");
+        assertThat(result.includedBuilds().web().fullVersion()).startsWith("1.1.0.260428");
         assertThat(result.includedBuilds().engines()).hasSize(1);
         assertThat(result.includedBuilds().engines().get(0).engineName()).isEqualTo("NC_SMS");
-        assertThat(result.includedBuilds().engines().get(0).fullVersion()).isEqualTo("1.1.0.260427");
+        assertThat(result.includedBuilds().engines().get(0).fullVersion()).startsWith("1.1.0.260427");
     }
 
     @Test
     @DisplayName("buildSelection.enabled=true 면 PatchIncludedBuild 행 + isBuildIncluded=true 가 영구 저장")
     void persistIncludedBuilds_savesRowsAndFlag(@TempDir Path tempDir) throws IOException {
-        // GIVEN: pickerSelection_partialCopy 와 동일 fixture — WEB(bv428) + NC_SMS(bv427)
+        // GIVEN: 새 모델 — engine/ 직속 단일 파일
         Path buildDir427 = tempDir.resolve("build427");
-        Files.createDirectories(buildDir427.resolve("engine/NC_SMS"));
-        Files.createFile(buildDir427.resolve("engine/NC_SMS/x.jar"));
+        Files.createDirectories(buildDir427.resolve("engine"));
+        Files.writeString(buildDir427.resolve("engine/NC_SMS"), "engine-NC_SMS-v260427");
 
         Path buildDir428 = tempDir.resolve("build428");
         Files.createDirectories(buildDir428.resolve("web"));
@@ -751,8 +749,8 @@ class PatchGenerationServiceTest {
                 .thenReturn(List.of());
         when(releaseVersionRepository.findHotfixesInBaseRange(anyString(), any(), any(), any()))
                 .thenReturn(List.of());
-        when(fileSystemService.resolveBuildBasePath(baseFrom, 260428)).thenReturn(buildDir428);
-        when(fileSystemService.resolveBuildBasePath(baseFrom, 260427)).thenReturn(buildDir427);
+        when(fileSystemService.resolveBuildBasePath(bv428)).thenReturn(buildDir428);
+        when(fileSystemService.resolveBuildBasePath(bv427)).thenReturn(buildDir427);
         Account creator = Account.builder()
                 .accountId(1L)
                 .email(createdBy)

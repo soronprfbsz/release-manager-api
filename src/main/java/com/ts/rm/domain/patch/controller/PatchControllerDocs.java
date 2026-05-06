@@ -206,7 +206,7 @@ public interface PatchControllerDocs {
                     + "│   └── cratedb/          # CrateDB SQL 파일\n"
                     + "├── etc/                  # 릴리즈 파일(ETC 카테고리) — 버전별 디렉토리 (예: etc/1.0.0/InfraEye)\n"
                     + "├── web/                  # 빌드 picker 로 선택된 WEB 빌드 산출물 (사용 시)\n"
-                    + "├── engine/               # 빌드 picker 로 선택된 ENGINE 빌드 산출물 (사용 시)\n"
+                    + "├── engine/               # 빌드 picker 로 선택된 ENGINE 단일 파일 (사용 시, 예: engine/NC_SMS, engine/NC_CONF)\n"
                     + "└── README.md             # 패치 설명 파일\n"
                     + "```\n\n"
                     + "**응답 헤더**:\n"

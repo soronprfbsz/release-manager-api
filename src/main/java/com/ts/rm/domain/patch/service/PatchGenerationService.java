@@ -1010,7 +1010,7 @@ public class PatchGenerationService {
     }
 
     /**
-     * picker 입력에 따라 빌드 디렉토리에서 web/, engine/{engineName}/ 를 outputDir 로 복사.
+     * picker 입력에 따라 빌드 디렉토리에서 web/, engine/{engineName} 파일을 outputDir 로 복사.
      *
      * <p>빌드의 etc 는 더 이상 다루지 않는다 — 운영자 자산은 release version 의 ETC ReleaseFile
      * 로 등록되어 patch 의 etc/{version}/* 으로 자연 포함된다 (DATABASE 카테고리와 동일 패턴).
@@ -1035,13 +1035,27 @@ public class PatchGenerationService {
             selectedBuilds.put(bv.getReleaseVersionId(), bv);
         }
 
-        // b. ENGINE 부분 복사
+        // b. ENGINE 부분 복사 (단일 파일)
         if (sel.engines() != null) {
             for (PatchDto.SelectedEngine se : sel.engines()) {
                 ReleaseVersion bv = loadBuildVersion(se.buildVersionId());
                 Path src = fileSystemService.resolveBuildBasePath(bv)
                         .resolve("engine").resolve(se.engineName());
-                copyDirectoryReplaceExisting(src, outputDir.resolve("engine").resolve(se.engineName()));
+                if (!Files.isRegularFile(src)) {
+                    throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
+                            "엔진 빌드 파일이 존재하지 않습니다: " + src);
+                }
+                Path dst = outputDir.resolve("engine").resolve(se.engineName());
+                Files.createDirectories(dst.getParent());
+                Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
+                // 실행 비트 보존: source 의 posix permission 을 dst 에 복사 (POSIX FS 일 때만)
+                try {
+                    var perms = Files.getPosixFilePermissions(src);
+                    Files.setPosixFilePermissions(dst, perms);
+                } catch (UnsupportedOperationException ignored) {
+                    // 비-POSIX FS (Windows) 는 setExecutable 폴백
+                    dst.toFile().setExecutable(true, false);
+                }
                 selectedBuilds.putIfAbsent(bv.getReleaseVersionId(), bv);
             }
         }
@@ -1182,7 +1196,8 @@ public class PatchGenerationService {
      * <p>디렉토리 구조:
      * <ul>
      *   <li>DATABASE: database/{db_type}/{version}/{file_name}</li>
-     *   <li>WEB / ENGINE: {category}/{version}/{file_name}</li>
+     *   <li>WEB: web/{version}/{file_name}</li>
+     *   <li>ENGINE: engine/{sub_category} (단일 파일, sub_category 가 엔진명)</li>
      *   <li>그 외 (ETC / CONFIG / RESOURCE / null): etc/{version}/{file_name}</li>
      * </ul>
      * etc 도 DATABASE 와 동일하게 버전별 디렉토리 구조를 가져 모든 포함 버전의 파일이 보존된다.
@@ -1212,14 +1227,18 @@ public class PatchGenerationService {
                 );
 
             case WEB:
-            case ENGINE:
-                // category를 소문자로 변환
                 return outputDir.resolve(
-                        String.format("%s/%s/%s",
-                                category.getCode().toLowerCase(),
+                        String.format("web/%s/%s",
                                 version.getVersion(),
                                 file.getFileName())
                 );
+
+            case ENGINE:
+                // sub_category 가 엔진명 (예: NC_SMS) → engine/<엔진명> 단일 파일로 평탄화
+                String engineName = file.getSubCategory() != null
+                        ? file.getSubCategory()
+                        : file.getFileName();
+                return outputDir.resolve("engine").resolve(engineName);
 
             default:
                 // ETC / CONFIG / RESOURCE 등 — 버전별 디렉토리로 보존

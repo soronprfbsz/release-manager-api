@@ -834,7 +834,7 @@ public class ReleaseVersionUploadService {
                     }
                 });
 
-        // 카테고리 최상위에 직접 있는 파일도 처리 (sub_category = null)
+        // 카테고리 최상위에 직접 있는 파일도 처리
         Files.list(categorySourceDir)
                 .filter(Files::isRegularFile)
                 .forEach(file -> {
@@ -842,8 +842,18 @@ public class ReleaseVersionUploadService {
                         Path targetFile = categoryTargetDir.resolve(file.getFileName());
                         Files.copy(file, targetFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
 
-                        // ReleaseFile DB 저장 (sub_category = null)
-                        saveReleaseFile(file, targetFile, releaseVersion, fileCategory, null,
+                        // ENGINE 카테고리 직속 파일: sub_category = 파일명(엔진명)으로 저장
+                        // 다른 카테고리는 sub_category = null 유지
+                        String directSub = null;
+                        if (fileCategory == FileCategory.ENGINE) {
+                            String upperName = file.getFileName().toString().toUpperCase();
+                            directSub = SubCategoryValidator.isValid(fileCategory, upperName)
+                                    ? upperName
+                                    : file.getFileName().toString();
+                        }
+
+                        // ReleaseFile DB 저장
+                        saveReleaseFile(file, targetFile, releaseVersion, fileCategory, directSub,
                                 categorySourceDir, 1);
 
                     } catch (IOException e) {

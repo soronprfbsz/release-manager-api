@@ -21,16 +21,14 @@ import org.springframework.transaction.annotation.Transactional;
  * 패치 범위 안의 빌드 후보를 빌드 디렉토리에서 직접 walk 하여 집계하는 서비스.
  *
  * <p>빌드 산출물의 진실의 원천은 빌드 디렉토리이며 (commit 00ee8f8), 본 서비스는
- * ReleaseFile 인덱스를 거치지 않고 디렉토리 안의 web/, engine/{engineName}/, engine 직속
- * 파일 존재 여부로 후보를 만든다.
+ * ReleaseFile 인덱스를 거치지 않고 디렉토리 안의 web/, engine/&lt;엔진명&gt; 파일
+ * 존재 여부로 후보를 만든다.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class BuildsInRangeService {
-
-    private static final String UNKNOWN_ENGINE = "UNKNOWN";
 
     private final ReleaseVersionRepository releaseVersionRepository;
     private final ReleaseVersionFileSystemService fileSystemService;
@@ -100,25 +98,15 @@ public class BuildsInRangeService {
     }
 
     /**
-     * engine/ 디렉토리 안의 1단계 하위 디렉토리명을 수집한다.
-     * 하위 디렉토리는 정규 파일이 1개 이상일 때만 포함하며,
-     * engine/ 직속 정규 파일이 있으면 UNKNOWN 그룹도 함께 반환.
+     * engine/ 디렉토리 직속 정규 파일명을 엔진명으로 수집한다.
+     * 하위 디렉토리(구 모델)는 무시한다.
      */
     private TreeSet<String> engineNamesInBuild(Path engineDir) {
         TreeSet<String> names = new TreeSet<>();
-        if (!Files.isDirectory(engineDir)) {
-            return names;
-        }
+        if (!Files.isDirectory(engineDir)) return names;
         try (var stream = Files.list(engineDir)) {
-            stream.forEach(child -> {
-                if (Files.isDirectory(child)) {
-                    if (hasFiles(child)) {
-                        names.add(child.getFileName().toString());
-                    }
-                } else if (Files.isRegularFile(child)) {
-                    names.add(UNKNOWN_ENGINE);
-                }
-            });
+            stream.filter(Files::isRegularFile)
+                  .forEach(child -> names.add(child.getFileName().toString()));
         } catch (IOException e) {
             log.warn("engine 디렉토리 list 실패: {}", engineDir, e);
         }

@@ -1106,7 +1106,7 @@ public final class ReleaseVersionDto {
 
     @Schema(description = "엔진 후보 그룹")
     public record EngineGroup(
-            @Schema(description = "엔진명 (engine/{engineName} 디렉토리명, 직속 파일이면 UNKNOWN)", example = "NC_SMS")
+            @Schema(description = "engine/<엔진명> 파일명 (예: NC_CONF, NC_SMS)", example = "NC_SMS")
             String engineName,
 
             @Schema(description = "이 엔진을 가진 빌드 후보들")

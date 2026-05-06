@@ -102,8 +102,7 @@ public interface ReleaseVersionControllerDocs {
                     + "│   └── build/\n"
                     + "│       └── custom_frontend.war\n"
                     + "└── engine/\n"
-                    + "    └── build/\n"
-                    + "        └── custom_engine.jar\n"
+                    + "    └── NC_SMS  (단일 실행 파일)\n"
                     + "```\n\n"
                     + "**저장 경로**: `versions/{projectId}/custom/{customerCode}/{customMajorMinor}/{customVersion}/`",
             responses = @io.swagger.v3.oas.annotations.responses.ApiResponse(
@@ -889,7 +888,7 @@ public interface ReleaseVersionControllerDocs {
             summary = "빌드 후보 조회 (range)",
             description = "패치 범위 (fromVersionId..toVersionId) 안의 빌드 디렉토리를 walk 하여 "
                     + "WEB / ENGINE 후보와 hotfixesInRange 메타정보를 반환합니다. "
-                    + "별도 인덱스 없이 빌드 디렉토리의 web/, engine/{engineName}/, engine 직속 파일 "
+                    + "별도 인덱스 없이 빌드 디렉토리의 web/, engine/<엔진명> (단일 파일) "
                     + "존재 여부로 후보를 만듭니다.",
             responses = @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "200",

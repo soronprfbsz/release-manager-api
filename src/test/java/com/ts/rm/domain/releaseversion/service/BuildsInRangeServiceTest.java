@@ -81,25 +81,29 @@ class BuildsInRangeServiceTest {
     }
 
     @Test
-    @DisplayName("web/, engine/{engineName}/, engine 직속 파일이 모두 후보로 분류됨")
+    @DisplayName("web/, engine/<엔진명> 파일이 모두 후보로 분류됨")
     void scansBuildDirectoryAndGroupsCandidates() throws IOException {
         ReleaseVersion base = base(10L);
         ReleaseVersion b1 = build(101L, base, 260427, LocalDateTime.of(2026, 4, 27, 12, 0));
         ReleaseVersion b2 = build(102L, base, 260428, LocalDateTime.of(2026, 4, 28, 12, 0));
 
+        // 새 모델: engine/ 직속 단일 파일 (engine/NC_SMS, engine/NC_FAULT_MS)
         Path d1 = tempDir.resolve("b1");
         Path d2 = tempDir.resolve("b2");
         touchFile(d1.resolve("web/index.html"));
-        touchFile(d1.resolve("engine/NC_SMS/x.jar"));
+        // d1: engine/NC_SMS 단일 파일
+        Files.createDirectories(d1.resolve("engine"));
+        Files.writeString(d1.resolve("engine/NC_SMS"), "engine-NC_SMS-b1");
         touchFile(d2.resolve("web/index.html"));
-        touchFile(d2.resolve("engine/NC_SMS/x.jar"));
-        touchFile(d2.resolve("engine/NC_FAULT_MS/y.jar"));
-        touchFile(d2.resolve("engine/loose.jar"));
+        // d2: engine/NC_SMS, engine/NC_FAULT_MS 단일 파일
+        Files.createDirectories(d2.resolve("engine"));
+        Files.writeString(d2.resolve("engine/NC_SMS"), "engine-NC_SMS-b2");
+        Files.writeString(d2.resolve("engine/NC_FAULT_MS"), "engine-NC_FAULT_MS-b2");
 
         given(releaseVersionRepository.findBuildsInBaseRange("p", 10L, 10L, null)).willReturn(List.of(b2, b1));
         given(releaseVersionRepository.findHotfixesInBaseRange("p", 10L, 10L, null)).willReturn(List.of());
-        given(fileSystemService.resolveBuildBasePath(base, 260427)).willReturn(d1);
-        given(fileSystemService.resolveBuildBasePath(base, 260428)).willReturn(d2);
+        given(fileSystemService.resolveBuildBasePath(b1)).willReturn(d1);
+        given(fileSystemService.resolveBuildBasePath(b2)).willReturn(d2);
 
         ReleaseVersionDto.BuildsInRangeResponse resp = service.getBuildsInRange("p", 10L, 10L, null);
 
@@ -108,8 +112,9 @@ class BuildsInRangeServiceTest {
         assertThat(resp.web().get(0).isLatest()).isTrue();
         assertThat(resp.web().get(1).isLatest()).isFalse();
 
+        // UNKNOWN 케이스 없음, engine/ 직속 파일만 엔진명으로 인식
         assertThat(resp.engines()).extracting(ReleaseVersionDto.EngineGroup::engineName)
-                .containsExactly("NC_FAULT_MS", "NC_SMS", "UNKNOWN");
+                .containsExactly("NC_FAULT_MS", "NC_SMS");
 
         ReleaseVersionDto.EngineGroup smsGroup = resp.engines().stream()
                 .filter(g -> g.engineName().equals("NC_SMS")).findFirst().orElseThrow();
@@ -120,28 +125,27 @@ class BuildsInRangeServiceTest {
                 .filter(g -> g.engineName().equals("NC_FAULT_MS")).findFirst().orElseThrow();
         assertThat(faultGroup.candidates()).extracting(ReleaseVersionDto.BuildCandidate::buildVersionId)
                 .containsExactly(102L);
-
-        ReleaseVersionDto.EngineGroup unknownGroup = resp.engines().stream()
-                .filter(g -> g.engineName().equals("UNKNOWN")).findFirst().orElseThrow();
-        assertThat(unknownGroup.candidates()).extracting(ReleaseVersionDto.BuildCandidate::buildVersionId)
-                .containsExactly(102L);
     }
 
     @Test
-    @DisplayName("engine/{engineName}/ 디렉토리는 있지만 정규 파일이 0개면 후보에서 제외")
-    void emptyEngineDirectory_excluded() throws IOException {
+    @DisplayName("engine/ 의 디렉토리는 무시되고 정규 파일만 후보가 됨")
+    void engineDirectory_ignoredOnlyRegularFilesAreEngines() throws IOException {
         ReleaseVersion base = base(20L);
         ReleaseVersion b1 = build(201L, base, 260427, LocalDateTime.of(2026, 4, 27, 12, 0));
         Path d1 = tempDir.resolve("b1");
-        Files.createDirectories(d1.resolve("engine/NC_EMPTY"));
-        touchFile(d1.resolve("engine/NC_FILLED/x.jar"));
+        // 디렉토리는 무시
+        Files.createDirectories(d1.resolve("engine/NC_DIR_SHOULD_BE_IGNORED"));
+        // 정규 파일만 엔진명으로 인식
+        Files.createDirectories(d1.resolve("engine"));
+        Files.writeString(d1.resolve("engine/NC_FILLED"), "engine-content");
 
         given(releaseVersionRepository.findBuildsInBaseRange("p", 20L, 20L, null)).willReturn(List.of(b1));
         given(releaseVersionRepository.findHotfixesInBaseRange("p", 20L, 20L, null)).willReturn(List.of());
-        given(fileSystemService.resolveBuildBasePath(base, 260427)).willReturn(d1);
+        given(fileSystemService.resolveBuildBasePath(b1)).willReturn(d1);
 
         ReleaseVersionDto.BuildsInRangeResponse resp = service.getBuildsInRange("p", 20L, 20L, null);
 
+        // 디렉토리(NC_DIR_SHOULD_BE_IGNORED)는 무시, 정규 파일(NC_FILLED)만 후보
         assertThat(resp.engines()).extracting(ReleaseVersionDto.EngineGroup::engineName)
                 .containsExactly("NC_FILLED");
     }
