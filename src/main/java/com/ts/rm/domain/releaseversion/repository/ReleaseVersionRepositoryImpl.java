@@ -64,7 +64,8 @@ public class ReleaseVersionRepositoryImpl implements ReleaseVersionRepositoryCus
                 .orderBy(
                         rv.majorVersion.asc(),
                         rv.minorVersion.asc(),
-                        rv.patchVersion.asc()
+                        rv.patchVersion.asc(),
+                        rv.buildVersion.asc().nullsFirst()
                 )
                 .fetch();
     }
@@ -149,7 +150,8 @@ public class ReleaseVersionRepositoryImpl implements ReleaseVersionRepositoryCus
                 .orderBy(
                         rv.majorVersion.asc(),
                         rv.minorVersion.asc(),
-                        rv.patchVersion.asc()
+                        rv.patchVersion.asc(),
+                        rv.buildVersion.asc().nullsFirst()
                 )
                 .fetch();
     }
@@ -198,7 +200,8 @@ public class ReleaseVersionRepositoryImpl implements ReleaseVersionRepositoryCus
                 .orderBy(
                         rv.customMajorVersion.asc(),
                         rv.customMinorVersion.asc(),
-                        rv.customPatchVersion.asc()
+                        rv.customPatchVersion.asc(),
+                        rv.buildVersion.asc().nullsFirst()
                 )
                 .fetch();
     }

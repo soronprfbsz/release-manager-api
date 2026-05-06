@@ -149,4 +149,50 @@ class BuildsInRangeServiceTest {
         assertThat(resp.engines()).extracting(ReleaseVersionDto.EngineGroup::engineName)
                 .containsExactly("NC_FILLED");
     }
+
+    @Test
+    @DisplayName("engine/ 에 nc_conf.conf 가 있어도 확장자 있는 파일은 EngineGroup 에 노출되지 않음 (공유 자산 분리)")
+    void sharedAssetWithExtension_notInEngineGroup() throws IOException {
+        ReleaseVersion base = base(30L);
+        ReleaseVersion b1 = build(301L, base, 260430, LocalDateTime.of(2026, 4, 30, 12, 0));
+        Path d1 = tempDir.resolve("b1_ext");
+        Files.createDirectories(d1.resolve("engine"));
+        // NC_CONF 는 엔진 → 노출
+        Files.writeString(d1.resolve("engine/NC_CONF"), "engine-binary");
+        // nc_conf.conf 는 확장자 있음 → 공유 자산, EngineGroup 에서 제외
+        Files.writeString(d1.resolve("engine/nc_conf.conf"), "conf-content");
+
+        given(releaseVersionRepository.findBuildsInBaseRange("p", 30L, 30L, null)).willReturn(List.of(b1));
+        given(releaseVersionRepository.findHotfixesInBaseRange("p", 30L, 30L, null)).willReturn(List.of());
+        given(fileSystemService.resolveBuildBasePath(b1)).willReturn(d1);
+
+        ReleaseVersionDto.BuildsInRangeResponse resp = service.getBuildsInRange("p", 30L, 30L, null);
+
+        // NC_CONF 만 엔진 후보로 노출, nc_conf.conf 는 제외
+        assertThat(resp.engines()).extracting(ReleaseVersionDto.EngineGroup::engineName)
+                .containsExactly("NC_CONF");
+        assertThat(resp.engines()).extracting(ReleaseVersionDto.EngineGroup::engineName)
+                .doesNotContain("nc_conf.conf");
+    }
+
+    @Test
+    @DisplayName("화이트리스트 외 NC_NEWBIE prefix 엔진도 EngineGroup 에 자동 노출")
+    void prefixHeuristicEngine_appearsInEngineGroup() throws IOException {
+        ReleaseVersion base = base(40L);
+        ReleaseVersion b1 = build(401L, base, 260501, LocalDateTime.of(2026, 5, 1, 12, 0));
+        Path d1 = tempDir.resolve("b1_newbie");
+        Files.createDirectories(d1.resolve("engine"));
+        Files.writeString(d1.resolve("engine/NC_NEWBIE"), "newbie-engine");
+        Files.writeString(d1.resolve("engine/NC_SMS"), "sms-engine");
+
+        given(releaseVersionRepository.findBuildsInBaseRange("p", 40L, 40L, null)).willReturn(List.of(b1));
+        given(releaseVersionRepository.findHotfixesInBaseRange("p", 40L, 40L, null)).willReturn(List.of());
+        given(fileSystemService.resolveBuildBasePath(b1)).willReturn(d1);
+
+        ReleaseVersionDto.BuildsInRangeResponse resp = service.getBuildsInRange("p", 40L, 40L, null);
+
+        // NC_NEWBIE (화이트리스트 외 prefix) + NC_SMS (화이트리스트) 모두 노출
+        assertThat(resp.engines()).extracting(ReleaseVersionDto.EngineGroup::engineName)
+                .containsExactlyInAnyOrder("NC_NEWBIE", "NC_SMS");
+    }
 }

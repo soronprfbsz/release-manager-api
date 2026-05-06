@@ -3,6 +3,7 @@ package com.ts.rm.domain.releaseversion.service;
 import com.ts.rm.domain.releaseversion.dto.ReleaseVersionDto;
 import com.ts.rm.domain.releaseversion.entity.ReleaseVersion;
 import com.ts.rm.domain.releaseversion.repository.ReleaseVersionRepository;
+import com.ts.rm.global.engine.EngineNameClassifier;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -98,7 +99,10 @@ public class BuildsInRangeService {
     }
 
     /**
-     * engine/ 디렉토리 직속 정규 파일명을 엔진명으로 수집한다.
+     * engine/ 디렉토리 직속 정규 파일 중 엔진 바이너리만 수집한다.
+     *
+     * <p>확장자가 있는 파일(nc_conf.conf 등 공유 자산)은 {@link EngineNameClassifier} 가 걸러낸다.
+     * 화이트리스트 외 신규 엔진도 NC_* / OZ_* prefix 가 있으면 자동 인식된다.
      * 하위 디렉토리(구 모델)는 무시한다.
      */
     private TreeSet<String> engineNamesInBuild(Path engineDir) {
@@ -106,7 +110,8 @@ public class BuildsInRangeService {
         if (!Files.isDirectory(engineDir)) return names;
         try (var stream = Files.list(engineDir)) {
             stream.filter(Files::isRegularFile)
-                  .forEach(child -> names.add(child.getFileName().toString()));
+                  .filter(p -> EngineNameClassifier.isEngineFile(p.getFileName().toString()))
+                  .forEach(p -> names.add(p.getFileName().toString()));
         } catch (IOException e) {
             log.warn("engine 디렉토리 list 실패: {}", engineDir, e);
         }

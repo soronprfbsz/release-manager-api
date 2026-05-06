@@ -10,6 +10,7 @@ import com.ts.rm.domain.project.entity.Project;
 import com.ts.rm.domain.project.repository.ProjectRepository;
 import com.ts.rm.domain.releasefile.entity.ReleaseFile;
 import com.ts.rm.domain.releasefile.enums.FileCategory;
+import com.ts.rm.global.engine.EngineNameClassifier;
 import com.ts.rm.domain.releasefile.repository.ReleaseFileRepository;
 import com.ts.rm.domain.releasefile.util.SubCategoryValidator;
 import com.ts.rm.domain.releaseversion.dto.ReleaseVersionDto;
@@ -842,14 +843,20 @@ public class ReleaseVersionUploadService {
                         Path targetFile = categoryTargetDir.resolve(file.getFileName());
                         Files.copy(file, targetFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
 
-                        // ENGINE 카테고리 직속 파일: sub_category = 파일명(엔진명)으로 저장
+                        // ENGINE 카테고리 직속 파일: 엔진/공유 자산 구분하여 sub_category 결정
+                        //   - 엔진 (EngineNameClassifier.isEngineFile=true): 대문자 정규화 (NC_CONF)
+                        //   - 공유 자산 (확장자 있음 등): 원본 파일명 그대로 (nc_conf.conf)
                         // 다른 카테고리는 sub_category = null 유지
                         String directSub = null;
                         if (fileCategory == FileCategory.ENGINE) {
-                            String upperName = file.getFileName().toString().toUpperCase();
-                            directSub = SubCategoryValidator.isValid(fileCategory, upperName)
-                                    ? upperName
-                                    : file.getFileName().toString();
+                            String rawName = file.getFileName().toString();
+                            if (EngineNameClassifier.isEngineFile(rawName)) {
+                                // 엔진 바이너리: 대문자 정규화
+                                directSub = rawName.toUpperCase();
+                            } else {
+                                // 공유 자산: 원본 파일명 그대로 저장 (누적 skip 분기와 정합)
+                                directSub = rawName;
+                            }
                         }
 
                         // ReleaseFile DB 저장
