@@ -96,7 +96,7 @@ class BuildFileServiceTest {
     }
 
     @Test
-    @DisplayName("정상: web/engine/etc 파일이 추출되고 ReleaseFile 행은 생성하지 않음")
+    @DisplayName("정상: web/engine 파일이 추출되고 ReleaseFile 행은 생성하지 않음")
     void uploadBuildZip_valid_extractsWithoutPersistingReleaseFiles() throws IOException {
         ReleaseVersion base = buildBase();
         ReleaseVersion buildVer = build(99L, base, 260427);
@@ -104,19 +104,19 @@ class BuildFileServiceTest {
         Path buildDir = tempDir.resolve("versions/p/standard/1.1.x/1.1.0/builds/260427");
         // resolveBuildBasePath 가 buildDir 을 반환하도록 mock
         given(releaseVersionRepository.findById(99L)).willReturn(Optional.of(buildVer));
-        given(fileSystemService.resolveBuildBasePath(base, 260427)).willReturn(buildDir);
+        given(fileSystemService.resolveBuildBasePath(buildVer)).willReturn(buildDir);
 
-        Path zip = makeZip("web/foo.war", "engine/NC_SMS/x.jar", "etc/config.yml");
+        // 새 구조: engine/<엔진명> 단일 파일
+        Path zip = makeZip("web/foo.war", "engine/NC_SMS");
 
         BuildFileService.UploadResult result = buildFileService.uploadBuildZip(99L, zip, "u@x");
 
         assertThat(result.buildVersionId()).isEqualTo(99L);
-        assertThat(result.uploadedFileCount()).isEqualTo(3);
+        assertThat(result.uploadedFileCount()).isEqualTo(2);
 
         // 파일이 실제로 추출되었는지 확인
         assertThat(buildDir.resolve("web/foo.war")).exists();
-        assertThat(buildDir.resolve("engine/NC_SMS/x.jar")).exists();
-        assertThat(buildDir.resolve("etc/config.yml")).exists();
+        assertThat(buildDir.resolve("engine/NC_SMS")).exists();
 
         verify(releaseFileRepository, never()).save(any(ReleaseFile.class));
     }
@@ -210,7 +210,7 @@ class BuildFileServiceTest {
         // uploadBuildZip 흐름을 위한 mock
         Path buildDir = tempDir.resolve("versions/p/standard/1.1.x/1.1.0/builds/260427");
         given(releaseVersionRepository.findById(99L)).willReturn(Optional.of(buildVer));
-        given(fileSystemService.resolveBuildBasePath(base, 260427)).willReturn(buildDir);
+        given(fileSystemService.resolveBuildBasePath(buildVer)).willReturn(buildDir);
 
         Path zip = makeZip("web/foo.war", "engine/x.jar");
 

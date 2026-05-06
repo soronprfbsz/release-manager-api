@@ -343,7 +343,7 @@ public class ReleaseVersionController implements ReleaseVersionControllerDocs {
      * <p>multipart/form-data 로 호출:
      * <ul>
      *   <li>{@code request} 필드: comment(필수), buildVersion(선택, 미입력 시 오늘 yyMMdd)</li>
-     *   <li>{@code file} part: ZIP 파일 (선택). 루트는 web/, engine/, etc/ 만 허용</li>
+     *   <li>{@code file} part: ZIP 파일 (선택). 루트는 web/, engine/ 만 허용</li>
      * </ul>
      *
      * @param id            빌드 원본 버전 ID
@@ -434,7 +434,7 @@ public class ReleaseVersionController implements ReleaseVersionControllerDocs {
      * 빌드 ZIP 재업로드 (교체)
      *
      * @param id   빌드 ReleaseVersion ID
-     * @param file 새 ZIP 파일 (필수, web/engine/etc 루트만 허용)
+     * @param file 새 ZIP 파일 (필수, web/engine 루트만 허용)
      * @return 업로드 결과 (uploadedFileCount 포함)
      */
     @Override

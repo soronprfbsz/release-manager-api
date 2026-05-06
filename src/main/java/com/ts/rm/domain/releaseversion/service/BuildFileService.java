@@ -24,7 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>책임:
  * <ul>
  *   <li>빌드 버전 검증 (build_version &gt; 0 인 ReleaseVersion 만 허용)</li>
- *   <li>업로드된 ZIP 의 루트 디렉토리 검증 (web/, engine/, etc/ 만)</li>
+ *   <li>업로드된 ZIP 의 루트 디렉토리 검증 (web/, engine/ 만)</li>
  *   <li>지정된 빌드 베이스 경로 아래에 ZIP 압축 해제</li>
  * </ul>
  *
@@ -155,7 +155,7 @@ public class BuildFileService {
      * <p>처리 단계:
      * <ol>
      *   <li>buildVersionId 로 빌드 행 조회 + 빌드 여부 검증</li>
-     *   <li>{@link BuildZipValidator#validate} 로 ZIP 루트 구조 검증 (web/engine/etc 만)</li>
+     *   <li>{@link BuildZipValidator#validate} 로 ZIP 루트 구조 검증 (web/engine 만)</li>
      *   <li>ZIP 을 빌드 디렉토리 아래에 압축 해제</li>
      * </ol>
      *
@@ -189,7 +189,7 @@ public class BuildFileService {
                     "빌드의 원본 버전이 없습니다 (build_base_version_id 누락).");
         }
 
-        // 2. ZIP 검증 (web/engine/etc 외 거부) — 스트리밍
+        // 2. ZIP 검증 (web/engine 외 거부) — 스트리밍
         BuildZipValidator.validate(zipPath);
 
         // 3. 빌드 디렉토리 준비 + 압축 해제

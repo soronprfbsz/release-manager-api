@@ -38,12 +38,11 @@ class BuildZipValidatorTest {
     }
 
     @Test
-    @DisplayName("정상: web/, engine/, etc/ 만 포함된 ZIP 은 통과")
+    @DisplayName("정상: web/, engine/ 만 포함된 ZIP 은 통과")
     void validate_allowedRootsOnly_passes() throws IOException {
         byte[] zip = makeZip(
                 "web/foo.war",
-                "engine/NC_SMS/x.jar",
-                "etc/config.yml"
+                "engine/NC_SMS/x.jar"
         );
         assertThatCode(() -> BuildZipValidator.validate(zip)).doesNotThrowAnyException();
     }
@@ -94,9 +93,31 @@ class BuildZipValidatorTest {
     }
 
     @Test
-    @DisplayName("ALLOWED_ROOT_DIRECTORIES 가 web, engine, etc 셋만 노출")
+    @DisplayName("정상: engine/ 직속 단일 파일 (engine/NC_SMS) 도 통과")
+    void validate_engineDirectFile_passes() throws IOException {
+        // 새 구조: engine/<엔진명> 단일 파일 (디렉토리 없이 engine/ 바로 아래)
+        byte[] zip = makeZip(
+                "web/foo.war",
+                "engine/NC_SMS",
+                "engine/NC_FAULT_MS"
+        );
+        assertThatCode(() -> BuildZipValidator.validate(zip)).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("ALLOWED_ROOT_DIRECTORIES 가 web, engine 둘만 노출")
     void allowedRootDirectories_isExpectedSet() {
         assertThat(BuildZipValidator.ALLOWED_ROOT_DIRECTORIES)
-                .containsExactlyInAnyOrder("web", "engine", "etc");
+                .containsExactlyInAnyOrder("web", "engine");
+    }
+
+    @Test
+    @DisplayName("etc/ 가 루트에 있으면 거부 (f96019a 정책)")
+    void validate_etcRoot_rejected() throws IOException {
+        byte[] zip = makeZip("web/foo.war", "etc/config.yml");
+        assertThatThrownBy(() -> BuildZipValidator.validate(zip))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_INPUT_VALUE)
+                .hasMessageContaining("etc/");
     }
 }
