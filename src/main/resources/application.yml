@@ -3,6 +3,13 @@ spring:
   profiles:
     active: ${SERVER_ENVIRONMENT:dev}
 
+  # Jackson — DB 저장 / API 응답 모두 UTC ISO 8601(Z) 직렬화.
+  # 표시용 KST 변환은 frontend(shared/lib/utils/date.ts) 가 담당.
+  jackson:
+    time-zone: UTC
+    serialization:
+      write-dates-as-timestamps: false
+
   # Multipart File Upload Configuration
   servlet:
     multipart:

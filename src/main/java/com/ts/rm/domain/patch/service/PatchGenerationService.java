@@ -461,8 +461,10 @@ public class PatchGenerationService {
 
             StringBuilder content = new StringBuilder();
             content.append("# 생성 정보\n");
-            content.append(String.format("- 패치 생성일시: %s\n",
-                    LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))));
+            // 운영자가 README 로 보는 시각이라 KST 명시
+            content.append(String.format("- 패치 생성일시: %s (KST)\n",
+                    LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul"))
+                            .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))));
             content.append(String.format("- 고객사: %s (%s)\n", customer.getCustomerName(), customer.getCustomerCode()));
             content.append(String.format("- VERSION: %s%s -> %s\n",
                     fromVersion.getVersion(), fromBaseLabel, toVersion.getVersion()));
@@ -716,7 +718,9 @@ public class PatchGenerationService {
             return patchName;
         }
         // 기본값: 날짜시분_fromversion_toversion (예: 202511271430_1.0.0_1.1.1)
-        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmm"));
+        // 운영자가 인식하는 시각이라 KST 명시 (DB 저장은 UTC, 사용자 표시·파일명은 KST 정책)
+        String timestamp = LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul"))
+                .format(DateTimeFormatter.ofPattern("yyyyMMddHHmm"));
         return String.format("%s_%s_%s", timestamp, fromVersion, toVersion);
     }
 
@@ -1429,8 +1433,10 @@ public class PatchGenerationService {
 
             StringBuilder content = new StringBuilder();
             content.append("# 생성 정보\n");
-            content.append(String.format("- 패치 생성일시: %s\n",
-                    LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))));
+            // 운영자가 README 로 보는 시각이라 KST 명시
+            content.append(String.format("- 패치 생성일시: %s (KST)\n",
+                    LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul"))
+                            .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))));
             content.append(String.format("- VERSION: %s -> %s\n",
                     fromVersion.getVersion(), toVersion.getVersion()));
             if (buildVersionStr != null) {
@@ -1521,7 +1527,9 @@ public class PatchGenerationService {
             List<String> lines = new ArrayList<>();
             lines.add("from_version=" + fromVersion.getFullVersion());
             lines.add("to_version=" + toVersion.getFullVersion());
-            lines.add("generated_at=" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+            // 운영자가 메타파일을 직접 열어 보는 시각이라 KST 명시
+            lines.add("generated_at=" + LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul"))
+                    .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) + " KST");
 
             int recorded = 0;
             if (buildSelection != null && buildSelection.enabled() && selectedBuilds != null) {

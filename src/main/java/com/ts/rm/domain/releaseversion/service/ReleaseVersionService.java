@@ -687,7 +687,11 @@ public class ReleaseVersionService {
      * <p>package-private 으로 노출하여 테스트에서 검증 가능하도록 함.
      */
     static int todayYyMmDd() {
-        return Integer.parseInt(LocalDate.now().format(DateTimeFormatter.ofPattern("yyMMdd")));
+        // 빌드 디렉토리명에 들어가는 yyMMdd — 운영자가 인식하는 시각이라 KST 기준.
+        // (DB 저장은 UTC, 사용자 표시·파일명은 KST 정책)
+        return Integer.parseInt(
+                LocalDate.now(java.time.ZoneId.of("Asia/Seoul"))
+                        .format(DateTimeFormatter.ofPattern("yyMMdd")));
     }
 
     /**

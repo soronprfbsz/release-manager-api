@@ -75,6 +75,10 @@ services:
     environment:
       # JVM 설정 (heap메모리 1GB)
       JAVA_OPTS: "-Xms1024m -Xmx1024m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+      # JVM 의 LocalDateTime.now() 가 UTC 가 되도록 — DB 는 모두 UTC 저장 정책.
+      # 사용자 표시는 frontend 가 KST 변환 (shared/lib/utils/date.ts).
+      # 사람이 읽는 일부 시간(README, 빌드 yyMMdd 등)은 코드에서 명시적 KST 사용.
+      TZ: UTC
     volumes:
       - ${RELEASE_DIR}:/app/resources
     ports:
