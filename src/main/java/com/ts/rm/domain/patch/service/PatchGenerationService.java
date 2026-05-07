@@ -79,6 +79,10 @@ public class PatchGenerationService {
     private final ScriptGenerator crateDBScriptGenerator;
     private final AccountLookupService accountLookupService;
     private final ReleaseVersionFileSystemService fileSystemService;
+    private final PatchProgressService progressService;
+
+    /** frontend 진행도 표시용 총 단계 수. 단계 변경 시 함께 조정. */
+    private static final int TOTAL_STEPS = 8;
 
     @Value("${app.release.base-path:data/release-manager}")
     private String releaseBasePath;
@@ -578,12 +582,15 @@ public class PatchGenerationService {
             }
 
             // 4. 패치 이름 결정 (입력값이 없으면 자동 생성: YYYYMMDDHHMMSS_fromversion_toversion)
+            progressService.update(1, TOTAL_STEPS, "버전 범위 검증");
             String resolvedPatchName = resolvePatchName(patchName, fromVersion.getVersion(), toVersion.getVersion());
 
             // 5. 출력 디렉토리 생성 (패치 이름으로)
+            progressService.update(2, TOTAL_STEPS, "출력 디렉토리 생성");
             String outputPath = createOutputDirectory(resolvedPatchName, projectId);
 
             // 6. SQL 파일 복사 (빌드 포함 누적 walk — ENGINE 공유 자산 동반, picker 엔진 skip)
+            progressService.update(3, TOTAL_STEPS, "DB 누적 변경 파일 복사 중");
             List<String> pickerEngineNames = (buildSelection != null && buildSelection.enabled()
                     && buildSelection.engines() != null)
                     ? buildSelection.engines().stream().map(PatchDto.SelectedEngine::engineName).toList()
@@ -591,6 +598,7 @@ public class PatchGenerationService {
             copySqlFiles(betweenVersions, outputPath, pickerEngineNames);
 
             // ---- buildSelection 별도 단계 (spec §5.1 / Q-S2) ----
+            progressService.update(4, TOTAL_STEPS, "WEB / ENGINE 빌드 파일 복사 중");
             Map<Long, ReleaseVersion> selectedBuilds;
             if (buildSelection != null && buildSelection.enabled()) {
                 selectedBuilds = applyBuildSelection(Paths.get(releaseBasePath, outputPath), buildSelection);
@@ -600,13 +608,16 @@ public class PatchGenerationService {
 
             // ---- 빌드 공유 자산 자동 동반 ----
             // 빌드 ZIP 업로드는 ReleaseFile 인덱스를 등록하지 않으므로, 공유 자산은 디스크에서 직접 walk 한다.
+            progressService.update(5, TOTAL_STEPS, "빌드 공유 자산 동반 중");
             copyBuildSharedAssets(Paths.get(releaseBasePath, outputPath), betweenVersions);
 
             // 7. 패치 스크립트 생성
+            progressService.update(6, TOTAL_STEPS, "패치 스크립트 생성 중");
             String assigneeEmail = assignee != null ? assignee.getEmail() : null;
             generatePatchScripts(fromVersion, toVersion, betweenVersions, outputPath, assigneeEmail);
 
             // 8. README / 빌드 메타 생성
+            progressService.update(7, TOTAL_STEPS, "README / 빌드 메타 생성 중");
             // README 의 To 표기에는 web 빌드 fullVersion 만 사용. .build_version 메타파일에는 web + 모든 engine 기록.
             ReleaseVersion webBuildForMeta = null;
             if (buildSelection != null && buildSelection.enabled() && buildSelection.web() != null) {
@@ -648,6 +659,7 @@ public class PatchGenerationService {
 
             // 12. 메타 영구 저장 + 캐시 boolean 갱신 (spec §5.1)
             // findHotfixesInBaseRange 는 단 1회 호출하여 메타 저장과 응답 매핑이 공유
+            progressService.update(8, TOTAL_STEPS, "DB 메타 저장 중");
             boolean isBuildOnly = isSameBaseVersion(fromVersion, toVersion);
             List<ReleaseVersion> hotfixVersions = releaseVersionRepository
                     .findHotfixesInBaseRange(projectId, fromVersionId, toVersionId, customerId);
@@ -664,12 +676,15 @@ public class PatchGenerationService {
                     .toList();
             PatchDto.IncludedBuilds includedBuilds = buildIncludedBuilds(buildSelection, selectedBuilds);
 
+            progressService.complete(TOTAL_STEPS);
             return new GenerateResult(saved, isBuildOnly, hotfixes, includedBuilds);
 
         } catch (BusinessException e) {
+            progressService.fail(e.getMessage());
             throw e;
         } catch (Exception e) {
             log.error("패치 생성 실패", e);
+            progressService.fail(e.getMessage());
             throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
                     "패치 생성 중 오류가 발생했습니다: " + e.getMessage());
         }

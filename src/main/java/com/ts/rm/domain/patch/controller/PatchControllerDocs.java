@@ -41,7 +41,9 @@ public interface PatchControllerDocs {
             )
     )
     ApiResponse<PatchDto.GenerateResponse> generatePatch(
-            @Valid @RequestBody PatchDto.GenerateRequest request
+            @Valid @RequestBody PatchDto.GenerateRequest request,
+            @org.springframework.web.bind.annotation.RequestHeader(value = "X-Progress-Id", required = false)
+            String progressId
     );
 
     @Operation(
@@ -373,7 +375,9 @@ public interface PatchControllerDocs {
             )
     )
     ApiResponse<PatchDto.DetailResponse> generateCustomPatch(
-            @Valid @RequestBody PatchDto.GenerateCustomPatchRequest request
+            @Valid @RequestBody PatchDto.GenerateCustomPatchRequest request,
+            @org.springframework.web.bind.annotation.RequestHeader(value = "X-Progress-Id", required = false)
+            String progressId
     );
 
     /**

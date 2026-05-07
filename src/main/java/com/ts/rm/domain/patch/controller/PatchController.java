@@ -4,6 +4,7 @@ import com.ts.rm.domain.patch.dto.PatchDto;
 import com.ts.rm.domain.patch.entity.Patch;
 import com.ts.rm.domain.patch.mapper.PatchDtoMapper;
 import com.ts.rm.domain.patch.service.PatchGenerationService;
+import com.ts.rm.domain.patch.service.PatchProgressService;
 import com.ts.rm.domain.patch.service.PatchService;
 import com.ts.rm.global.file.HttpFileDownloadUtil;
 import com.ts.rm.global.response.ApiResponse;
@@ -38,6 +39,7 @@ public class PatchController implements PatchControllerDocs {
 
     private final PatchService patchService;
     private final PatchDtoMapper patchDtoMapper;
+    private final PatchProgressService progressService;
 
     /**
      * 표준 패치 생성 (누적 패치 생성)
@@ -45,35 +47,42 @@ public class PatchController implements PatchControllerDocs {
     @Override
     @PostMapping("/standard/generate")
     public ApiResponse<PatchDto.GenerateResponse> generatePatch(
-            @Valid @RequestBody PatchDto.GenerateRequest request) {
+            @Valid @RequestBody PatchDto.GenerateRequest request,
+            @org.springframework.web.bind.annotation.RequestHeader(value = "X-Progress-Id", required = false)
+            String progressId) {
 
-        log.info("패치 생성 요청 - Project: {}, From: {}, To: {}, Type: {}, PatchName: {}, BuildSelection: {}",
+        log.info("패치 생성 요청 - Project: {}, From: {}, To: {}, Type: {}, PatchName: {}, BuildSelection: {}, ProgressId: {}",
                 request.projectId(), request.fromVersion(), request.toVersion(), request.type(),
-                request.patchName(), request.buildSelection());
+                request.patchName(), request.buildSelection(), progressId);
 
-        PatchGenerationService.GenerateResult result = patchService.generatePatchByVersion(
-                request.projectId(),
-                request.type(),
-                request.customerId(),
-                request.fromVersion(),
-                request.toVersion(),
-                request.createdByEmail(),
-                request.description(),
-                request.assigneeId(),
-                request.patchName(),
-                request.buildSelection()
-        );
+        progressService.start(progressId);
+        try {
+            PatchGenerationService.GenerateResult result = patchService.generatePatchByVersion(
+                    request.projectId(),
+                    request.type(),
+                    request.customerId(),
+                    request.fromVersion(),
+                    request.toVersion(),
+                    request.createdByEmail(),
+                    request.description(),
+                    request.assigneeId(),
+                    request.patchName(),
+                    request.buildSelection()
+            );
 
-        PatchDto.GenerateResponse body = new PatchDto.GenerateResponse(
-                result.patch().getPatchId(),
-                result.patch().getPatchName(),
-                result.patch().getOutputPath(),
-                result.isBuildOnly(),
-                result.hotfixesInRange(),
-                result.includedBuilds()
-        );
+            PatchDto.GenerateResponse body = new PatchDto.GenerateResponse(
+                    result.patch().getPatchId(),
+                    result.patch().getPatchName(),
+                    result.patch().getOutputPath(),
+                    result.isBuildOnly(),
+                    result.hotfixesInRange(),
+                    result.includedBuilds()
+            );
 
-        return ApiResponse.success(body);
+            return ApiResponse.success(body);
+        } finally {
+            progressService.end();
+        }
     }
 
     /**
@@ -253,24 +262,42 @@ public class PatchController implements PatchControllerDocs {
     @Override
     @PostMapping("/custom/generate")
     public ApiResponse<PatchDto.DetailResponse> generateCustomPatch(
-            @Valid @RequestBody PatchDto.GenerateCustomPatchRequest request) {
+            @Valid @RequestBody PatchDto.GenerateCustomPatchRequest request,
+            @org.springframework.web.bind.annotation.RequestHeader(value = "X-Progress-Id", required = false)
+            String progressId) {
 
-        log.info("커스텀 패치 생성 요청 - Project: {}, Customer: {}, From: {}, To: {}",
-                request.projectId(), request.customerId(), request.fromVersion(), request.toVersion());
+        log.info("커스텀 패치 생성 요청 - Project: {}, Customer: {}, From: {}, To: {}, ProgressId: {}",
+                request.projectId(), request.customerId(), request.fromVersion(), request.toVersion(), progressId);
 
-        Patch patch = patchService.generateCustomPatchByVersion(
-                request.projectId(),
-                request.customerId(),
-                request.fromVersion(),
-                request.toVersion(),
-                request.createdByEmail(),
-                request.description(),
-                request.assigneeId(),
-                request.patchName()
-        );
+        progressService.start(progressId);
+        try {
+            Patch patch = patchService.generateCustomPatchByVersion(
+                    request.projectId(),
+                    request.customerId(),
+                    request.fromVersion(),
+                    request.toVersion(),
+                    request.createdByEmail(),
+                    request.description(),
+                    request.assigneeId(),
+                    request.patchName()
+            );
 
-        PatchDto.DetailResponse response = patchDtoMapper.toDetailResponse(patch);
+            PatchDto.DetailResponse response = patchDtoMapper.toDetailResponse(patch);
 
-        return ApiResponse.success(response);
+            return ApiResponse.success(response);
+        } finally {
+            progressService.end();
+        }
+    }
+
+    /**
+     * 패치 생성 진행 상황 조회 (frontend polling).
+     * <p>frontend 가 mutation 호출 시 생성한 progressId 와 같은 ID 로 GET.
+     * 진행 중이면 step/totalSteps/message 반환, 끝나면 completed=true.
+     * 미존재 progressId 는 null 응답 — frontend 가 시작 전이거나 만료된 상태로 해석.
+     */
+    @GetMapping("/progress/{progressId}")
+    public ApiResponse<PatchDto.PatchProgress> getProgress(@PathVariable String progressId) {
+        return ApiResponse.success(progressService.get(progressId));
     }
 }
