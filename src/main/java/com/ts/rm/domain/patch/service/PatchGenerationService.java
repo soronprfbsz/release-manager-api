@@ -474,13 +474,18 @@ public class PatchGenerationService {
             content.append("## 패치 방법\n");
             content.append("1. `InfraEye info version` — 사이트 버전 확인 (사전)\n");
             content.append("2. 본 패치 파일을 `/{설치경로}/infraeye/patch/` 에 복사 후 압축 해제\n");
-            content.append("3. `InfraEye db patch` — DB 패치 (mariadb / cratedb)\n");
-            content.append("4. `InfraEye was patch` — WAS 패치\n");
-            content.append("5. `InfraEye eng patch` — 엔진 패치\n");
-            content.append("6. `InfraEye info version` — 변경된 사이트 버전 확인 (사후)\n\n");
+            content.append("3. `sudo InfraEye cli patch` — InfraEye CLI 자체 갱신 (포함 시)\n");
+            content.append("4. `InfraEye db patch` — DB 패치 (mariadb / cratedb)\n");
+            content.append("5. `InfraEye was patch` — WAS 패치 (war / webobjects)\n");
+            content.append("6. `engine/` 안의 비-엔진 자산 (config / 스크립트 등) 을 운영자가 수동 적용\n");
+            content.append("   - 컨테이너의 `/opt/infraeye/nms/bin/<파일명>` 위치로 직접 복사 / 내용 수정\n");
+            content.append("   - 자동 덮어쓰기를 하지 않는 이유: 운영자가 수정해 둔 값이 날아가는 사고 방지\n");
+            content.append("7. `InfraEye eng patch` — 엔진 바이너리 패치 (NC_*, OZ_* 자동 적용 + 재기동)\n");
+            content.append("8. `InfraEye info version` — 변경된 사이트 버전 확인 (사후)\n\n");
 
             content.append("## 주의\n");
             content.append("- 실행 전 반드시 백업 수행\n");
+            content.append("- 6 → 7 순서 준수: 엔진 재기동(7) 시점에 새 config 가 함께 로드되도록 6 을 먼저 수행\n");
             content.append("- 오류 발생 시 패치 디렉토리의 `logs/` 확인\n\n");
 
             content.append("---\nCREATED BY - Release Manager (Custom Patch)\n");
@@ -1436,13 +1441,18 @@ public class PatchGenerationService {
             content.append("## 패치 방법\n");
             content.append("1. `InfraEye info version` — 사이트 버전 확인 (사전)\n");
             content.append("2. 본 패치 파일을 `/{설치경로}/infraeye/patch/` 에 복사 후 압축 해제\n");
-            content.append("3. `InfraEye db patch` — DB 패치 (mariadb / cratedb)\n");
-            content.append("4. `InfraEye was patch` — WAS 패치\n");
-            content.append("5. `InfraEye eng patch` — 엔진 패치\n");
-            content.append("6. `InfraEye info version` — 변경된 사이트 버전 확인 (사후)\n\n");
+            content.append("3. `sudo InfraEye cli patch` — InfraEye CLI 자체 갱신 (포함 시)\n");
+            content.append("4. `InfraEye db patch` — DB 패치 (mariadb / cratedb)\n");
+            content.append("5. `InfraEye was patch` — WAS 패치 (war / webobjects)\n");
+            content.append("6. `engine/` 안의 비-엔진 자산 (config / 스크립트 등) 을 운영자가 수동 적용\n");
+            content.append("   - 컨테이너의 `/opt/infraeye/nms/bin/<파일명>` 위치로 직접 복사 / 내용 수정\n");
+            content.append("   - 자동 덮어쓰기를 하지 않는 이유: 운영자가 수정해 둔 값이 날아가는 사고 방지\n");
+            content.append("7. `InfraEye eng patch` — 엔진 바이너리 패치 (NC_*, OZ_* 자동 적용 + 재기동)\n");
+            content.append("8. `InfraEye info version` — 변경된 사이트 버전 확인 (사후)\n\n");
 
             content.append("## 주의\n");
             content.append("- 실행 전 반드시 백업 수행\n");
+            content.append("- 6 → 7 순서 준수: 엔진 재기동(7) 시점에 새 config 가 함께 로드되도록 6 을 먼저 수행\n");
             content.append("- 오류 발생 시 패치 디렉토리의 `logs/` 확인\n\n");
 
             content.append("---\nCREATED BY - Release Manager\n");
