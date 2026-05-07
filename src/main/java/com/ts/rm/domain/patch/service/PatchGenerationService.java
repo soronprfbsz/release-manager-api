@@ -277,6 +277,9 @@ public class PatchGenerationService {
             // 6. SQL 파일 복사 (커스텀 패치는 빌드 picker 미사용 → pickerEngineNames 빈 리스트)
             copySqlFiles(betweenVersions, outputPath, List.of());
 
+            // ---- 빌드 공유 자산 자동 동반 ----
+            copyBuildSharedAssets(Paths.get(releaseBasePath, outputPath), betweenVersions);
+
             // 7. 패치 스크립트 생성
             String assigneeEmail = assignee != null ? assignee.getEmail() : null;
             generatePatchScripts(fromVersion, toVersion, betweenVersions, outputPath, assigneeEmail);
@@ -587,6 +590,10 @@ public class PatchGenerationService {
             } else {
                 selectedBuilds = Map.of();
             }
+
+            // ---- 빌드 공유 자산 자동 동반 ----
+            // 빌드 ZIP 업로드는 ReleaseFile 인덱스를 등록하지 않으므로, 공유 자산은 디스크에서 직접 walk 한다.
+            copyBuildSharedAssets(Paths.get(releaseBasePath, outputPath), betweenVersions);
 
             // 7. 패치 스크립트 생성
             String assigneeEmail = assignee != null ? assignee.getEmail() : null;
@@ -1143,6 +1150,56 @@ public class PatchGenerationService {
                 .orElseThrow(() -> new BusinessException(
                         ErrorCode.INVALID_INPUT_VALUE,
                         "선택한 빌드 버전을 찾을 수 없습니다: " + buildVersionId));
+    }
+
+    /**
+     * from→to 사이 모든 빌드의 engine/ 디렉토리에서 공유 자산(= 엔진이 아닌 파일 / 디렉토리)을
+     * 패치 출력 engine/ 으로 복사한다. 같은 이름의 공유 자산은 시간순 마지막 빌드 게 살아남는다.
+     *
+     * <p>"엔진" 식별은 {@link EngineNameClassifier#isEngineFile} — 엔진 파일은 picker 가 단일 파일로
+     * 처리하므로 여기서 skip 한다.
+     *
+     * <p>근거: 빌드 ZIP 업로드는 ReleaseFile 인덱스를 등록하지 않음 ({@link BuildFileService} 정책).
+     * 따라서 빌드의 공유 자산은 디스크에서 직접 walk 해야 한다.
+     *
+     * @param outputDir     패치 출력 루트 디렉토리
+     * @param versions      betweenVersions (시간순 ASC — 빌드 포함 혼재)
+     */
+    private void copyBuildSharedAssets(Path outputDir, List<ReleaseVersion> versions) throws IOException {
+        // 시간순 ASC walk → LinkedHashMap put 이 자연스럽게 마지막(최신)을 남김
+        Map<String, Path> latestAsset = new LinkedHashMap<>();
+
+        for (ReleaseVersion v : versions) {
+            if (!v.isBuild()) continue;
+            Path buildEngineDir = fileSystemService.resolveBuildBasePath(v).resolve("engine");
+            if (!Files.isDirectory(buildEngineDir)) continue;
+
+            try (var stream = Files.list(buildEngineDir)) {
+                stream.forEach(entry -> {
+                    String name = entry.getFileName().toString();
+                    if (EngineNameClassifier.isEngineFile(name)) return;  // 엔진 파일은 picker 가 처리
+                    latestAsset.put(name, entry);
+                });
+            }
+        }
+
+        if (latestAsset.isEmpty()) return;
+
+        Path outEngineDir = outputDir.resolve("engine");
+        Files.createDirectories(outEngineDir);
+        int copied = 0;
+        for (var e : latestAsset.entrySet()) {
+            Path src = e.getValue();
+            Path dst = outEngineDir.resolve(e.getKey());
+            if (Files.isRegularFile(src)) {
+                Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
+                copied++;
+            } else if (Files.isDirectory(src)) {
+                copyDirectoryReplaceExisting(src, dst);
+                copied++;
+            }
+        }
+        log.info("빌드 공유 자산 복사 완료: {}개 항목", copied);
     }
 
     /**
