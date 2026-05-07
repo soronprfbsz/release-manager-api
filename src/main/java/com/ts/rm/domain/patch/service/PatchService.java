@@ -365,10 +365,12 @@ public class PatchService {
     @Transactional
     public Patch generateCustomPatchByVersion(String projectId, Long customerId,
             String fromVersion, String toVersion, String createdByEmail, String description,
-            Long engineerId, String patchName) {
+            Long engineerId, String patchName, PatchDto.BuildSelection buildSelection) {
+        boolean sameBase = fromVersion.equals(toVersion);
+        validateBuildSelection(buildSelection, sameBase);
         return patchGenerationService.generateCustomPatchByVersion(
                 projectId, customerId, fromVersion, toVersion,
-                createdByEmail, description, engineerId, patchName);
+                createdByEmail, description, engineerId, patchName, buildSelection);
     }
 
     /**

@@ -145,7 +145,7 @@ public class PatchGenerationService {
     @Transactional
     public Patch generateCustomPatchByVersion(String projectId, Long customerId,
             String fromVersion, String toVersion, String createdByEmail, String description,
-            Long assigneeId, String patchName) {
+            Long assigneeId, String patchName, PatchDto.BuildSelection buildSelection) {
 
         // 고객사 조회
         Customer customer = customerRepository.findById(customerId)
@@ -190,7 +190,7 @@ public class PatchGenerationService {
                         "To 커스텀 버전을 찾을 수 없습니다: " + toVersion));
 
         return generateCustomPatch(projectId, customerId, from, to,
-                createdByEmail, description, assigneeId, patchName);
+                createdByEmail, description, assigneeId, patchName, buildSelection);
     }
 
     /**
@@ -201,7 +201,8 @@ public class PatchGenerationService {
     @Transactional
     public Patch generateCustomPatch(String projectId, Long customerId,
             ReleaseVersion fromVersion, ReleaseVersion toVersion,
-            String createdByEmail, String description, Long assigneeId, String patchName) {
+            String createdByEmail, String description, Long assigneeId, String patchName,
+            PatchDto.BuildSelection buildSelection) {
         try {
             // 프로젝트 조회
             Project project = projectRepository.findById(projectId)
@@ -272,31 +273,50 @@ public class PatchGenerationService {
                                 "담당자를 찾을 수 없습니다: " + assigneeId));
             }
 
+            progressService.update(1, TOTAL_STEPS, "버전 범위 검증");
             // 4. 패치 이름 결정 (전체 버전 형식 사용)
             String resolvedPatchName = resolvePatchName(patchName, fromVersion.getVersion(), toVersion.getVersion());
 
             // 5. 출력 디렉토리 생성 (커스텀 패치용)
+            progressService.update(2, TOTAL_STEPS, "출력 디렉토리 생성");
             String outputPath = createCustomOutputDirectory(resolvedPatchName, projectId, customer.getCustomerCode());
 
-            // 6. SQL 파일 복사 (커스텀 패치는 빌드 picker 미사용 → pickerEngineNames 빈 리스트)
-            copySqlFiles(betweenVersions, outputPath, List.of());
+            // 6. SQL 파일 복사 (빌드 포함 누적 walk — ENGINE 공유 자산 동반, picker 엔진 skip)
+            progressService.update(3, TOTAL_STEPS, "DB 누적 변경 파일 복사 중");
+            List<String> pickerEngineNames = (buildSelection != null && buildSelection.enabled()
+                    && buildSelection.engines() != null)
+                    ? buildSelection.engines().stream().map(PatchDto.SelectedEngine::engineName).toList()
+                    : List.of();
+            copySqlFiles(betweenVersions, outputPath, pickerEngineNames);
+
+            // ---- buildSelection 별도 단계 (표준 흐름과 동일) ----
+            progressService.update(4, TOTAL_STEPS, "WEB / ENGINE 빌드 파일 복사 중");
+            Map<Long, ReleaseVersion> selectedBuilds;
+            if (buildSelection != null && buildSelection.enabled()) {
+                selectedBuilds = applyBuildSelection(Paths.get(releaseBasePath, outputPath), buildSelection);
+            } else {
+                selectedBuilds = Map.of();
+            }
 
             // ---- 빌드 공유 자산 자동 동반 ----
+            progressService.update(5, TOTAL_STEPS, "빌드 공유 자산 동반 중");
             copyBuildSharedAssets(Paths.get(releaseBasePath, outputPath), betweenVersions);
 
             // 7. 패치 스크립트 생성
+            progressService.update(6, TOTAL_STEPS, "패치 스크립트 생성 중");
             String assigneeEmail = assignee != null ? assignee.getEmail() : null;
             generatePatchScripts(fromVersion, toVersion, betweenVersions, outputPath, assigneeEmail);
 
-            // 8. README 생성
+            // 8. README / 빌드 메타 생성
+            progressService.update(7, TOTAL_STEPS, "README / 빌드 메타 생성 중");
             generateCustomReadme(fromVersion, toVersion, betweenVersions, outputPath, customer);
-            // 커스텀 패치는 빌드 picker 미사용 → build_* 라인 없음
-            generateBuildVersionFile(fromVersion, toVersion, outputPath, null, null);
+            generateBuildVersionFile(fromVersion, toVersion, outputPath, buildSelection, selectedBuilds);
 
             // 9. 생성자 Account 조회
             Account creator = accountLookupService.findByEmail(createdByEmail);
 
-            // 10. 패치 저장 (전체 버전 형식 저장 — 빌드/핫픽스 정보 포함)
+            // 10. 패치 저장
+            progressService.update(8, TOTAL_STEPS, "DB 메타 저장 중");
             Patch patch = Patch.builder()
                     .project(project)
                     .releaseType("CUSTOM")
@@ -313,20 +333,28 @@ public class PatchGenerationService {
 
             Patch saved = patchRepository.save(patch);
 
-            // 10. 패치 이력 저장 (영구 보존)
+            // 11. 패치 이력 저장
             savePatchHistory(saved);
 
-            // 11. CustomerProject 마지막 패치 정보 업데이트
+            // 12. 빌드 picker 메타 저장 (cascade)
+            saved.setIsBuildIncluded(buildSelection != null && buildSelection.enabled());
+            persistIncludedBuilds(saved, buildSelection, selectedBuilds);
+            saved = patchRepository.save(saved);
+
+            // 13. CustomerProject 마지막 패치 정보 업데이트
             updateCustomerProjectPatchInfo(customer, project, toVersion.getVersion());
 
             log.info("커스텀 패치 생성 완료 - ID: {}, Path: {}", saved.getPatchId(), outputPath);
 
+            progressService.complete(TOTAL_STEPS);
             return saved;
 
         } catch (BusinessException e) {
+            progressService.fail(e.getMessage());
             throw e;
         } catch (Exception e) {
             log.error("커스텀 패치 생성 실패", e);
+            progressService.fail(e.getMessage());
             throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
                     "커스텀 패치 생성 중 오류가 발생했습니다: " + e.getMessage());
         }

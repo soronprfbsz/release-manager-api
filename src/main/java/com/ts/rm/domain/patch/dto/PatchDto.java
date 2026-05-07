@@ -537,7 +537,10 @@ public final class PatchDto {
 
             @Schema(description = "패치 이름 (미입력 시 자동 생성)", example = "20251225_1.0.0_1.0.2")
             @Size(max = 100, message = "패치 이름은 100자 이하여야 합니다")
-            String patchName
+            String patchName,
+
+            @Schema(description = "빌드 파일 선택 (null 또는 enabled=false 면 빌드 미포함)")
+            BuildSelection buildSelection
     ) {
 
     }

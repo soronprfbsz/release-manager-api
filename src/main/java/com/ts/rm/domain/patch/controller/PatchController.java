@@ -279,7 +279,8 @@ public class PatchController implements PatchControllerDocs {
                     request.createdByEmail(),
                     request.description(),
                     request.assigneeId(),
-                    request.patchName()
+                    request.patchName(),
+                    request.buildSelection()
             );
 
             PatchDto.DetailResponse response = patchDtoMapper.toDetailResponse(patch);
