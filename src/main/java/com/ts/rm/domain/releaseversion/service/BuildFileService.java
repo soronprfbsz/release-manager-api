@@ -7,6 +7,7 @@ import com.ts.rm.domain.releaseversion.entity.ReleaseVersion;
 import com.ts.rm.domain.releaseversion.repository.ReleaseVersionRepository;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
+import com.ts.rm.global.progress.ServerProgressService;
 import com.ts.rm.global.file.BuildZipValidator;
 import com.ts.rm.global.file.ZipExtractUtil;
 import java.io.IOException;
@@ -76,27 +77,49 @@ public class BuildFileService {
             Long baseVersionId,
             ReleaseVersionDto.CreateBuildRequest request,
             Path zipPath,
-            String createdByEmail) {
+            String createdByEmail,
+            ServerProgressService progress) {
 
-        // 1. 빌드 버전 행 생성
-        ReleaseVersionDto.CreateBuildResponse buildResponse =
-                releaseVersionService.createBuild(baseVersionId, request, createdByEmail);
+        final int TOTAL_STEPS = zipPath != null ? 4 : 2;
 
-        // 2. ZIP 이 있으면 추출/등록
-        int uploadedCount = 0;
-        if (zipPath != null) {
-            UploadResult uploadResult = uploadBuildZip(buildResponse.buildVersionId(), zipPath, createdByEmail);
-            uploadedCount = uploadResult.uploadedFileCount();
+        try {
+            // 1/N 빌드 버전 행 생성
+            progress.update(1, TOTAL_STEPS, "빌드 버전 행 생성 중");
+            ReleaseVersionDto.CreateBuildResponse buildResponse =
+                    releaseVersionService.createBuild(baseVersionId, request, createdByEmail);
+
+            // 2. ZIP 이 있으면 추출/등록
+            int uploadedCount = 0;
+            if (zipPath != null) {
+                // 2/4 ZIP 압축 해제 및 검증
+                progress.update(2, TOTAL_STEPS, "ZIP 압축 해제 및 검증 중");
+                // 3/4 파일 복사 및 빌드 디렉토리 준비
+                progress.update(3, TOTAL_STEPS, "빌드 디렉토리에 파일 복사 중");
+                UploadResult uploadResult = uploadBuildZip(buildResponse.buildVersionId(), zipPath, createdByEmail);
+                uploadedCount = uploadResult.uploadedFileCount();
+            }
+
+            // 마지막 단계 — 마무리 정리
+            progress.update(TOTAL_STEPS, TOTAL_STEPS, "마무리 정리 중");
+            progress.complete(TOTAL_STEPS);
+
+            // 파일 개수가 enrich 된 응답 반환
+            return new ReleaseVersionDto.CreateBuildResponse(
+                    buildResponse.buildVersionId(),
+                    buildResponse.version(),
+                    buildResponse.buildVersion(),
+                    buildResponse.fullVersion(),
+                    uploadedCount
+            );
+        } catch (BusinessException e) {
+            progress.fail(e.getMessage());
+            throw e;
+        } catch (Exception e) {
+            log.error("빌드 생성 실패", e);
+            progress.fail(e.getMessage());
+            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                    "빌드 생성 중 오류가 발생했습니다: " + e.getMessage());
         }
-
-        // 3. 파일 개수가 enrich 된 응답 반환
-        return new ReleaseVersionDto.CreateBuildResponse(
-                buildResponse.buildVersionId(),
-                buildResponse.version(),
-                buildResponse.buildVersion(),
-                buildResponse.fullVersion(),
-                uploadedCount
-        );
     }
 
     /**

@@ -4,7 +4,7 @@ import com.ts.rm.domain.patch.dto.PatchDto;
 import com.ts.rm.domain.patch.entity.Patch;
 import com.ts.rm.domain.patch.mapper.PatchDtoMapper;
 import com.ts.rm.domain.patch.service.PatchGenerationService;
-import com.ts.rm.domain.patch.service.PatchProgressService;
+import com.ts.rm.global.progress.ServerProgressService;
 import com.ts.rm.domain.patch.service.PatchService;
 import com.ts.rm.global.file.HttpFileDownloadUtil;
 import com.ts.rm.global.response.ApiResponse;
@@ -39,7 +39,7 @@ public class PatchController implements PatchControllerDocs {
 
     private final PatchService patchService;
     private final PatchDtoMapper patchDtoMapper;
-    private final PatchProgressService progressService;
+    private final ServerProgressService progressService;
 
     /**
      * 표준 패치 생성 (누적 패치 생성)
@@ -291,14 +291,4 @@ public class PatchController implements PatchControllerDocs {
         }
     }
 
-    /**
-     * 패치 생성 진행 상황 조회 (frontend polling).
-     * <p>frontend 가 mutation 호출 시 생성한 progressId 와 같은 ID 로 GET.
-     * 진행 중이면 step/totalSteps/message 반환, 끝나면 completed=true.
-     * 미존재 progressId 는 null 응답 — frontend 가 시작 전이거나 만료된 상태로 해석.
-     */
-    @GetMapping("/progress/{progressId}")
-    public ApiResponse<PatchDto.PatchProgress> getProgress(@PathVariable String progressId) {
-        return ApiResponse.success(progressService.get(progressId));
-    }
 }

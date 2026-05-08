@@ -26,6 +26,7 @@ import com.ts.rm.domain.releaseversion.service.ReleaseVersionFileSystemService;
 import com.ts.rm.global.account.AccountLookupService;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
+import com.ts.rm.global.progress.ServerProgressService;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -79,7 +80,7 @@ public class PatchGenerationService {
     private final ScriptGenerator crateDBScriptGenerator;
     private final AccountLookupService accountLookupService;
     private final ReleaseVersionFileSystemService fileSystemService;
-    private final PatchProgressService progressService;
+    private final ServerProgressService progressService;
 
     /** frontend 진행도 표시용 총 단계 수. 단계 변경 시 함께 조정. */
     private static final int TOTAL_STEPS = 8;

@@ -582,24 +582,4 @@ public final class PatchDto {
 
     }
 
-    /**
-     * 패치 생성 진행 상황 (frontend polling 응답).
-     * <p>frontend 가 mutation 호출 시 X-Progress-Id 헤더로 보낸 UUID 를 키로 조회.
-     */
-    @Schema(description = "패치 생성 진행 상황")
-    public record PatchProgress(
-            @Schema(description = "현재 단계 (1-based)", example = "3")
-            int step,
-
-            @Schema(description = "총 단계 수", example = "8")
-            int totalSteps,
-
-            @Schema(description = "현재 단계 메시지", example = "WEB/ENGINE 빌드 파일 복사 중")
-            String message,
-
-            @Schema(description = "완료 여부 — true 면 frontend polling 중단", example = "false")
-            boolean completed
-    ) {
-
-    }
 }

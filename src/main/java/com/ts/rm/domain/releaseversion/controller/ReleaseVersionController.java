@@ -6,6 +6,7 @@ import com.ts.rm.domain.releaseversion.service.BuildsInRangeService;
 import com.ts.rm.domain.releaseversion.service.ReleaseVersionService;
 import com.ts.rm.domain.releaseversion.service.ReleaseVersionTreeService;
 import com.ts.rm.domain.releaseversion.service.ReleaseVersionUploadService;
+import com.ts.rm.global.progress.ServerProgressService;
 import com.ts.rm.global.response.ApiResponse;
 import com.ts.rm.global.security.SecurityUtil;
 import java.io.IOException;
@@ -46,6 +47,7 @@ public class ReleaseVersionController implements ReleaseVersionControllerDocs {
     private final ReleaseVersionTreeService treeService;
     private final BuildFileService buildFileService;
     private final BuildsInRangeService buildsInRangeService;
+    private final ServerProgressService progressService;
 
     /**
      * 표준 릴리즈 버전 생성 (ZIP 파일 업로드)
@@ -60,27 +62,34 @@ public class ReleaseVersionController implements ReleaseVersionControllerDocs {
     public ResponseEntity<ApiResponse<ReleaseVersionDto.CreateVersionResponse>> createStandardVersion(
             @Valid @ModelAttribute ReleaseVersionDto.CreateStandardVersionRequest request,
             @RequestPart("patchFiles") MultipartFile patchFiles,
-            @RequestHeader("Authorization") String authorization) {
+            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = "X-Progress-Id", required = false) String progressId) {
 
-        log.info("표준 릴리즈 버전 생성 요청 - projectId: {}, version: {}, comment: {}, fileSize: {}",
-                request.projectId(), request.version(), request.comment(), patchFiles.getSize());
+        log.info("표준 릴리즈 버전 생성 요청 - projectId: {}, version: {}, comment: {}, fileSize: {}, progressId: {}",
+                request.projectId(), request.version(), request.comment(), patchFiles.getSize(), progressId);
 
         // SecurityUtil에서 현재 인증된 사용자 정보 추출
         String createdBy = SecurityUtil.getTokenInfo().email();
 
         log.info("버전 생성자: {}", createdBy);
 
-        // 버전 생성
-        ReleaseVersionDto.CreateVersionResponse response = uploadService.createStandardVersionWithZip(
-                request.projectId(),
-                request.version(),
-                request.comment(),
-                patchFiles,
-                createdBy,
-                request.isApproved()
-        );
+        progressService.start(progressId);
+        try {
+            // 버전 생성
+            ReleaseVersionDto.CreateVersionResponse response = uploadService.createStandardVersionWithZip(
+                    request.projectId(),
+                    request.version(),
+                    request.comment(),
+                    patchFiles,
+                    createdBy,
+                    request.isApproved(),
+                    progressService
+            );
 
-        return ResponseEntity.ok(ApiResponse.success(response));
+            return ResponseEntity.ok(ApiResponse.success(response));
+        } finally {
+            progressService.end();
+        }
     }
 
     /**
@@ -96,25 +105,32 @@ public class ReleaseVersionController implements ReleaseVersionControllerDocs {
     public ResponseEntity<ApiResponse<ReleaseVersionDto.CreateCustomVersionResponse>> createCustomVersion(
             @Valid @ModelAttribute ReleaseVersionDto.CreateCustomVersionRequest request,
             @RequestPart("patchFiles") MultipartFile patchFiles,
-            @RequestHeader("Authorization") String authorization) {
+            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = "X-Progress-Id", required = false) String progressId) {
 
-        log.info("커스텀 릴리즈 버전 생성 요청 - projectId: {}, customerId: {}, customBaseVersionId: {}, customVersion: {}, comment: {}, fileSize: {}",
+        log.info("커스텀 릴리즈 버전 생성 요청 - projectId: {}, customerId: {}, customBaseVersionId: {}, customVersion: {}, comment: {}, fileSize: {}, progressId: {}",
                 request.projectId(), request.customerId(), request.customBaseVersionId(),
-                request.customVersion(), request.comment(), patchFiles.getSize());
+                request.customVersion(), request.comment(), patchFiles.getSize(), progressId);
 
         // SecurityUtil에서 현재 인증된 사용자 정보 추출
         String createdBy = SecurityUtil.getTokenInfo().email();
 
         log.info("버전 생성자: {}", createdBy);
 
-        // 커스텀 버전 생성
-        ReleaseVersionDto.CreateCustomVersionResponse response = uploadService.createCustomVersionWithZip(
-                request,
-                patchFiles,
-                createdBy
-        );
+        progressService.start(progressId);
+        try {
+            // 커스텀 버전 생성
+            ReleaseVersionDto.CreateCustomVersionResponse response = uploadService.createCustomVersionWithZip(
+                    request,
+                    patchFiles,
+                    createdBy,
+                    progressService
+            );
 
-        return ResponseEntity.ok(ApiResponse.success(response));
+            return ResponseEntity.ok(ApiResponse.success(response));
+        } finally {
+            progressService.end();
+        }
     }
 
     /**
@@ -358,10 +374,11 @@ public class ReleaseVersionController implements ReleaseVersionControllerDocs {
             @PathVariable Long id,
             @Valid @ModelAttribute ReleaseVersionDto.CreateBuildRequest request,
             @RequestPart(value = "file", required = false) MultipartFile file,
-            @RequestHeader("Authorization") String authorization) {
+            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = "X-Progress-Id", required = false) String progressId) {
 
-        log.info("빌드 생성 요청 - baseVersionId: {}, buildVersion: {}, fileSize: {}",
-                id, request.buildVersion(), file != null ? file.getSize() : 0);
+        log.info("빌드 생성 요청 - baseVersionId: {}, buildVersion: {}, fileSize: {}, progressId: {}",
+                id, request.buildVersion(), file != null ? file.getSize() : 0, progressId);
 
         String createdBy = SecurityUtil.getTokenInfo().email();
 
@@ -383,11 +400,13 @@ public class ReleaseVersionController implements ReleaseVersionControllerDocs {
             }
         }
 
+        progressService.start(progressId);
         try {
             ReleaseVersionDto.CreateBuildResponse response = buildFileService
-                    .createBuildWithZip(id, request, tempZip, createdBy);
+                    .createBuildWithZip(id, request, tempZip, createdBy, progressService);
             return ResponseEntity.ok(ApiResponse.success(response));
         } finally {
+            progressService.end();
             if (tempZip != null) {
                 try { Files.deleteIfExists(tempZip); } catch (IOException e) {
                     log.warn("임시 ZIP 정리 실패: {}", tempZip, e);

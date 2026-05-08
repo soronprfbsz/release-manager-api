@@ -1,21 +1,22 @@
-package com.ts.rm.domain.patch.service;
+package com.ts.rm.global.progress;
 
-import com.ts.rm.domain.patch.dto.PatchDto;
+import com.ts.rm.global.progress.dto.ServerProgressDto;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /**
- * 패치 생성 진행 상황 추적 서비스 (in-memory).
+ * 서버 작업 진행 상황 추적 공용 서비스 (in-memory).
  *
- * <p>frontend 가 mutation 호출 시 X-Progress-Id 헤더 (UUID) 를 보내고,
- * 같은 ID 로 GET /api/patches/progress/{id} 를 1초 polling. backend 는
+ * <p>패치 생성 / 버전 업로드 / 빌드 업로드 등 장시간 수행 API 에서 공통으로 사용.
+ * frontend 가 mutation 호출 시 X-Progress-Id 헤더 (UUID) 를 보내고,
+ * 같은 ID 로 GET /api/progress/{id} 를 1초 polling. backend 는
  * 단계 메서드 안에서 {@link #update} 만 호출하면 ThreadLocal 로 현재 진행 ID
  * 를 따라가 메모리 Map 에 저장한다.
  *
- * <p>저장소: ConcurrentMap (in-memory) — 패치 생성은 보통 30초~수 분 단위라
- * 영구 저장 불필요. 서버 재시작 시 진행 중 패치는 추적 불가능 (단 mutation 도
+ * <p>저장소: ConcurrentMap (in-memory) — 작업은 보통 30초~수 분 단위라
+ * 영구 저장 불필요. 서버 재시작 시 진행 중 작업은 추적 불가능 (단 mutation 도
  * 끊기므로 영향 동일). multi-instance 운영 시 Redis 로 이전 가능.
  *
  * <p>ThreadLocal 사용처:
@@ -31,10 +32,10 @@ import org.springframework.stereotype.Service;
  */
 @Slf4j
 @Service
-public class PatchProgressService {
+public class ServerProgressService {
 
     /** progressId → 진행 상황 (singleton) */
-    private final ConcurrentMap<String, PatchDto.PatchProgress> progressMap =
+    private final ConcurrentMap<String, ServerProgressDto.ProgressResponse> progressMap =
             new ConcurrentHashMap<>();
 
     /** 현재 thread 의 진행 ID */
@@ -47,7 +48,7 @@ public class PatchProgressService {
     public void start(String progressId) {
         if (progressId == null || progressId.isBlank()) return;
         currentId.set(progressId);
-        progressMap.put(progressId, new PatchDto.PatchProgress(0, 0, "시작", false));
+        progressMap.put(progressId, new ServerProgressDto.ProgressResponse(0, 0, "시작", false));
     }
 
     /**
@@ -56,8 +57,8 @@ public class PatchProgressService {
     public void update(int step, int totalSteps, String message) {
         String id = currentId.get();
         if (id == null || id.isBlank()) return;
-        progressMap.put(id, new PatchDto.PatchProgress(step, totalSteps, message, false));
-        log.debug("patch progress: id={} step={}/{} {}", id, step, totalSteps, message);
+        progressMap.put(id, new ServerProgressDto.ProgressResponse(step, totalSteps, message, false));
+        log.debug("서버 작업 진행: id={} step={}/{} {}", id, step, totalSteps, message);
     }
 
     /**
@@ -68,7 +69,7 @@ public class PatchProgressService {
         String id = currentId.get();
         if (id == null || id.isBlank()) return;
         progressMap.put(id,
-                new PatchDto.PatchProgress(totalSteps, totalSteps, "완료", true));
+                new ServerProgressDto.ProgressResponse(totalSteps, totalSteps, "완료", true));
     }
 
     /**
@@ -77,11 +78,11 @@ public class PatchProgressService {
     public void fail(String reason) {
         String id = currentId.get();
         if (id == null || id.isBlank()) return;
-        PatchDto.PatchProgress prev = progressMap.get(id);
+        ServerProgressDto.ProgressResponse prev = progressMap.get(id);
         int total = prev != null ? prev.totalSteps() : 1;
         int step = prev != null ? prev.step() : 0;
         progressMap.put(id,
-                new PatchDto.PatchProgress(step, total, "실패: " + reason, true));
+                new ServerProgressDto.ProgressResponse(step, total, "실패: " + reason, true));
     }
 
     /**
@@ -99,13 +100,13 @@ public class PatchProgressService {
                 Thread.currentThread().interrupt();
             }
             progressMap.remove(id);
-        }, "patch-progress-cleanup-" + id).start();
+        }, "server-progress-cleanup-" + id).start();
     }
 
     /**
      * 폴링 응답용 조회. 없으면 null.
      */
-    public PatchDto.PatchProgress get(String progressId) {
+    public ServerProgressDto.ProgressResponse get(String progressId) {
         if (progressId == null || progressId.isBlank()) return null;
         return progressMap.get(progressId);
     }

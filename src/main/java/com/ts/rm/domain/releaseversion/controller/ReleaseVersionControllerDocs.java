@@ -78,7 +78,10 @@ public interface ReleaseVersionControllerDocs {
             @RequestPart("patchFiles") MultipartFile patchFiles,
 
             @Parameter(description = "JWT 토큰 (Bearer {token})", required = true)
-            @RequestHeader("Authorization") String authorization
+            @RequestHeader("Authorization") String authorization,
+
+            @Parameter(description = "진행 상황 추적 ID (UUID). 생략 가능 — 전달 시 GET /api/progress/{id} 로 polling 가능", required = false)
+            @RequestHeader(value = "X-Progress-Id", required = false) String progressId
     );
 
     @Operation(
@@ -122,7 +125,10 @@ public interface ReleaseVersionControllerDocs {
             @RequestPart("patchFiles") MultipartFile patchFiles,
 
             @Parameter(description = "JWT 토큰 (Bearer {token})", required = true)
-            @RequestHeader("Authorization") String authorization
+            @RequestHeader("Authorization") String authorization,
+
+            @Parameter(description = "진행 상황 추적 ID (UUID). 생략 가능 — 전달 시 GET /api/progress/{id} 로 polling 가능", required = false)
+            @RequestHeader(value = "X-Progress-Id", required = false) String progressId
     );
 
     @Operation(
@@ -830,7 +836,9 @@ public interface ReleaseVersionControllerDocs {
             @Parameter(description = "빌드 ZIP 파일 (web/engine/etc 루트만 허용). 미동봉 시 빌드 행만 생성")
             @RequestPart(value = "file", required = false) MultipartFile file,
             @Parameter(description = "JWT 인증 토큰", required = true, example = "Bearer eyJhbGciOiJIUzI1NiIs...")
-            @RequestHeader("Authorization") String authorization
+            @RequestHeader("Authorization") String authorization,
+            @Parameter(description = "진행 상황 추적 ID (UUID). 생략 가능 — 전달 시 GET /api/progress/{id} 로 polling 가능", required = false)
+            @RequestHeader(value = "X-Progress-Id", required = false) String progressId
     );
 
     @Operation(

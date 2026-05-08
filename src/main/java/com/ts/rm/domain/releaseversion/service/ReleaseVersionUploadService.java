@@ -23,6 +23,7 @@ import com.ts.rm.domain.account.entity.Account;
 import com.ts.rm.global.account.AccountLookupService;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
+import com.ts.rm.global.progress.ServerProgressService;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -153,10 +154,13 @@ public class ReleaseVersionUploadService {
     @Transactional
     public ReleaseVersionDto.CreateVersionResponse createStandardVersionWithZip(
             String projectId, String version, String comment,
-            MultipartFile zipFile, String createdByEmail, Boolean isApproved) {
+            MultipartFile zipFile, String createdByEmail, Boolean isApproved,
+            ServerProgressService progress) {
 
         log.info("ZIP 파일로 표준 릴리즈 버전 생성 시작 - projectId: {}, version: {}, createdByEmail: {}, isApproved: {}",
                 projectId, version, createdByEmail, isApproved);
+
+        final int TOTAL_STEPS = 5;
 
         // 0. 프로젝트 조회
         Project project = projectRepository.findById(projectId)
@@ -177,22 +181,30 @@ public class ReleaseVersionUploadService {
         Path versionPath = null;
 
         try {
-            // 3. 임시 디렉토리에 ZIP 압축 해제
+            // 1/5 ZIP 압축 해제
+            progress.update(1, TOTAL_STEPS, "ZIP 압축 해제 중");
             tempDir = extractZipToTempDirectory(zipFile);
 
-            // 4. ZIP 구조 검증 (패치본만 허용: database/, web/, engine/)
+            // 2/5 ZIP 구조 검증
+            progress.update(2, TOTAL_STEPS, "ZIP 구조 검증 중");
             validateZipStructure(tempDir);
 
-            // 5. 버전 디렉토리 생성
+            // 3/5 버전 디렉토리 생성
+            progress.update(3, TOTAL_STEPS, "버전 디렉토리 생성 중");
             versionPath = fileSystemService.createVersionDirectory(versionInfo, projectId);
 
-            // 6. 파일 복사 및 DB 저장
+            // 4/5 파일 복사 및 DB 저장
+            progress.update(4, TOTAL_STEPS, "파일 복사 및 DB 저장 중");
             ReleaseVersion savedVersion = copyFilesAndSaveToDb(project, tempDir, versionPath, versionInfo, createdByEmail, comment, isApproved);
 
             log.info("ZIP 파일로 표준 릴리즈 버전 생성 완료 - projectId: {}, version: {}, ID: {}, isApproved: {}",
                     projectId, version, savedVersion.getReleaseVersionId(), savedVersion.getIsApproved());
 
-            // 7. 응답 생성
+            // 5/5 마무리 정리
+            progress.update(5, TOTAL_STEPS, "마무리 정리 중");
+            progress.complete(TOTAL_STEPS);
+
+            // 응답 생성
             return new ReleaseVersionDto.CreateVersionResponse(
                     savedVersion.getReleaseVersionId(),
                     projectId,
@@ -214,6 +226,7 @@ public class ReleaseVersionUploadService {
             if (versionPath != null) {
                 fileSystemService.deleteDirectory(versionPath);
             }
+            progress.fail(e.getMessage());
             throw e;
         } catch (Exception e) {
             // 생성된 버전 디렉토리 롤백
@@ -221,6 +234,7 @@ public class ReleaseVersionUploadService {
                 fileSystemService.deleteDirectory(versionPath);
             }
             log.error("ZIP 파일로 버전 생성 실패: {}", version, e);
+            progress.fail(e.getMessage());
             throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
                     "버전 생성 중 오류가 발생했습니다: " + e.getMessage());
         } finally {
@@ -241,11 +255,14 @@ public class ReleaseVersionUploadService {
      */
     @Transactional
     public ReleaseVersionDto.CreateCustomVersionResponse createCustomVersionWithZip(
-            ReleaseVersionDto.CreateCustomVersionRequest request, MultipartFile zipFile, String createdByEmail) {
+            ReleaseVersionDto.CreateCustomVersionRequest request, MultipartFile zipFile, String createdByEmail,
+            ServerProgressService progress) {
 
         log.info("ZIP 파일로 커스텀 릴리즈 버전 생성 시작 - projectId: {}, customerId: {}, customBaseVersionId: {}, customVersion: {}, createdByEmail: {}, isApproved: {}",
                 request.projectId(), request.customerId(), request.customBaseVersionId(), request.customVersion(),
                 createdByEmail, request.isApproved());
+
+        final int TOTAL_STEPS = 5;
 
         // 0. 프로젝트 조회
         Project project = projectRepository.findById(request.projectId())
@@ -317,17 +334,21 @@ public class ReleaseVersionUploadService {
         Path versionPath = null;
 
         try {
-            // 7. 임시 디렉토리에 ZIP 압축 해제
+            // 1/5 ZIP 압축 해제
+            progress.update(1, TOTAL_STEPS, "ZIP 압축 해제 중");
             tempDir = extractZipToTempDirectory(zipFile);
 
-            // 8. ZIP 구조 검증 (패치본만 허용: database/, web/, engine/)
+            // 2/5 ZIP 구조 검증
+            progress.update(2, TOTAL_STEPS, "ZIP 구조 검증 중");
             validateZipStructure(tempDir);
 
-            // 9. 커스텀 버전 디렉토리 생성 (전체 버전 형식 사용)
+            // 3/5 커스텀 버전 디렉토리 생성
+            progress.update(3, TOTAL_STEPS, "버전 디렉토리 생성 중");
             versionPath = fileSystemService.createCustomVersionDirectory(
                     request.projectId(), customer.getCustomerCode(), customMajorMinor, fullVersion);
 
-            // 10. 파일 복사 및 DB 저장
+            // 4/5 파일 복사 및 DB 저장
+            progress.update(4, TOTAL_STEPS, "파일 복사 및 DB 저장 중");
             ReleaseVersion savedVersion = copyFilesAndSaveToDbForCustomVersion(
                     project, customer, customBaseVersion, tempDir, versionPath,
                     customMajorVersion, customMinorVersion, customPatchVersion,
@@ -336,7 +357,11 @@ public class ReleaseVersionUploadService {
             log.info("ZIP 파일로 커스텀 릴리즈 버전 생성 완료 - projectId: {}, customerId: {}, version: {}, ID: {}, isApproved: {}",
                     request.projectId(), request.customerId(), fullVersion, savedVersion.getReleaseVersionId(), savedVersion.getIsApproved());
 
-            // 11. 응답 생성
+            // 5/5 마무리 정리
+            progress.update(5, TOTAL_STEPS, "마무리 정리 중");
+            progress.complete(TOTAL_STEPS);
+
+            // 응답 생성
             return new ReleaseVersionDto.CreateCustomVersionResponse(
                     savedVersion.getReleaseVersionId(),
                     request.projectId(),
@@ -360,6 +385,7 @@ public class ReleaseVersionUploadService {
             if (versionPath != null) {
                 fileSystemService.deleteDirectory(versionPath);
             }
+            progress.fail(e.getMessage());
             throw e;
         } catch (Exception e) {
             // 생성된 버전 디렉토리 롤백
@@ -367,6 +393,7 @@ public class ReleaseVersionUploadService {
                 fileSystemService.deleteDirectory(versionPath);
             }
             log.error("ZIP 파일로 커스텀 버전 생성 실패: {}", fullVersion, e);
+            progress.fail(e.getMessage());
             throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
                     "커스텀 버전 생성 중 오류가 발생했습니다: " + e.getMessage());
         } finally {
