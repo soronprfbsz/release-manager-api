@@ -8,6 +8,7 @@ import com.ts.rm.domain.releasefile.mapper.ReleaseFileDtoMapper;
 import com.ts.rm.domain.releasefile.repository.ReleaseFileRepository;
 import com.ts.rm.domain.releaseversion.entity.ReleaseVersion;
 import com.ts.rm.domain.releaseversion.repository.ReleaseVersionRepository;
+import com.ts.rm.domain.releaseversion.service.ReleaseVersionFileSystemService;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
 import com.ts.rm.global.file.FileContentUtil;
@@ -19,6 +20,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.Resource;
@@ -42,6 +44,7 @@ public class ReleaseFileService {
     private final ReleaseFileDtoMapper mapper;
     private final FileStorageService fileStorageService;
     private final ReleaseFileUploadService uploadService;
+    private final ReleaseVersionFileSystemService fileSystemService;
 
     /**
      * 릴리즈 파일 메타데이터 생성 (물리적 파일 없이)
@@ -235,6 +238,18 @@ public class ReleaseFileService {
 
         ReleaseVersion releaseVersion = findReleaseVersionById(versionId);
 
+        // 빌드 버전은 release_file row 가 없으므로 디렉토리 walk 로 직접 스트리밍
+        if (releaseVersion.isBuild()) {
+            List<ZipFileEntry> buildEntries = buildZipEntriesFromBuildDirectory(releaseVersion);
+            validateFilesExist(buildEntries);
+            log.info("빌드 스트리밍 ZIP 압축 시작 - 버전: {}, 파일 개수: {}",
+                    releaseVersion.getFullVersion(), buildEntries.size());
+            StreamingZipUtil.compressFilesToStream(outputStream, buildEntries);
+            log.info("빌드 {} 스트리밍 압축 완료 - {} 개 파일",
+                    releaseVersion.getFullVersion(), buildEntries.size());
+            return;
+        }
+
         List<ReleaseFile> releaseFiles = releaseFileRepository
                 .findAllByReleaseVersion_ReleaseVersionIdOrderByExecutionOrderAsc(versionId);
 
@@ -291,6 +306,40 @@ public class ReleaseFileService {
     }
 
     /**
+     * 빌드 디렉토리를 walk 하여 ZipFileEntry 목록 생성.
+     *
+     * <p>빌드 버전은 release_file row 를 저장하지 않으므로
+     * 빌드 베이스 디렉토리를 직접 탐색하여 엔트리를 구성한다.
+     * ZIP 내 경로는 빌드 베이스 디렉토리 기준 상대경로 (예: web/app.war).
+     *
+     * @param buildVersion 빌드 버전 엔티티
+     * @return ZIP 엔트리 목록 (비어 있으면 BusinessException)
+     */
+    private List<ZipFileEntry> buildZipEntriesFromBuildDirectory(ReleaseVersion buildVersion) {
+        Path buildBasePath = fileSystemService.resolveBuildBasePath(buildVersion);
+        if (!Files.isDirectory(buildBasePath)) {
+            throw new BusinessException(ErrorCode.DATA_NOT_FOUND,
+                    "빌드 " + buildVersion.getFullVersion() + "에 파일이 없습니다");
+        }
+        List<ZipFileEntry> entries = new ArrayList<>();
+        try (Stream<Path> stream = Files.walk(buildBasePath)) {
+            stream.filter(Files::isRegularFile).forEach(p -> {
+                // ZIP 내 경로는 빌드 베이스 디렉토리 기준 상대경로 (역슬래시 정규화)
+                String rel = buildBasePath.relativize(p).toString().replace('\\', '/');
+                entries.add(new ZipFileEntry(p, rel));
+            });
+        } catch (IOException e) {
+            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                    "빌드 디렉토리 탐색 실패: " + e.getMessage());
+        }
+        if (entries.isEmpty()) {
+            throw new BusinessException(ErrorCode.DATA_NOT_FOUND,
+                    "빌드 " + buildVersion.getFullVersion() + "에 파일이 없습니다");
+        }
+        return entries;
+    }
+
+    /**
      * ZIP 엔트리 파일들의 존재 여부 검증
      *
      * <p>스트리밍 시작 전에 모든 파일이 존재하는지 확인합니다.
@@ -334,6 +383,34 @@ public class ReleaseFileService {
         log.debug("압축 전 크기 계산 시작 - versionId: {}", versionId);
 
         ReleaseVersion releaseVersion = findReleaseVersionById(versionId);
+
+        // 빌드 버전은 release_file row 가 없으므로 디렉토리 walk 로 크기 합산
+        if (releaseVersion.isBuild()) {
+            Path buildBasePath = fileSystemService.resolveBuildBasePath(releaseVersion);
+            if (!Files.isDirectory(buildBasePath)) {
+                throw new BusinessException(ErrorCode.DATA_NOT_FOUND,
+                        "빌드 " + releaseVersion.getFullVersion() + "에 파일이 없습니다");
+            }
+            try (Stream<Path> stream = Files.walk(buildBasePath)) {
+                long totalSize = stream
+                        .filter(Files::isRegularFile)
+                        .mapToLong(p -> {
+                            try {
+                                return Files.size(p);
+                            } catch (IOException e) {
+                                log.warn("빌드 파일 크기 조회 실패 - {}: {}", p, e.getMessage());
+                                return 0L;
+                            }
+                        })
+                        .sum();
+                log.info("빌드 압축 전 총 크기 계산 완료 - versionId: {}, totalSize: {} bytes ({} MB)",
+                        versionId, totalSize, totalSize / (1024.0 * 1024.0));
+                return totalSize;
+            } catch (IOException e) {
+                throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                        "빌드 디렉토리 크기 계산 실패: " + e.getMessage());
+            }
+        }
 
         List<ReleaseFile> releaseFiles = releaseFileRepository
                 .findAllByReleaseVersion_ReleaseVersionIdOrderByExecutionOrderAsc(versionId);
