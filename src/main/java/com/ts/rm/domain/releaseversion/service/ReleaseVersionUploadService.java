@@ -680,10 +680,12 @@ public class ReleaseVersionUploadService {
      * <p>허용 폴더: database/, web/, engine/
      */
     public void validateZipStructure(Path tempDir) throws IOException {
-        // 패치본 허용 카테고리: DATABASE, WEB, ENGINE
-        List<FileCategory> allowedCategories = List.of(FileCategory.DATABASE, FileCategory.WEB, FileCategory.ENGINE);
+        // release version ZIP 허용 카테고리: DATABASE, WEB, ENGINE, ETC
+        // (빌드 산출물은 build ZIP 으로 별도 등록 — BuildZipValidator 가 web/engine 만 허용)
+        List<FileCategory> allowedCategories = List.of(
+                FileCategory.DATABASE, FileCategory.WEB, FileCategory.ENGINE, FileCategory.ETC);
 
-        // 최상위 디렉토리에서 유효한 카테고리 폴더 확인
+        // 최상위 디렉토리에서 유효한 카테고리 폴더 확인 (대소문자 무관, FileCategory.fromCode 가 대문자 정규화)
         List<String> foundCategories = Files.list(tempDir)
                 .filter(Files::isDirectory)
                 .map(path -> path.getFileName().toString().toUpperCase())
@@ -699,7 +701,7 @@ public class ReleaseVersionUploadService {
 
         if (foundCategories.isEmpty()) {
             throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
-                    "ZIP 파일에 유효한 카테고리 폴더가 없습니다. 다음 폴더 중 하나 이상 필요: database/, web/, engine/");
+                    "ZIP 파일에 유효한 카테고리 폴더가 없습니다. 다음 폴더 중 하나 이상 필요: database/, web/, engine/, etc/");
         }
 
         // 허용되지 않은 카테고리 폴더가 있는지 확인
@@ -707,7 +709,7 @@ public class ReleaseVersionUploadService {
             FileCategory fileCategory = FileCategory.fromCode(foundCategory);
             if (!allowedCategories.contains(fileCategory)) {
                 throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
-                        String.format("'%s/' 폴더는 허용되지 않습니다. 허용된 폴더: database/, web/, engine/",
+                        String.format("'%s/' 폴더는 허용되지 않습니다. 허용된 폴더: database/, web/, engine/, etc/",
                                 foundCategory.toLowerCase()));
             }
         }
