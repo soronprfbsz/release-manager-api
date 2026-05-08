@@ -167,21 +167,12 @@ echo "포함된 버전 개수: {{VERSION_COUNT}}"
 echo "로그 파일: $LOG_FILE"
 echo ""
 
-# 패치 적용 담당자 입력
+# 패치 적용 담당자 (패치 생성 시 자동 주입, 미지정 시 undefined)
+APPLIED_BY="${DEFAULT_PATCHED_BY:-undefined}"
 echo "=========================================="
-echo "버전 이력 관리를 위한 정보 입력"
+echo "버전 이력 관리 정보"
 echo "=========================================="
-# 기본값이 있으면 표시
-if [ -n "$DEFAULT_PATCHED_BY" ]; then
-    read -p "패치 적용 담당자 [$DEFAULT_PATCHED_BY]: " APPLIED_BY
-    APPLIED_BY=${APPLIED_BY:-$DEFAULT_PATCHED_BY}
-else
-    read -p "패치 적용 담당자 (예: your_name@tscientific.co.kr): " APPLIED_BY
-fi
-if [ -z "$APPLIED_BY" ]; then
-    log_error "패치 적용 담당자는 필수 입력값입니다."
-    exit 1
-fi
+echo "패치 적용 담당자: $APPLIED_BY"
 log_to_file "패치 적용 담당자: $APPLIED_BY"
 echo ""
 
