@@ -1002,7 +1002,13 @@ public class PatchGenerationService {
 
                         // ENGINE 공유 자산: EngineNameClassifier 통과 실패 = 공유 자산
                         if (file.getFileCategory() == FileCategory.ENGINE) {
-                            String subCategory = file.getSubCategory() != null ? file.getSubCategory() : "ETC";
+                            // ENGINE 카테고리에서 sub_category 가 비어있으면 file_name 으로 fallback.
+                            // (이전 fallback "ETC" 는 SubCategoryValidator 의 ENGINE 화이트리스트에
+                            //  포함되어 있어 isEngineFile=true 가 되고, 누적 skip 되는 부작용이 있었음.
+                            //  file_name 으로 두면 isEngineFile 검사가 정상적으로 확장자/prefix 따라 분기)
+                            String subCategory = file.getSubCategory() != null
+                                    ? file.getSubCategory()
+                                    : file.getFileName();
                             boolean isEngine = EngineNameClassifier.isEngineFile(subCategory);
                             if (!isEngine && !lastVersionIdByEngineSubCategory.containsKey(subCategory)) {
                                 lastVersionIdByEngineSubCategory.put(subCategory, v.getReleaseVersionId());
@@ -1042,7 +1048,13 @@ public class PatchGenerationService {
                         // ENGINE: picker 점유 엔진 또는 EngineNameClassifier 통과 엔진 → skip
                         //         공유 자산은 sub_category 별 마지막 버전만 포함
                         if (file.getFileCategory() == FileCategory.ENGINE) {
-                            String subCategory = file.getSubCategory() != null ? file.getSubCategory() : "ETC";
+                            // ENGINE 카테고리에서 sub_category 가 비어있으면 file_name 으로 fallback.
+                            // (이전 fallback "ETC" 는 SubCategoryValidator 의 ENGINE 화이트리스트에
+                            //  포함되어 있어 isEngineFile=true 가 되고, 누적 skip 되는 부작용이 있었음.
+                            //  file_name 으로 두면 isEngineFile 검사가 정상적으로 확장자/prefix 따라 분기)
+                            String subCategory = file.getSubCategory() != null
+                                    ? file.getSubCategory()
+                                    : file.getFileName();
 
                             // (1) picker 가 점유한 엔진 → picker 단계가 처리
                             boolean isPickerEngine = pickerEngineNames.stream()
