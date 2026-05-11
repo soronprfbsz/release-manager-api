@@ -22,4 +22,4 @@ CREATE TABLE customer_site_version (
     INDEX idx_csv_customer_project (customer_id, project_id),
     CONSTRAINT fk_csv_customer FOREIGN KEY (customer_id) REFERENCES customer (customer_id),
     CONSTRAINT fk_csv_project  FOREIGN KEY (project_id)  REFERENCES project  (project_id)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
