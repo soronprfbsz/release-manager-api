@@ -13,4 +13,12 @@ import org.springframework.stereotype.Repository;
 public interface PatchHistoryRepository extends JpaRepository<PatchHistory, Long>,
         PatchHistoryRepositoryCustom {
 
+    /**
+     * 고객사의 모든 패치 이력 삭제 (고객사 초기화용).
+     *
+     * @param customerId 고객사 ID
+     * @return 삭제된 건수
+     */
+    long deleteAllByCustomer_CustomerId(Long customerId);
+
 }

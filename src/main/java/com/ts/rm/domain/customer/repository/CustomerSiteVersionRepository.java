@@ -32,4 +32,19 @@ public interface CustomerSiteVersionRepository extends JpaRepository<CustomerSit
      */
     List<CustomerSiteVersion> findAllByCustomer_CustomerIdAndProject_ProjectIdOrderByComponent(
             Long customerId, String projectId);
+
+    /**
+     * 고객사의 사이트 버전 건수 조회 (초기화 전 카운트용).
+     *
+     * @param customerId 고객사 ID
+     * @return 건수
+     */
+    long countByCustomer_CustomerId(Long customerId);
+
+    /**
+     * 고객사의 모든 사이트 버전 삭제 (고객사 초기화용).
+     *
+     * @param customerId 고객사 ID
+     */
+    void deleteAllByCustomer_CustomerId(Long customerId);
 }

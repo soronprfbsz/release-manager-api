@@ -7,6 +7,8 @@ import com.ts.rm.domain.customer.entity.CustomerProject;
 import com.ts.rm.domain.customer.mapper.CustomerDtoMapper;
 import com.ts.rm.domain.customer.repository.CustomerProjectRepository;
 import com.ts.rm.domain.customer.repository.CustomerRepository;
+import com.ts.rm.domain.customer.repository.CustomerSiteVersionRepository;
+import com.ts.rm.domain.patch.repository.PatchHistoryRepository;
 import com.ts.rm.domain.project.entity.Project;
 import com.ts.rm.domain.project.repository.ProjectRepository;
 import com.ts.rm.domain.releaseversion.repository.ReleaseVersionRepository;
@@ -35,6 +37,8 @@ public class CustomerService {
 
     private final CustomerRepository customerRepository;
     private final CustomerProjectRepository customerProjectRepository;
+    private final CustomerSiteVersionRepository customerSiteVersionRepository;
+    private final PatchHistoryRepository patchHistoryRepository;
     private final ProjectRepository projectRepository;
     private final ReleaseVersionRepository releaseVersionRepository;
     private final CustomerDtoMapper mapper;
@@ -221,6 +225,45 @@ public class CustomerService {
         customerRepository.delete(customer);
 
         log.info("Customer deleted successfully with customerId: {}", customerId);
+    }
+
+    /**
+     * 고객사 패치 상태 초기화 (ADMIN 전용)
+     *
+     * <p>customer_site_version, customer_project(last_patched_*), patch_history 를 초기화한다.
+     * patch_file 은 건드리지 않는다.
+     *
+     * @param customerId  초기화 대상 고객사 ID
+     * @param requestorEmail 요청자 이메일 (로그용)
+     * @return 각 테이블별 삭제/초기화 건수
+     */
+    @Transactional
+    public CustomerDto.ResetPatchStateResponse resetPatchState(Long customerId, String requestorEmail) {
+        log.info("고객사 패치 상태 초기화 요청 - customerId: {}, 요청자: {}", customerId, requestorEmail);
+
+        // 고객사 존재 검증
+        findCustomerById(customerId);
+
+        // 1) customer_site_version 삭제
+        long siteVersionCount = customerSiteVersionRepository.countByCustomer_CustomerId(customerId);
+        customerSiteVersionRepository.deleteAllByCustomer_CustomerId(customerId);
+        log.info("customer_site_version 삭제 완료 - customerId: {}, 건수: {}", customerId, siteVersionCount);
+
+        // 2) customer_project last_patched_* 초기화
+        List<CustomerProject> customerProjects = customerProjectRepository.findAllByCustomer_CustomerId(customerId);
+        customerProjects.forEach(cp -> cp.updateLastPatchInfo(null, null));
+        log.info("customer_project 초기화 완료 - customerId: {}, 건수: {}", customerId, customerProjects.size());
+
+        // 3) patch_history 삭제
+        long patchHistoryCount = patchHistoryRepository.deleteAllByCustomer_CustomerId(customerId);
+        log.info("patch_history 삭제 완료 - customerId: {}, 건수: {}, 요청자: {}",
+                customerId, patchHistoryCount, requestorEmail);
+
+        return new CustomerDto.ResetPatchStateResponse(
+                siteVersionCount,
+                customerProjects.size(),
+                patchHistoryCount
+        );
     }
 
     // === Private Helper Methods ===

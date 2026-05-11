@@ -204,4 +204,22 @@ public final class CustomerDto {
     ) {
 
     }
+
+    /**
+     * 고객사 초기화 결과 응답 DTO.
+     *
+     * <p>삭제된 건수를 각 테이블별로 반환
+     */
+    public record ResetPatchStateResponse(
+            @Schema(description = "삭제된 사이트 버전 건수", example = "3")
+            long deletedSiteVersionCount,
+
+            @Schema(description = "초기화된 customer_project 건수", example = "1")
+            long resetCustomerProjectCount,
+
+            @Schema(description = "삭제된 패치 이력 건수", example = "10")
+            long deletedPatchHistoryCount
+    ) {
+
+    }
 }

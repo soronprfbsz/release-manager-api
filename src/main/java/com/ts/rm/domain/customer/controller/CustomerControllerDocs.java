@@ -121,6 +121,31 @@ public interface CustomerControllerDocs {
             @PathVariable Long id
     );
 
+    @Operation(
+            summary = "고객사 패치 상태 초기화 (ADMIN 전용)",
+            description = "고객사의 패치 관련 데이터를 초기화합니다. " +
+                    "customer_site_version 삭제, customer_project.last_patched_* 초기화, patch_history 삭제를 수행합니다. " +
+                    "ADMIN 권한만 실행 가능합니다.",
+            responses = {
+                    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                            responseCode = "200",
+                            description = "초기화 성공",
+                            content = @Content(
+                                    mediaType = "application/json",
+                                    schema = @Schema(implementation = CustomerResetApiResponse.class)
+                            )
+                    ),
+                    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                            responseCode = "403",
+                            description = "권한 없음 (ADMIN 전용)"
+                    )
+            }
+    )
+    ResponseEntity<ApiResponse<CustomerDto.ResetPatchStateResponse>> resetPatchState(
+            @Parameter(description = "초기화할 고객사 ID", required = true)
+            @PathVariable Long customerId
+    );
+
     /**
      * Swagger 스키마용 wrapper 클래스 - 고객사 상세 응답
      */
@@ -161,5 +186,17 @@ public interface CustomerControllerDocs {
             @Schema(description = "현재 페이지 번호 (0부터 시작)", example = "0")
             public int number;
         }
+    }
+
+    /**
+     * Swagger 스키마용 wrapper 클래스 - 고객사 초기화 응답
+     */
+    @Schema(description = "고객사 패치 상태 초기화 API 응답")
+    class CustomerResetApiResponse {
+        @Schema(description = "응답 상태", example = "success")
+        public String status;
+
+        @Schema(description = "초기화 결과")
+        public CustomerDto.ResetPatchStateResponse data;
     }
 }

@@ -2,6 +2,8 @@ package com.ts.rm.domain.customer.controller;
 
 import com.ts.rm.domain.customer.dto.CustomerDto;
 import com.ts.rm.domain.customer.service.CustomerService;
+import com.ts.rm.global.exception.BusinessException;
+import com.ts.rm.global.exception.ErrorCode;
 import com.ts.rm.global.response.ApiResponse;
 import com.ts.rm.global.security.SecurityUtil;
 import com.ts.rm.global.security.TokenInfo;
@@ -128,6 +130,32 @@ public class CustomerController implements CustomerControllerDocs {
     public ResponseEntity<ApiResponse<Void>> deleteCustomer(@PathVariable Long id) {
         customerService.deleteCustomer(id);
         return ResponseEntity.ok(ApiResponse.success(null));
+    }
+
+    /**
+     * 고객사 패치 상태 초기화 (ADMIN 전용)
+     *
+     * <p>customer_site_version / customer_project last_patched_* / patch_history 를 삭제·초기화한다.
+     *
+     * @param customerId 고객사 ID
+     * @return 각 테이블별 처리 건수
+     */
+    @Override
+    @PostMapping("/{customerId}/reset-patch-state")
+    public ResponseEntity<ApiResponse<CustomerDto.ResetPatchStateResponse>> resetPatchState(
+            @PathVariable Long customerId) {
+
+        TokenInfo tokenInfo = SecurityUtil.getTokenInfo();
+        log.info("고객사 패치 상태 초기화 요청 - customerId: {}, role: {}, email: {}",
+                customerId, tokenInfo.role(), tokenInfo.email());
+
+        if (!"ADMIN".equals(tokenInfo.role())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "ADMIN 권한만 고객사 초기화를 실행할 수 있습니다.");
+        }
+
+        CustomerDto.ResetPatchStateResponse response =
+                customerService.resetPatchState(customerId, tokenInfo.email());
+        return ResponseEntity.ok(ApiResponse.success(response));
     }
 
 }
