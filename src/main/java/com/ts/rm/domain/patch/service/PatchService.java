@@ -4,6 +4,7 @@ import com.ts.rm.domain.customer.entity.Customer;
 import com.ts.rm.domain.customer.entity.CustomerProject;
 import com.ts.rm.domain.customer.repository.CustomerProjectRepository;
 import com.ts.rm.domain.customer.repository.CustomerRepository;
+import com.ts.rm.domain.customer.service.CustomerSiteVersionService;
 import com.ts.rm.domain.patch.dto.PatchDto;
 import com.ts.rm.domain.patch.entity.Patch;
 import com.ts.rm.domain.patch.entity.PatchIncludedBuild;
@@ -23,9 +24,12 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -51,9 +55,13 @@ public class PatchService {
     private final PatchGenerationService patchGenerationService;
     private final PatchDownloadService patchDownloadService;
     private final PatchHistoryService patchHistoryService;
+    private final CustomerSiteVersionService customerSiteVersionService;
     private final ReleaseVersionRepository releaseVersionRepository;
     private final CustomerRepository customerRepository;
     private final CustomerProjectRepository customerProjectRepository;
+
+    /** BASE 버전 추출 정규식 (major.minor.patch) */
+    private static final Pattern BASE_VERSION_PATTERN = Pattern.compile("^(\\d+\\.\\d+\\.\\d+)");
 
     @Value("${app.release.base-path:data/release-manager}")
     private String releaseBasePath;
@@ -261,10 +269,11 @@ public class PatchService {
         // 2. 패치 이력 영구 저장 (완료 시점)
         patchHistoryService.saveFromPatch(patch, completedBy, now);
 
-        // 3. CustomerProject.last_patched_* 갱신 (고객사 지정 패치인 경우만)
+        // 3. 고객사 지정 패치인 경우 — CustomerProject 갱신 + 사이트 버전 upsert
         if (patch.getCustomer() != null) {
             updateCustomerProjectPatchInfo(patch.getCustomer(), patch.getProject(),
                     patch.getToVersion(), now);
+            applyCustomerSiteVersions(patch, completedBy, now);
         }
 
         // 4. 디스크 패치 디렉토리 삭제
@@ -316,6 +325,68 @@ public class PatchService {
 
         log.info("CustomerProject 업데이트 완료 - customerId: {}, projectId: {}, lastPatchedVersion: {}",
                 customer.getCustomerId(), project.getProjectId(), toVersion);
+    }
+
+    /**
+     * 패치 완료 시 사이트별 컴포넌트 버전 upsert.
+     *
+     * <ul>
+     *   <li>BASE — to_version 에서 major.minor.patch 추출하여 항상 갱신</li>
+     *   <li>WEB  — 빌드 포함 패치인 경우 patch_included_build 의 WEB fullVersion 으로 갱신</li>
+     *   <li>ENGINE — 빌드 포함 패치인 경우 ENGINE fullVersion 중 사전식 최댓값으로 갱신</li>
+     * </ul>
+     * 빌드 미포함 패치는 BASE 만 갱신, WEB/ENGINE 은 이전 값 유지 (사용자 의도).
+     *
+     * @param patch     완료 처리된 패치
+     * @param updatedBy 갱신자 이메일
+     * @param now       갱신 일시
+     */
+    private void applyCustomerSiteVersions(Patch patch, String updatedBy, LocalDateTime now) {
+        Long customerId = patch.getCustomer().getCustomerId();
+        String projectId = patch.getProject().getProjectId();
+
+        // 1) BASE — to_version 에서 major.minor.patch 추출하여 항상 갱신
+        String baseVersion = extractBaseVersion(patch.getToVersion());
+        customerSiteVersionService.upsert(customerId, projectId, "BASE", baseVersion, updatedBy, now);
+
+        // 2) 빌드 포함 패치인 경우 WEB / ENGINE 갱신
+        if (Boolean.TRUE.equals(patch.getIsBuildIncluded())) {
+            List<PatchIncludedBuild> builds =
+                    patchIncludedBuildRepository.findAllByPatch_PatchIdOrderByPatchIncludedBuildIdAsc(
+                            patch.getPatchId());
+
+            // WEB: 통상 1개. 있으면 그 fullVersion 으로 갱신
+            builds.stream()
+                    .filter(b -> "WEB".equals(b.getKind()))
+                    .map(PatchIncludedBuild::getFullVersion)
+                    .findFirst()
+                    .ifPresent(v -> customerSiteVersionService.upsert(
+                            customerId, projectId, "WEB", v, updatedBy, now));
+
+            // ENGINE: N개일 수 있음. fullVersion 사전식 최댓값으로 갱신
+            builds.stream()
+                    .filter(b -> "ENGINE".equals(b.getKind()))
+                    .map(PatchIncludedBuild::getFullVersion)
+                    .max(Comparator.naturalOrder())
+                    .ifPresent(v -> customerSiteVersionService.upsert(
+                            customerId, projectId, "ENGINE", v, updatedBy, now));
+        }
+    }
+
+    /**
+     * 버전 문자열에서 BASE 버전(major.minor.patch)만 추출.
+     *
+     * <p>예: "1.1.0.260511-1" → "1.1.0", "1.1.0" → "1.1.0"
+     *
+     * @param toVersion 패치 to_version 문자열
+     * @return major.minor.patch 형태 문자열 (파싱 실패 시 원본 반환)
+     */
+    private String extractBaseVersion(String toVersion) {
+        if (toVersion == null) {
+            return null;
+        }
+        Matcher m = BASE_VERSION_PATTERN.matcher(toVersion);
+        return m.find() ? m.group(1) : toVersion;
     }
 
     /**
