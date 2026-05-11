@@ -7,6 +7,7 @@ import com.ts.rm.domain.patch.repository.PatchHistoryRepository;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
 import com.ts.rm.global.pagination.PageRowNumberUtil;
+import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -27,19 +28,22 @@ public class PatchHistoryService {
     private final PatchHistoryRepository patchHistoryRepository;
 
     /**
-     * 패치 이력 저장
+     * 패치 완료 시점 이력 저장 (영구 보존)
      *
-     * <p>Patch 생성 시 호출되어 이력을 영구 보존
+     * <p>패치 완료(적용) 시 호출되어 이력을 영구 보존합니다.
+     * 완료 처리자와 완료 일시를 함께 기록합니다.
      *
-     * @param patch 생성된 Patch 엔티티
+     * @param patch       완료 처리할 Patch 엔티티
+     * @param completedBy 완료 처리자 이메일
+     * @param completedAt 완료 일시
      * @return 저장된 PatchHistory 엔티티
      */
     @Transactional
-    public PatchHistory saveHistory(Patch patch) {
-        PatchHistory history = PatchHistory.fromPatch(patch);
+    public PatchHistory saveFromPatch(Patch patch, String completedBy, LocalDateTime completedAt) {
+        PatchHistory history = PatchHistory.fromPatch(patch, completedBy, completedAt);
         PatchHistory savedHistory = patchHistoryRepository.save(history);
-        log.info("패치 이력 저장 완료 - historyId: {}, patchName: {}",
-                savedHistory.getHistoryId(), savedHistory.getPatchName());
+        log.info("패치 이력 저장 완료 - historyId: {}, patchName: {}, completedBy: {}",
+                savedHistory.getHistoryId(), savedHistory.getPatchName(), completedBy);
         return savedHistory;
     }
 
@@ -104,7 +108,9 @@ public class PatchHistoryService {
                 history.getCreator() != null ? history.getCreator().getAvatarStyle() : null,
                 history.getCreator() != null ? history.getCreator().getAvatarSeed() : null,
                 history.getCreator() == null,
-                history.getCreatedAt()
+                history.getCreatedAt(),
+                history.getCompletedAt(),
+                history.getCompletedBy()
         );
     }
 }

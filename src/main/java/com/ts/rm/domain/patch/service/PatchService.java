@@ -1,6 +1,8 @@
 package com.ts.rm.domain.patch.service;
 
 import com.ts.rm.domain.customer.entity.Customer;
+import com.ts.rm.domain.customer.entity.CustomerProject;
+import com.ts.rm.domain.customer.repository.CustomerProjectRepository;
 import com.ts.rm.domain.customer.repository.CustomerRepository;
 import com.ts.rm.domain.patch.dto.PatchDto;
 import com.ts.rm.domain.patch.entity.Patch;
@@ -8,6 +10,7 @@ import com.ts.rm.domain.patch.entity.PatchIncludedBuild;
 import com.ts.rm.domain.patch.mapper.PatchDtoMapper;
 import com.ts.rm.domain.patch.repository.PatchIncludedBuildRepository;
 import com.ts.rm.domain.patch.repository.PatchRepository;
+import com.ts.rm.domain.project.entity.Project;
 import com.ts.rm.domain.releaseversion.entity.ReleaseVersion;
 import com.ts.rm.domain.releaseversion.repository.ReleaseVersionRepository;
 import com.ts.rm.global.exception.BusinessException;
@@ -18,6 +21,7 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -46,8 +50,10 @@ public class PatchService {
     private final PatchDtoMapper patchDtoMapper;
     private final PatchGenerationService patchGenerationService;
     private final PatchDownloadService patchDownloadService;
+    private final PatchHistoryService patchHistoryService;
     private final ReleaseVersionRepository releaseVersionRepository;
     private final CustomerRepository customerRepository;
+    private final CustomerProjectRepository customerProjectRepository;
 
     @Value("${app.release.base-path:data/release-manager}")
     private String releaseBasePath;
@@ -225,6 +231,91 @@ public class PatchService {
     public PatchDto.FileContentResponse getFileContent(Long patchId, String relativePath) {
         Patch patch = getPatch(patchId);
         return patchDownloadService.getFileContent(patch, relativePath);
+    }
+
+    /**
+     * 패치 완료 처리 (적용 완료)
+     *
+     * <p>처리 순서:
+     * <ol>
+     *   <li>패치 이력(patch_history) 영구 저장 — 완료 시점 / 완료자 기록</li>
+     *   <li>CustomerProject.last_patched_* 갱신 (고객사 지정 패치인 경우만)</li>
+     *   <li>디스크 패치 디렉토리 삭제</li>
+     *   <li>patch_file row 삭제</li>
+     * </ol>
+     *
+     * <p>row 삭제 후에는 patch_history 에서만 이력을 확인할 수 있습니다.
+     *
+     * @param patchId     완료 처리할 패치 ID
+     * @param completedBy 완료 처리자 이메일 (현재 로그인 사용자)
+     */
+    @Transactional
+    public void completePatch(Long patchId, String completedBy) {
+        // 1. 패치 조회
+        Patch patch = patchRepository.findById(patchId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.PATCH_NOT_FOUND,
+                        "패치를 찾을 수 없습니다: " + patchId));
+
+        LocalDateTime now = LocalDateTime.now();
+
+        // 2. 패치 이력 영구 저장 (완료 시점)
+        patchHistoryService.saveFromPatch(patch, completedBy, now);
+
+        // 3. CustomerProject.last_patched_* 갱신 (고객사 지정 패치인 경우만)
+        if (patch.getCustomer() != null) {
+            updateCustomerProjectPatchInfo(patch.getCustomer(), patch.getProject(),
+                    patch.getToVersion(), now);
+        }
+
+        // 4. 디스크 패치 디렉토리 삭제
+        Path patchDir = Paths.get(releaseBasePath, patch.getOutputPath());
+        if (Files.exists(patchDir)) {
+            try {
+                deleteDirectoryRecursively(patchDir);
+                log.info("패치 완료 — 디렉토리 삭제 완료: {}", patchDir.toAbsolutePath());
+            } catch (IOException e) {
+                log.error("패치 완료 — 디렉토리 삭제 실패: {}", patchDir, e);
+                throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                        "패치 파일 삭제 중 오류가 발생했습니다: " + e.getMessage());
+            }
+        } else {
+            log.warn("패치 완료 — 디렉토리가 이미 없음: {}", patchDir);
+        }
+
+        // 5. patch_file row 삭제
+        patchRepository.delete(patch);
+
+        log.info("패치 완료 처리 완료 - patchId: {}, patchName: {}, completedBy: {}",
+                patchId, patch.getPatchName(), completedBy);
+    }
+
+    /**
+     * CustomerProject 마지막 패치 정보 갱신
+     *
+     * <p>고객사-프로젝트 매핑이 없으면 새로 생성하고, 있으면 업데이트합니다.
+     * 패치 완료 시점에 호출됩니다.
+     *
+     * @param customer    고객사
+     * @param project     프로젝트
+     * @param toVersion   완료된 패치의 toVersion
+     * @param completedAt 완료 일시
+     */
+    private void updateCustomerProjectPatchInfo(Customer customer, Project project,
+            String toVersion, LocalDateTime completedAt) {
+        CustomerProject customerProject = customerProjectRepository
+                .findByCustomer_CustomerIdAndProject_ProjectId(
+                        customer.getCustomerId(), project.getProjectId())
+                .orElseGet(() -> {
+                    log.info("고객사-프로젝트 매핑 신규 생성 - customerId: {}, projectId: {}",
+                            customer.getCustomerId(), project.getProjectId());
+                    return CustomerProject.create(customer, project);
+                });
+
+        customerProject.updateLastPatchInfo(toVersion, completedAt);
+        customerProjectRepository.save(customerProject);
+
+        log.info("CustomerProject 업데이트 완료 - customerId: {}, projectId: {}, lastPatchedVersion: {}",
+                customer.getCustomerId(), project.getProjectId(), toVersion);
     }
 
     /**

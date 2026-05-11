@@ -96,9 +96,25 @@ public class PatchHistory {
     private LocalDateTime createdAt;
 
     /**
-     * Patch 엔티티로부터 PatchHistory 생성
+     * 패치 완료 일시
      */
-    public static PatchHistory fromPatch(Patch patch) {
+    @Column(name = "completed_at", nullable = false)
+    private LocalDateTime completedAt;
+
+    /**
+     * 패치 완료 처리자 이메일 (완료 시점 로그인 사용자)
+     */
+    @Column(name = "completed_by", length = 255)
+    private String completedBy;
+
+    /**
+     * Patch 엔티티로부터 PatchHistory 생성 (패치 완료 시점 호출)
+     *
+     * @param patch       완료 처리할 Patch 엔티티
+     * @param completedBy 완료 처리자 이메일
+     * @param completedAt 완료 일시
+     */
+    public static PatchHistory fromPatch(Patch patch, String completedBy, LocalDateTime completedAt) {
         return PatchHistory.builder()
                 .project(patch.getProject())
                 .releaseType(patch.getReleaseType())
@@ -111,6 +127,8 @@ public class PatchHistory {
                 .assigneeEmail(patch.getAssignee() != null ? patch.getAssignee().getEmail() : null)
                 .creator(patch.getCreator())
                 .createdByEmail(patch.getCreatedByEmail())
+                .completedBy(completedBy)
+                .completedAt(completedAt)
                 .build();
     }
 

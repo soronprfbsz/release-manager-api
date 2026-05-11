@@ -8,6 +8,7 @@ import com.ts.rm.global.progress.ServerProgressService;
 import com.ts.rm.domain.patch.service.PatchService;
 import com.ts.rm.global.file.HttpFileDownloadUtil;
 import com.ts.rm.global.response.ApiResponse;
+import com.ts.rm.global.security.SecurityUtil;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springdoc.core.annotations.ParameterObject;
 import jakarta.validation.Valid;
@@ -189,6 +190,22 @@ public class PatchController implements PatchControllerDocs {
         PatchDto.FileContentResponse response = patchService.getFileContent(id, path);
 
         return ApiResponse.success(response);
+    }
+
+    /**
+     * 패치 완료 처리 (적용 완료)
+     *
+     * <p>패치 이력 저장 → CustomerProject 갱신 → 디스크 삭제 → row 삭제 순으로 처리합니다.
+     */
+    @Override
+    @PostMapping("/{id}/complete")
+    public ApiResponse<Void> completePatch(@PathVariable Long id) {
+        log.info("패치 완료 요청 - ID: {}", id);
+
+        String completedBy = SecurityUtil.getTokenInfo().email();
+        patchService.completePatch(id, completedBy);
+
+        return ApiResponse.success(null);
     }
 
     /**

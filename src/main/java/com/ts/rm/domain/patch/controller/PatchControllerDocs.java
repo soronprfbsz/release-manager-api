@@ -246,6 +246,32 @@ public interface PatchControllerDocs {
     );
 
     @Operation(
+            summary = "패치 완료 처리",
+            description = "패치를 완료(적용) 처리합니다.\n\n"
+                    + "**처리 순서**:\n"
+                    + "1. 패치 이력(patch_history) 영구 저장 — 완료 일시 / 완료자 이메일 기록\n"
+                    + "2. 고객사 지정 패치인 경우 customer_project.last_patched_* 갱신\n"
+                    + "3. 디스크 패치 디렉토리 삭제\n"
+                    + "4. patch_file row 삭제\n\n"
+                    + "**주의사항**:\n"
+                    + "- 완료 처리 후에는 patch_history 에서만 이력을 확인할 수 있습니다.\n"
+                    + "- 패치 디렉토리 및 파일이 삭제되므로 다운로드가 불가능해집니다.",
+            responses = @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "성공",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(
+                                    example = "{\"status\": \"success\", \"data\": null}"
+                            )
+                    )
+            )
+    )
+    ApiResponse<Void> completePatch(
+            @PathVariable Long id
+    );
+
+    @Operation(
             summary = "패치 삭제",
             description = "패치를 삭제합니다.\n\n"
                     + "**삭제 범위**:\n"

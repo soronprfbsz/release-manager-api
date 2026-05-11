@@ -83,7 +83,13 @@ public final class PatchHistoryDto {
             Boolean isDeletedCreator,
 
             @Schema(description = "등록일시")
-            LocalDateTime createdAt
+            LocalDateTime createdAt,
+
+            @Schema(description = "완료 일시")
+            LocalDateTime completedAt,
+
+            @Schema(description = "완료 처리자 이메일", example = "admin@tscientific.com")
+            String completedBy
     ) {
 
     }
