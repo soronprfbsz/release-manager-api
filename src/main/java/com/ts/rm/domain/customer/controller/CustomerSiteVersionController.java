@@ -12,11 +12,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 사이트별 컴포넌트 현재 버전 조회 Controller
+ * 사이트별 컴포넌트 현재 버전 / 다음 패치 범위 조회 Controller
  */
 @Slf4j
 @RestController
-@RequestMapping("/api/customers/{customerId}/projects/{projectId}/site-versions")
+@RequestMapping("/api/customers/{customerId}/projects/{projectId}")
 @RequiredArgsConstructor
 public class CustomerSiteVersionController implements CustomerSiteVersionControllerDocs {
 
@@ -26,7 +26,7 @@ public class CustomerSiteVersionController implements CustomerSiteVersionControl
      * 사이트 컴포넌트 현재 버전 목록 조회
      */
     @Override
-    @GetMapping
+    @GetMapping("/site-versions")
     public ApiResponse<List<CustomerSiteVersionDto.SiteVersionResponse>> getSiteVersions(
             @PathVariable Long customerId,
             @PathVariable String projectId) {
@@ -35,6 +35,23 @@ public class CustomerSiteVersionController implements CustomerSiteVersionControl
 
         List<CustomerSiteVersionDto.SiteVersionResponse> response =
                 siteVersionService.findByCustomerAndProject(customerId, projectId);
+
+        return ApiResponse.success(response);
+    }
+
+    /**
+     * 패치 생성 폼 자동 채우기용 다음 패치 범위 제안
+     */
+    @Override
+    @GetMapping("/next-patch-range")
+    public ApiResponse<CustomerSiteVersionDto.NextPatchRangeResponse> getNextPatchRange(
+            @PathVariable Long customerId,
+            @PathVariable String projectId) {
+
+        log.info("다음 패치 범위 조회 요청 - customerId: {}, projectId: {}", customerId, projectId);
+
+        CustomerSiteVersionDto.NextPatchRangeResponse response =
+                siteVersionService.getNextPatchRange(customerId, projectId);
 
         return ApiResponse.success(response);
     }
