@@ -66,7 +66,7 @@ public class PatchController implements PatchControllerDocs {
                     request.toVersion(),
                     request.createdByEmail(),
                     request.description(),
-                    request.assigneeId(),
+                    SecurityUtil.getCurrentAccountId(), // 담당자 = 현재 로그인 사용자 (request.assigneeId 무시)
                     request.patchName(),
                     request.buildSelection()
             );
@@ -295,7 +295,7 @@ public class PatchController implements PatchControllerDocs {
                     request.toVersion(),
                     request.createdByEmail(),
                     request.description(),
-                    request.assigneeId(),
+                    SecurityUtil.getCurrentAccountId(), // 담당자 = 현재 로그인 사용자 (request.assigneeId 무시)
                     request.patchName(),
                     request.buildSelection()
             );
