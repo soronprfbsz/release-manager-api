@@ -273,7 +273,7 @@ public class PatchGenerationService {
 
             progressService.update(1, TOTAL_STEPS, "버전 범위 검증");
             // 4. 패치 이름 결정 (전체 버전 형식 사용)
-            String resolvedPatchName = resolvePatchName(patchName, fromVersion.getVersion(), toVersion.getVersion());
+            String resolvedPatchName = resolvePatchName(patchName, customer);
 
             // 5. 출력 디렉토리 생성 (커스텀 패치용)
             progressService.update(2, TOTAL_STEPS, "출력 디렉토리 생성");
@@ -602,9 +602,9 @@ public class PatchGenerationService {
                                 "담당자를 찾을 수 없습니다: " + assigneeId));
             }
 
-            // 4. 패치 이름 결정 (입력값이 없으면 자동 생성: YYYYMMDDHHMMSS_fromversion_toversion)
+            // 4. 패치 이름 결정 (입력값이 없으면 자동 생성: customerCode_yyMMdd, 충돌 시 -N suffix)
             progressService.update(1, TOTAL_STEPS, "버전 범위 검증");
-            String resolvedPatchName = resolvePatchName(patchName, fromVersion.getVersion(), toVersion.getVersion());
+            String resolvedPatchName = resolvePatchName(patchName, customer);
 
             // 5. 출력 디렉토리 생성 (패치 이름으로)
             progressService.update(2, TOTAL_STEPS, "출력 디렉토리 생성");
@@ -739,20 +739,35 @@ public class PatchGenerationService {
     /**
      * 패치 이름 결정
      *
-     * @param patchName   입력된 패치 이름 (nullable)
-     * @param fromVersion From 버전
-     * @param toVersion   To 버전
-     * @return 최종 패치 이름 (형식: YYYYMMDDHHmm_fromVersion_toVersion)
+     * <p>미입력 시 {@code {customerCode|undefined}_{yyMMdd}} 형태로 자동 생성하고,
+     * 동일 이름이 이미 존재하면 {@code -2}, {@code -3} ... suffix 를 붙여 충돌을 피한다.
+     * 사용자가 직접 입력한 이름은 그대로 사용 (충돌 검사 X — 운영자 책임).
+     *
+     * @param patchName 입력된 패치 이름 (nullable)
+     * @param customer  고객사 (nullable — 미선택 시 "undefined")
+     * @return 최종 패치 이름
      */
-    private String resolvePatchName(String patchName, String fromVersion, String toVersion) {
+    private String resolvePatchName(String patchName, Customer customer) {
         if (StringUtils.hasText(patchName)) {
             return patchName;
         }
-        // 기본값: 날짜시분_fromversion_toversion (예: 202511271430_1.0.0_1.1.1)
         // 운영자가 인식하는 시각이라 KST 명시 (DB 저장은 UTC, 사용자 표시·파일명은 KST 정책)
-        String timestamp = LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul"))
-                .format(DateTimeFormatter.ofPattern("yyyyMMddHHmm"));
-        return String.format("%s_%s_%s", timestamp, fromVersion, toVersion);
+        String date = LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul"))
+                .format(DateTimeFormatter.ofPattern("yyMMdd"));
+        String prefix = (customer != null && StringUtils.hasText(customer.getCustomerCode()))
+                ? customer.getCustomerCode()
+                : "undefined";
+        String base = String.format("%s_%s", prefix, date);
+
+        // 충돌 시 -2, -3 ... 부여
+        if (!patchRepository.existsByPatchName(base)) {
+            return base;
+        }
+        int suffix = 2;
+        while (patchRepository.existsByPatchName(base + "-" + suffix)) {
+            suffix++;
+        }
+        return base + "-" + suffix;
     }
 
     /**

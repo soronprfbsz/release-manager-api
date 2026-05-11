@@ -79,4 +79,9 @@ public interface PatchRepository extends JpaRepository<Patch, Long>, PatchReposi
      */
     List<Patch> findByReleaseTypeAndFromVersionAndToVersion(String releaseType,
             String fromVersion, String toVersion);
+
+    /**
+     * 패치명 중복 여부 — 자동 패치명 생성 시 suffix increment 판단에 사용
+     */
+    boolean existsByPatchName(String patchName);
 }
