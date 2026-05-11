@@ -9,7 +9,7 @@
 -- 컴포넌트 정보 없음. 새 워크플로 패치 완료부터 누적 시작.
 -- ============================================================
 
-CREATE TABLE customer_site_version (
+CREATE TABLE IF NOT EXISTS customer_site_version (
     site_version_id BIGINT       NOT NULL AUTO_INCREMENT COMMENT '사이트 버전 추적 ID',
     customer_id     BIGINT       NOT NULL                COMMENT '고객사 ID',
     project_id      VARCHAR(50)  NOT NULL                COMMENT '프로젝트 ID',

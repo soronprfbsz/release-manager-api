@@ -57,6 +57,7 @@ spring:
     baseline-on-migrate: true  # 기존 DB에 flyway_schema_history 없으면 baseline 생성
     baseline-version: 0        # 기존 스키마는 V0으로 간주
     validate-on-migrate: true  # 마이그레이션 전 검증
+    repair-on-migrate: true    # 부팅 시 fail row 자동 정리 (실패한 마이그 재시도 가능)
     out-of-order: false        # 순서 어긋난 마이그레이션 불허
     locations: classpath:db/migration
 
