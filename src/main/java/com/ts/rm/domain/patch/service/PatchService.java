@@ -28,6 +28,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+
+import com.ts.rm.global.security.SecurityUtil;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -264,6 +266,9 @@ public class PatchService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.PATCH_NOT_FOUND,
                         "패치를 찾을 수 없습니다: " + patchId));
 
+        // 권한 검사 — USER 는 본인 생성 패치만 처리 가능
+        requireOwnerOrPrivilegedRole(patch);
+
         LocalDateTime now = LocalDateTime.now();
 
         // 2. 패치 이력 영구 저장 (완료 시점)
@@ -398,6 +403,9 @@ public class PatchService {
     public void deletePatch(Long patchId) {
         // 1. 패치 조회
         Patch patch = getPatch(patchId);
+
+        // 권한 검사 — USER 는 본인 생성 패치만 삭제 가능
+        requireOwnerOrPrivilegedRole(patch);
 
         // 2. 실제 파일 디렉토리 삭제
         Path patchDir = Paths.get(releaseBasePath, patch.getOutputPath());
@@ -560,6 +568,11 @@ public class PatchService {
                     "일부 패치를 찾을 수 없습니다");
         }
 
+        // 권한 검사 — USER 는 본인 생성 패치만 일괄 삭제 가능
+        for (Patch patch : patches) {
+            requireOwnerOrPrivilegedRole(patch);
+        }
+
         // 2. 각 패치의 실제 파일 디렉토리 삭제
         for (Patch patch : patches) {
             Path patchDir = Paths.get(releaseBasePath, patch.getOutputPath());
@@ -585,5 +598,27 @@ public class PatchService {
         log.info("패치 일괄 삭제 완료 - {}", message);
 
         return new PatchDto.BatchDeleteResponse(patches.size(), message);
+    }
+
+    /**
+     * USER 권한 사용자는 본인이 생성한 패치만 액션 가능 — OPERATOR / DEVELOPER /
+     * ADMIN 은 모든 패치 가능. SecurityContext 가 없는 호출 (시스템 / FileSync
+     * 등) 은 검사 생략.
+     */
+    private void requireOwnerOrPrivilegedRole(Patch patch) {
+        String role;
+        try {
+            role = SecurityUtil.getCurrentRole();
+        } catch (BusinessException e) {
+            // SecurityContext 없음 — 시스템 호출로 간주
+            return;
+        }
+        if (!"USER".equals(role)) return;
+
+        String email = SecurityUtil.getCurrentEmail();
+        if (!Objects.equals(patch.getCreatedByEmail(), email)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "본인이 생성한 패치만 처리할 수 있습니다.");
+        }
     }
 }
