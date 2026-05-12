@@ -624,7 +624,9 @@ public class ReleaseVersionService {
                 // INNER JOIN 으로 결과를 추리므로 이 호출이 빠지면 빌드가 트리에 표시되지 않는다.
                 treeService.createHierarchyForNewVersion(saved, baseVersion.getReleaseType());
 
-                fileSystemService.createBuildDirectoryStructure(saved, baseVersion);
+                // 빌드 디스크 디렉토리는 ZIP 업로드 시점에 BuildFileService.uploadBuildZip 가
+                // 생성한다. ZIP 에 포함된 카테고리(web/engine)만 자연스럽게 만들어지도록
+                // 미리 빈 폴더를 만드는 createBuildDirectoryStructure 호출은 의도적으로 생략.
 
                 log.info("빌드 생성 완료 - buildVersionId: {}, fullVersion: {}",
                         saved.getReleaseVersionId(), saved.getFullVersion());

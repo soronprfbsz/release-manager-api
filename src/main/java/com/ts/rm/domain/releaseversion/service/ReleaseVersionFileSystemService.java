@@ -377,30 +377,6 @@ public class ReleaseVersionFileSystemService {
     }
 
     /**
-     * 빌드 디렉토리 구조 생성
-     *
-     * <pre>
-     * versions/{...}/builds/{buildVersion}/web/
-     * versions/{...}/builds/{buildVersion}/engine/
-     * </pre>
-     *
-     * @param buildVersion 빌드 버전 엔티티
-     * @param baseVersion  빌드 원본 버전 엔티티
-     */
-    public void createBuildDirectoryStructure(ReleaseVersion buildVersion, ReleaseVersion baseVersion) {
-        Path buildBase = resolveBuildBasePath(buildVersion);
-        try {
-            Files.createDirectories(buildBase.resolve("web"));
-            Files.createDirectories(buildBase.resolve("engine"));
-            log.info("빌드 디렉토리 구조 생성 완료: {}", buildBase);
-        } catch (IOException e) {
-            log.error("빌드 디렉토리 생성 실패: {}", buildVersion.getFullVersion(), e);
-            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
-                    "빌드 디렉토리 생성 실패: " + e.getMessage());
-        }
-    }
-
-    /**
      * 빌드 카테고리(web/engine) 경로 반환
      *
      * @param baseVersion  빌드 원본 버전

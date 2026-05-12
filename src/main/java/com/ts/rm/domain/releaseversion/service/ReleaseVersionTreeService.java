@@ -503,8 +503,7 @@ public class ReleaseVersionTreeService {
      *
      * <p>빌드 ZIP 은 ReleaseFile row 를 저장하지 않으므로 DB 대신 디스크의 직계 하위
      * 디렉토리 이름으로 카테고리를 결정한다. FileCategory.values() 선언 순서로 검사하며,
-     * createBuildDirectoryStructure 가 web/engine 빈 폴더를 미리 만들어 두므로 "디렉토리
-     * 존재" 만으로는 불충분 — 폴더 안에 실제 파일이 있는 카테고리만 결과에 포함한다.
+     * 회귀 방어로 빈 폴더는 카테고리에서 제외한다 (실제 항목이 1개 이상 있을 때만 포함).
      * 디렉토리가 없거나 IO 오류 시 빈 리스트를 반환한다 (fail-safe).
      */
     private List<String> resolveBuildFileCategories(ReleaseVersion build) {
