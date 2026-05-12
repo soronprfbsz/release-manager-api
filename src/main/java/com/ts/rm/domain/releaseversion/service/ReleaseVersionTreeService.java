@@ -17,6 +17,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -501,8 +502,9 @@ public class ReleaseVersionTreeService {
      * 빌드 버전의 디스크 디렉토리를 검사하여 fileCategories 목록을 반환한다.
      *
      * <p>빌드 ZIP 은 ReleaseFile row 를 저장하지 않으므로 DB 대신 디스크의 직계 하위
-     * 디렉토리 이름으로 카테고리를 결정한다. FileCategory.fromCode() 로 변환 가능한
-     * 이름만 인정하며, 결과는 FileCategory.values() 선언 순서로 정렬된다.
+     * 디렉토리 이름으로 카테고리를 결정한다. FileCategory.values() 선언 순서로 검사하며,
+     * createBuildDirectoryStructure 가 web/engine 빈 폴더를 미리 만들어 두므로 "디렉토리
+     * 존재" 만으로는 불충분 — 폴더 안에 실제 파일이 있는 카테고리만 결과에 포함한다.
      * 디렉토리가 없거나 IO 오류 시 빈 리스트를 반환한다 (fail-safe).
      */
     private List<String> resolveBuildFileCategories(ReleaseVersion build) {
@@ -516,7 +518,7 @@ public class ReleaseVersionTreeService {
             for (FileCategory category : FileCategory.values()) {
                 Path sub = buildBase.resolve(category.getCode().toLowerCase());
                 Path subUpper = buildBase.resolve(category.getCode());
-                if (Files.isDirectory(sub) || Files.isDirectory(subUpper)) {
+                if (hasAnyEntry(sub) || hasAnyEntry(subUpper)) {
                     result.add(category.getCode());
                 }
             }
@@ -525,6 +527,18 @@ public class ReleaseVersionTreeService {
             log.warn("빌드 파일 카테고리 디스크 검사 실패 (versionId={}): {}",
                     build.getReleaseVersionId(), e.getMessage());
             return List.of();
+        }
+    }
+
+    /** 디렉토리가 존재하고 직계에 항목이 하나라도 있는지 검사 (빈 디렉토리는 false). */
+    private boolean hasAnyEntry(Path dir) {
+        if (!Files.isDirectory(dir)) {
+            return false;
+        }
+        try (Stream<Path> entries = Files.list(dir)) {
+            return entries.findAny().isPresent();
+        } catch (IOException e) {
+            return false;
         }
     }
 
