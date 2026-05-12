@@ -479,11 +479,7 @@ public class ReleaseVersionTreeService {
                 ? version.getCreatedAt().toString()
                 : null;
 
-        List<FileCategory> fileCategoryEnums = releaseFileRepository
-                .findCategoriesByVersionId(version.getReleaseVersionId());
-        List<String> fileCategories = fileCategoryEnums.stream()
-                .map(FileCategory::getCode)
-                .toList();
+        List<String> fileCategories = resolveBuildFileCategories(version);
 
         return new ReleaseVersionDto.BuildNode(
                 version.getReleaseVersionId(),
@@ -499,6 +495,37 @@ public class ReleaseVersionTreeService {
                 version.getIsApproved(),
                 fileCategories
         );
+    }
+
+    /**
+     * 빌드 버전의 디스크 디렉토리를 검사하여 fileCategories 목록을 반환한다.
+     *
+     * <p>빌드 ZIP 은 ReleaseFile row 를 저장하지 않으므로 DB 대신 디스크의 직계 하위
+     * 디렉토리 이름으로 카테고리를 결정한다. FileCategory.fromCode() 로 변환 가능한
+     * 이름만 인정하며, 결과는 FileCategory.values() 선언 순서로 정렬된다.
+     * 디렉토리가 없거나 IO 오류 시 빈 리스트를 반환한다 (fail-safe).
+     */
+    private List<String> resolveBuildFileCategories(ReleaseVersion build) {
+        try {
+            Path buildBase = fileSystemService.resolveBuildBasePath(build);
+            if (!Files.isDirectory(buildBase)) {
+                return List.of();
+            }
+
+            List<String> result = new ArrayList<>();
+            for (FileCategory category : FileCategory.values()) {
+                Path sub = buildBase.resolve(category.getCode().toLowerCase());
+                Path subUpper = buildBase.resolve(category.getCode());
+                if (Files.isDirectory(sub) || Files.isDirectory(subUpper)) {
+                    result.add(category.getCode());
+                }
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("빌드 파일 카테고리 디스크 검사 실패 (versionId={}): {}",
+                    build.getReleaseVersionId(), e.getMessage());
+            return List.of();
+        }
     }
 
     /**
