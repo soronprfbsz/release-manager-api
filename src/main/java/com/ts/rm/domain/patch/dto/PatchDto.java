@@ -582,4 +582,12 @@ public final class PatchDto {
 
     }
 
+    /**
+     * 자동 생성될 패치명 미리보기 응답.
+     */
+    public record PreviewNameResponse(
+            @Schema(description = "충돌 검사까지 적용된 실제 확정 패치명", example = "customerA_260512-2")
+            String patchName
+    ) {}
+
 }

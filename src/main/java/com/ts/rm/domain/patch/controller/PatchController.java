@@ -223,6 +223,20 @@ public class PatchController implements PatchControllerDocs {
     }
 
     /**
+     * 자동 생성될 패치명 미리보기 — 패치 생성 폼에서 customer 선택 후 실제 확정될
+     * 이름을 사용자에게 그대로 보여주기 위함.
+     *
+     * @param customerCode 고객사 코드 (생략 가능 — "없음" 케이스는 undefined prefix)
+     * @return {@code {customerCode|undefined}_{yyMMdd}}, 충돌 시 {@code -N} suffix 부여된 이름
+     */
+    @GetMapping("/preview-name")
+    public ApiResponse<PatchDto.PreviewNameResponse> previewPatchName(
+            @RequestParam(required = false) String customerCode) {
+        String patchName = patchService.previewAutoPatchName(customerCode);
+        return ApiResponse.success(new PatchDto.PreviewNameResponse(patchName));
+    }
+
+    /**
      * 패치 일괄 삭제
      */
     @Override

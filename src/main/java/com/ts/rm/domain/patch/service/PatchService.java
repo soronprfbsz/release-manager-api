@@ -23,6 +23,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -34,6 +36,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.springframework.util.StringUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
@@ -598,6 +601,28 @@ public class PatchService {
         log.info("패치 일괄 삭제 완료 - {}", message);
 
         return new PatchDto.BatchDeleteResponse(patches.size(), message);
+    }
+
+    /**
+     * 자동 생성될 패치명을 미리 계산해 반환 — 프론트 미리보기 용.
+     *
+     * <p>{@link PatchGenerationService#resolvePatchName} 와 동일한 규칙:
+     *  {@code {customerCode|undefined}_{yyMMdd}} 형태, 이미 존재하면
+     *  {@code -2}, {@code -3} ... suffix 부여.
+     *
+     * @param customerCode 고객사 코드 (null / blank 이면 "undefined")
+     */
+    public String previewAutoPatchName(String customerCode) {
+        String prefix = StringUtils.hasText(customerCode) ? customerCode : "undefined";
+        String date = LocalDateTime.now(ZoneId.of("Asia/Seoul"))
+                .format(DateTimeFormatter.ofPattern("yyMMdd"));
+        String base = prefix + "_" + date;
+        if (!patchRepository.existsByPatchName(base)) return base;
+        int suffix = 2;
+        while (patchRepository.existsByPatchName(base + "-" + suffix)) {
+            suffix++;
+        }
+        return base + "-" + suffix;
     }
 
     /**
