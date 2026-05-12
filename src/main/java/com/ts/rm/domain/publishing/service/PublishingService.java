@@ -93,6 +93,12 @@ public class PublishingService {
         // 생성자 Account 조회
         Account creator = accountLookupService.findByEmail(request.createdByEmail());
 
+        // glyphText / glyphBackgroundColor: 빈 문자열이면 null 처리
+        String glyphText = (request.glyphText() == null || request.glyphText().isBlank())
+                ? null : request.glyphText();
+        String glyphBackgroundColor = (request.glyphBackgroundColor() == null || request.glyphBackgroundColor().isBlank())
+                ? null : request.glyphBackgroundColor();
+
         // Publishing 엔티티 생성
         Publishing publishing = Publishing.builder()
                 .publishingName(request.publishingName())
@@ -101,6 +107,8 @@ public class PublishingService {
                 .subCategory(request.subCategory() != null ? request.subCategory().toUpperCase() : null)
                 .customer(customer)
                 .sortOrder(sortOrder)
+                .glyphText(glyphText)
+                .glyphBackgroundColor(glyphBackgroundColor)
                 .creator(creator)
                 .createdByEmail(creator.getEmail())
                 .build();
@@ -156,6 +164,7 @@ public class PublishingService {
         publishing.setCustomer(customer);
         publishing.setUpdater(updater);
         publishing.setUpdatedByEmail(updater.getEmail());
+        publishing.updateGlyph(request.glyphText(), request.glyphBackgroundColor());
 
         log.info("퍼블리싱 수정 완료 - ID: {}", id);
 
@@ -650,6 +659,8 @@ public class PublishingService {
                 publishing.getCustomer() != null ? publishing.getCustomer().getCustomerId() : null,
                 publishing.getCustomer() != null ? publishing.getCustomer().getCustomerName() : null,
                 publishing.getSortOrder(),
+                publishing.getGlyphText(),
+                publishing.getGlyphBackgroundColor(),
                 publishing.getFiles().size(),
                 totalFileSize,
                 files,
@@ -676,6 +687,8 @@ public class PublishingService {
                 publishing.getSubCategory(),
                 publishing.getCustomer() != null ? publishing.getCustomer().getCustomerName() : null,
                 publishing.getSortOrder(),
+                publishing.getGlyphText(),
+                publishing.getGlyphBackgroundColor(),
                 publishing.getFiles() != null ? publishing.getFiles().size() : 0,
                 htmlFiles,
                 publishing.getCreatedAt()

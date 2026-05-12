@@ -3,6 +3,7 @@ package com.ts.rm.domain.publishing.dto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.Size;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -42,6 +43,14 @@ public final class PublishingDto {
             @Schema(description = "고객사 ID (커스터마이징인 경우)", example = "1")
             Long customerId,
 
+            @Schema(description = "카드 글리프 텍스트 (1~3자)", example = "UI")
+            @Size(max = 3, message = "글리프 텍스트는 3자 이하여야 합니다")
+            String glyphText,
+
+            @Schema(description = "카드 글리프 배경 색상 키", example = "mint")
+            @Size(max = 30, message = "글리프 배경 색상 키는 30자 이하여야 합니다")
+            String glyphBackgroundColor,
+
             @Schema(description = "생성자 이메일", example = "admin@company.com")
             @NotBlank(message = "생성자 이메일은 필수입니다")
             String createdByEmail
@@ -71,6 +80,14 @@ public final class PublishingDto {
 
             @Schema(description = "고객사 ID (커스터마이징인 경우)", example = "1")
             Long customerId,
+
+            @Schema(description = "카드 글리프 텍스트 (1~3자, 빈 문자열이면 제거)", example = "UI")
+            @Size(max = 3, message = "글리프 텍스트는 3자 이하여야 합니다")
+            String glyphText,
+
+            @Schema(description = "카드 글리프 배경 색상 키 (빈 문자열이면 제거)", example = "mint")
+            @Size(max = 30, message = "글리프 배경 색상 키는 30자 이하여야 합니다")
+            String glyphBackgroundColor,
 
             @Schema(description = "수정자 이메일 (서버에서 자동 설정)", hidden = true)
             String updatedByEmail
@@ -105,6 +122,12 @@ public final class PublishingDto {
 
             @Schema(description = "정렬 순서", example = "1")
             Integer sortOrder,
+
+            @Schema(description = "카드 글리프 텍스트 (1~3자, null이면 미설정)", example = "UI")
+            String glyphText,
+
+            @Schema(description = "카드 글리프 배경 색상 키 (null이면 미설정)", example = "mint")
+            String glyphBackgroundColor,
 
             @Schema(description = "파일 개수", example = "15")
             Integer fileCount,
@@ -182,6 +205,12 @@ public final class PublishingDto {
 
             @Schema(description = "정렬 순서", example = "1")
             Integer sortOrder,
+
+            @Schema(description = "카드 글리프 텍스트 (1~3자, null이면 미설정)", example = "UI")
+            String glyphText,
+
+            @Schema(description = "카드 글리프 배경 색상 키 (null이면 미설정)", example = "mint")
+            String glyphBackgroundColor,
 
             @Schema(description = "파일 개수", example = "15")
             Integer fileCount,
