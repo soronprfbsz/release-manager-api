@@ -1066,23 +1066,6 @@ public final class ReleaseVersionDto {
 
     }
 
-    /**
-     * 빌드 ZIP 재업로드 응답 (기존 빌드의 파일을 교체)
-     */
-    @Schema(description = "빌드 ZIP 재업로드 응답")
-    public record UploadBuildZipResponse(
-            @Schema(description = "빌드 버전 ID", example = "30")
-            Long buildVersionId,
-
-            @Schema(description = "전체 버전 (예: 1.1.0.260427)", example = "1.1.0.260427")
-            String fullVersion,
-
-            @Schema(description = "업로드된 파일 개수", example = "5")
-            Integer uploadedFileCount
-    ) {
-
-    }
-
     // ========================================
     // builds-in-range Response DTOs
     // ========================================

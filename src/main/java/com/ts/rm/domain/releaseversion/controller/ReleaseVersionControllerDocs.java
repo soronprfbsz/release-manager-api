@@ -872,27 +872,6 @@ public interface ReleaseVersionControllerDocs {
     );
 
     @Operation(
-            summary = "빌드 ZIP 재업로드 (교체)",
-            description = "기존 빌드 디렉토리 산출물을 삭제하고 새 ZIP 으로 교체합니다.\n\n"
-                    + "**제약사항**:\n"
-                    + "- 빌드 버전(build_version > 0) 에만 사용 가능\n"
-                    + "- ZIP 루트는 web/, engine/, etc/ 만 허용 (대소문자 구분)\n"
-                    + "- 동일 트랜잭션이므로 신규 업로드 실패 시 삭제도 롤백됨",
-            responses = @io.swagger.v3.oas.annotations.responses.ApiResponse(
-                    responseCode = "200",
-                    description = "성공"
-            )
-    )
-    ResponseEntity<ApiResponse<ReleaseVersionDto.UploadBuildZipResponse>> replaceBuildZip(
-            @Parameter(description = "빌드 ReleaseVersion ID", required = true)
-            @PathVariable Long id,
-            @Parameter(description = "새 빌드 ZIP 파일", required = true)
-            @RequestPart("file") MultipartFile file,
-            @Parameter(description = "JWT 인증 토큰", required = true, example = "Bearer eyJhbGciOiJIUzI1NiIs...")
-            @RequestHeader("Authorization") String authorization
-    );
-
-    @Operation(
             summary = "빌드 후보 조회 (range)",
             description = "패치 범위 (fromVersionId..toVersionId) 안의 빌드 디렉토리를 walk 하여 "
                     + "WEB / ENGINE 후보와 hotfixesInRange 메타정보를 반환합니다. "

@@ -123,56 +123,6 @@ public class BuildFileService {
     }
 
     /**
-     * 빌드 ZIP 재업로드 (교체 시맨틱).
-     *
-     * <p>기존 빌드 디렉토리 산출물을 삭제한 뒤 새 ZIP 으로 다시 업로드한다.
-     * 과거 빌드에서 생성된 ReleaseFile rows 가 있으면 호환성을 위해 함께 정리한다.
-     *
-     * @param buildVersionId 업로드 대상 빌드 버전 ID
-     * @param zipPath        새 ZIP 파일 경로 (null 불가)
-     * @param uploadedByEmail 업로드자 이메일
-     * @return UploadBuildZipResponse (uploadedFileCount 포함)
-     */
-    @Transactional
-    public ReleaseVersionDto.UploadBuildZipResponse replaceBuildZip(
-            Long buildVersionId, Path zipPath, String uploadedByEmail) {
-
-        if (zipPath == null) {
-            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
-                    "재업로드할 ZIP 파일이 비어 있습니다.");
-        }
-
-        // 1. 빌드 검증
-        ReleaseVersion build = releaseVersionRepository.findById(buildVersionId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.RELEASE_VERSION_NOT_FOUND,
-                        "빌드 버전을 찾을 수 없습니다: " + buildVersionId));
-        if (!build.isBuild()) {
-            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
-                    "빌드가 아닌 버전에는 빌드 ZIP 을 재업로드할 수 없습니다.");
-        }
-
-        // 2. 기존 ReleaseFile rows 삭제
-        List<ReleaseFile> existing = releaseFileRepository
-                .findAllByReleaseVersion_ReleaseVersionIdOrderByExecutionOrderAsc(buildVersionId);
-        if (!existing.isEmpty()) {
-            releaseFileRepository.deleteAll(existing);
-            log.info("기존 빌드 파일 row 삭제 - buildVersionId: {}, count: {}", buildVersionId, existing.size());
-        }
-
-        // 3. 빌드 디렉토리 삭제 (uploadBuildZip 가 다시 생성)
-        fileSystemService.deleteBuildDirectory(build);
-
-        // 4. 새 ZIP 업로드
-        UploadResult result = uploadBuildZip(buildVersionId, zipPath, uploadedByEmail);
-
-        return new ReleaseVersionDto.UploadBuildZipResponse(
-                buildVersionId,
-                build.getFullVersion(),
-                result.uploadedFileCount()
-        );
-    }
-
-    /**
      * 빌드 ZIP 업로드 처리.
      *
      * <p>처리 단계:

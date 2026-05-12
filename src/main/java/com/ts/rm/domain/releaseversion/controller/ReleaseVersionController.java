@@ -450,53 +450,6 @@ public class ReleaseVersionController implements ReleaseVersionControllerDocs {
     }
 
     /**
-     * 빌드 ZIP 재업로드 (교체)
-     *
-     * @param id   빌드 ReleaseVersion ID
-     * @param file 새 ZIP 파일 (필수, web/engine 루트만 허용)
-     * @return 업로드 결과 (uploadedFileCount 포함)
-     */
-    @Override
-    @PostMapping(value = "/builds/{id}/zip", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<ApiResponse<ReleaseVersionDto.UploadBuildZipResponse>> replaceBuildZip(
-            @PathVariable Long id,
-            @RequestPart("file") MultipartFile file,
-            @RequestHeader("Authorization") String authorization) {
-
-        log.info("빌드 ZIP 재업로드 요청 - buildVersionId: {}, fileSize: {}",
-                id, file != null ? file.getSize() : 0);
-
-        if (file == null || file.isEmpty()) {
-            throw new com.ts.rm.global.exception.BusinessException(
-                    com.ts.rm.global.exception.ErrorCode.INVALID_INPUT_VALUE,
-                    "재업로드할 ZIP 파일이 필요합니다.");
-        }
-
-        String uploadedBy = SecurityUtil.getTokenInfo().email();
-
-        Path tempZip;
-        try {
-            tempZip = Files.createTempFile("rm-build-replace-", ".zip");
-            file.transferTo(tempZip.toFile());
-        } catch (IOException e) {
-            log.error("업로드 파일 임시 저장 실패", e);
-            throw new com.ts.rm.global.exception.BusinessException(
-                    com.ts.rm.global.exception.ErrorCode.FILE_UPLOAD_FAILED,
-                    "업로드 파일 저장 실패: " + e.getMessage());
-        }
-
-        try {
-            ReleaseVersionDto.UploadBuildZipResponse response =
-                    buildFileService.replaceBuildZip(id, tempZip, uploadedBy);
-            return ResponseEntity.ok(ApiResponse.success(response));
-        } finally {
-            try { Files.deleteIfExists(tempZip); } catch (IOException e) {
-                log.warn("임시 ZIP 정리 실패: {}", tempZip, e);
-            }
-        }
-    }
-
-    /**
      * 빌드 후보 조회 (range)
      *
      * @param projectId     프로젝트 ID
