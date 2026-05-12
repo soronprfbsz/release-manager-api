@@ -39,6 +39,14 @@ public final class ServiceDto {
             @Schema(description = "설명", example = "Infraeye 1 운영 환경 접속 정보")
             String description,
 
+            @Schema(description = "카드 글리프 텍스트 (1~3자)", example = "git")
+            @Size(max = 3, message = "글리프 텍스트는 3자 이하여야 합니다")
+            String glyphText,
+
+            @Schema(description = "카드 글리프 배경 색상 키", example = "mint")
+            @Size(max = 30, message = "글리프 배경 색상 키는 30자 이하여야 합니다")
+            String glyphBackgroundColor,
+
             @Schema(description = "컴포넌트 목록")
             List<ComponentRequest> components
     ) {
@@ -59,7 +67,15 @@ public final class ServiceDto {
             String serviceType,
 
             @Schema(description = "설명", example = "Infraeye 1 운영 환경 접속 정보")
-            String description
+            String description,
+
+            @Schema(description = "카드 글리프 텍스트 (1~3자, 빈 문자열이면 제거)", example = "git")
+            @Size(max = 3, message = "글리프 텍스트는 3자 이하여야 합니다")
+            String glyphText,
+
+            @Schema(description = "카드 글리프 배경 색상 키 (빈 문자열이면 제거)", example = "mint")
+            @Size(max = 30, message = "글리프 배경 색상 키는 30자 이하여야 합니다")
+            String glyphBackgroundColor
     ) {
     }
 
@@ -151,6 +167,12 @@ public final class ServiceDto {
             @Schema(description = "설명", example = "Infraeye 1 운영 환경 접속 정보")
             String description,
 
+            @Schema(description = "카드 글리프 텍스트 (1~3자, null이면 미설정)", example = "git")
+            String glyphText,
+
+            @Schema(description = "카드 글리프 배경 색상 키 (null이면 미설정)", example = "mint")
+            String glyphBackgroundColor,
+
             @Schema(description = "컴포넌트 목록")
             List<ComponentResponse> components,
 
@@ -202,6 +224,12 @@ public final class ServiceDto {
 
             @Schema(description = "서비스 분류명", example = "Infraeye 1")
             String serviceTypeName,
+
+            @Schema(description = "카드 글리프 텍스트 (1~3자, null이면 미설정)", example = "git")
+            String glyphText,
+
+            @Schema(description = "카드 글리프 배경 색상 키 (null이면 미설정)", example = "mint")
+            String glyphBackgroundColor,
 
             @Schema(description = "컴포넌트 개수", example = "3")
             Integer componentCount,

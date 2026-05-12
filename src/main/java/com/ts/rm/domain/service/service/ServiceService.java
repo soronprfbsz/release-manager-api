@@ -51,10 +51,17 @@ public class ServiceService {
         Integer sortOrder = getNextSortOrderForServiceType(request.serviceType());
 
         // 서비스 생성
+        String glyphText = (request.glyphText() == null || request.glyphText().isBlank())
+                ? null : request.glyphText();
+        String glyphBackgroundColor = (request.glyphBackgroundColor() == null || request.glyphBackgroundColor().isBlank())
+                ? null : request.glyphBackgroundColor();
+
         Service service = Service.builder()
                 .serviceName(request.serviceName())
                 .serviceType(request.serviceType())
                 .description(request.description())
+                .glyphText(glyphText)
+                .glyphBackgroundColor(glyphBackgroundColor)
                 .sortOrder(sortOrder)
                 .creator(creator)
                 .createdByEmail(creator.getEmail())
@@ -132,7 +139,8 @@ public class ServiceService {
         }
 
         service.update(request.serviceName(), request.serviceType(),
-                request.description(), updater);
+                request.description(), updater,
+                request.glyphText(), request.glyphBackgroundColor());
         service.setUpdatedByEmail(updater.getEmail());
 
         log.info("Service updated successfully: {}", serviceId);
@@ -391,6 +399,7 @@ public class ServiceService {
                 response.serviceId(), response.serviceName(),
                 response.serviceType(), serviceTypeName,
                 response.description(),
+                response.glyphText(), response.glyphBackgroundColor(),
                 components,
                 response.createdAt(), response.createdByEmail(),
                 response.createdByAvatarStyle(), response.createdByAvatarSeed(),
@@ -410,6 +419,7 @@ public class ServiceService {
         return new ServiceDto.SimpleResponse(
                 response.serviceId(), response.serviceName(),
                 response.serviceType(), serviceTypeName,
+                response.glyphText(), response.glyphBackgroundColor(),
                 componentCount, response.createdAt()
         );
     }
