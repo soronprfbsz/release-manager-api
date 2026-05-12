@@ -45,6 +45,18 @@ public class Project extends BaseEntity {
     @Builder.Default
     private Boolean isEnabled = true;
 
+    /**
+     * 카드 좌상단 글리프 텍스트 (1~3자, nullable)
+     */
+    @Column(name = "glyph_text", length = 3)
+    private String glyphText;
+
+    /**
+     * 글리프 배경 색상 키 (nullable)
+     */
+    @Column(name = "glyph_background_color", length = 30)
+    private String glyphBackgroundColor;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by")
     private Account creator;
@@ -61,5 +73,22 @@ public class Project extends BaseEntity {
     @Transient
     public String getCreatedByName() {
         return creator != null ? creator.getAccountName() : null;
+    }
+
+    /**
+     * 프로젝트 정보 수정
+     *
+     * <p>null 이면 기존 값 유지, 빈 문자열("")이면 null 로 저장 (글리프 제거 의도).
+     *
+     * @param glyphText            글리프 텍스트 (null=미변경, ""=제거)
+     * @param glyphBackgroundColor 글리프 배경 색상 키 (null=미변경, ""=제거)
+     */
+    public void updateGlyph(String glyphText, String glyphBackgroundColor) {
+        if (glyphText != null) {
+            this.glyphText = glyphText.isBlank() ? null : glyphText;
+        }
+        if (glyphBackgroundColor != null) {
+            this.glyphBackgroundColor = glyphBackgroundColor.isBlank() ? null : glyphBackgroundColor;
+        }
     }
 }

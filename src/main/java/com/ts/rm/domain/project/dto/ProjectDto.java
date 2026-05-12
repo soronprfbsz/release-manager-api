@@ -41,7 +41,15 @@ public final class ProjectDto {
             String description,
 
             @Schema(description = "활성 여부 (미입력 시 true)", example = "true")
-            Boolean isEnabled
+            Boolean isEnabled,
+
+            @Schema(description = "카드 좌상단 글리프 텍스트 (1~3자)", example = "IE")
+            @Size(max = 3, message = "글리프 텍스트는 3자 이하여야 합니다")
+            String glyphText,
+
+            @Schema(description = "글리프 배경 색상 키", example = "mint")
+            @Size(max = 30, message = "글리프 배경 색상 키는 30자 이하여야 합니다")
+            String glyphBackgroundColor
     ) {
 
     }
@@ -60,7 +68,15 @@ public final class ProjectDto {
             String description,
 
             @Schema(description = "활성 여부", example = "true")
-            Boolean isEnabled
+            Boolean isEnabled,
+
+            @Schema(description = "카드 좌상단 글리프 텍스트 (1~3자, null=미변경, \"\"=제거)", example = "IE")
+            @Size(max = 3, message = "글리프 텍스트는 3자 이하여야 합니다")
+            String glyphText,
+
+            @Schema(description = "글리프 배경 색상 키 (null=미변경, \"\"=제거)", example = "mint")
+            @Size(max = 30, message = "글리프 배경 색상 키는 30자 이하여야 합니다")
+            String glyphBackgroundColor
     ) {
 
     }
@@ -85,6 +101,12 @@ public final class ProjectDto {
 
             @Schema(description = "활성 여부", example = "true")
             Boolean isEnabled,
+
+            @Schema(description = "카드 좌상단 글리프 텍스트 (1~3자)", example = "IE")
+            String glyphText,
+
+            @Schema(description = "글리프 배경 색상 키", example = "mint")
+            String glyphBackgroundColor,
 
             @Schema(description = "생성일시")
             LocalDateTime createdAt,

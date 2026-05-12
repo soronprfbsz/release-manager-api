@@ -67,6 +67,14 @@ public class ProjectService {
         // isEnabled 기본값 처리 (null이면 true)
         project.setIsEnabled(request.isEnabled() != null ? request.isEnabled() : true);
 
+        // 글리프 필드 처리
+        if (request.glyphText() != null) {
+            project.setGlyphText(request.glyphText().isBlank() ? null : request.glyphText());
+        }
+        if (request.glyphBackgroundColor() != null) {
+            project.setGlyphBackgroundColor(request.glyphBackgroundColor().isBlank() ? null : request.glyphBackgroundColor());
+        }
+
         Project savedProject = projectRepository.save(project);
 
         log.info("Project created successfully with id: {}", savedProject.getProjectId());
@@ -125,6 +133,9 @@ public class ProjectService {
         if (request.isEnabled() != null) {
             project.setIsEnabled(request.isEnabled());
         }
+
+        // 글리프 필드 수정 (null=미변경, ""=제거)
+        project.updateGlyph(request.glyphText(), request.glyphBackgroundColor());
 
         // 트랜잭션 커밋 시 자동으로 UPDATE 쿼리 실행 (Dirty Checking)
         log.info("Project updated successfully with id: {}", projectId);
