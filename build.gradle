@@ -45,7 +45,7 @@ sourceSets {
 	test {
 		java {
 // --- DTO record / 서비스 메서드 시그니처 변경 ---
-			exclude '**/domain/account/service/AccountServiceTest.java'              // DetailResponse 필드 변경 + getAccounts(...) 시그니처 변경
+			exclude '**/domain/account/service/AccountServiceTest.java'              // 시그니처 정렬 완료 (dirty 보존), runtime: service business logic 광범위 변경 — mock setup 재설계 필요
 			exclude '**/domain/customer/controller/CustomerControllerTest.java'      // DetailResponse/ListResponse 필드 + getCustomersWithPaging 시그니처
 			exclude '**/domain/customer/service/CustomerServiceTest.java'            // DetailResponse 필드 + 메서드 부재
 			exclude '**/domain/customer/repository/CustomerRepositoryTest.java'      // 엔티티 필드/메서드 cannot find symbol
