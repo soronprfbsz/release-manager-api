@@ -45,8 +45,6 @@ sourceSets {
 	test {
 		java {
 // --- JWT 시그니처 변경: generateToken(String email,...) → (Long accountId, String role, Long departmentId) ---
-			exclude '**/domain/auth/service/AuthServiceImplTest.java'                // JwtTokenProvider.generateToken 시그니처 변경
-			exclude '**/domain/refreshtoken/service/RefreshTokenServiceImplTest.java'// JwtTokenProvider.generateToken 시그니처 변경
 
 			// --- DTO record / 서비스 메서드 시그니처 변경 ---
 			exclude '**/domain/account/service/AccountServiceTest.java'              // DetailResponse 필드 변경 + getAccounts(...) 시그니처 변경

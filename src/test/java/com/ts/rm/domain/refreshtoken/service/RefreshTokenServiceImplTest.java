@@ -3,12 +3,15 @@ package com.ts.rm.domain.refreshtoken.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.ts.rm.domain.account.entity.Account;
+import com.ts.rm.domain.account.repository.AccountRepository;
 import com.ts.rm.domain.auth.dto.TokenResponse;
 import com.ts.rm.domain.refreshtoken.entity.RefreshToken;
 import com.ts.rm.domain.refreshtoken.repository.RefreshTokenRepository;
@@ -31,6 +34,9 @@ class RefreshTokenServiceImplTest {
     private RefreshTokenRepository refreshTokenRepository;
 
     @Mock
+    private AccountRepository accountRepository;
+
+    @Mock
     private JwtTokenProvider jwtTokenProvider;
 
     @InjectMocks
@@ -42,6 +48,7 @@ class RefreshTokenServiceImplTest {
     @BeforeEach
     void setUp() {
         testAccount = Account.builder()
+                .accountId(1L)
                 .email("test@example.com")
                 .password("encodedPassword")
                 .accountName("Test User")
@@ -117,7 +124,9 @@ class RefreshTokenServiceImplTest {
         when(jwtTokenProvider.validateRefreshToken(refreshTokenValue)).thenReturn(true);
         when(refreshTokenRepository.findById(refreshTokenValue))
                 .thenReturn(Optional.of(testRefreshToken));
-        when(jwtTokenProvider.generateToken(testAccount.getEmail(), testAccount.getRole()))
+        when(accountRepository.findByAccountId(testAccount.getAccountId()))
+                .thenReturn(Optional.of(testAccount));
+        when(jwtTokenProvider.generateToken(anyLong(), anyString(), nullable(Long.class)))
                 .thenReturn(newAccessToken);
         when(jwtTokenProvider.generateRefreshToken(testAccount.getEmail()))
                 .thenReturn(newRefreshTokenValue);

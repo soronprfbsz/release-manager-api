@@ -3,6 +3,8 @@ package com.ts.rm.domain.auth.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -134,7 +136,7 @@ class AuthServiceImplTest {
 
         when(accountRepository.findByEmail(anyString())).thenReturn(Optional.of(testAccount));
         when(passwordEncoder.matches(anyString(), anyString())).thenReturn(true);
-        when(jwtTokenProvider.generateToken(anyString(), anyString())).thenReturn(accessToken);
+        when(jwtTokenProvider.generateToken(anyLong(), anyString(), nullable(Long.class))).thenReturn(accessToken);
         when(jwtTokenProvider.getExpirationInSeconds()).thenReturn(expirationTime);
         when(jwtTokenProvider.getRefreshExpirationInSeconds()).thenReturn(refreshExpirationTime);
         when(refreshTokenService.createRefreshToken(any(Account.class))).thenReturn(refreshToken);
@@ -157,7 +159,7 @@ class AuthServiceImplTest {
 
         verify(accountRepository).findByEmail("test@example.com");
         verify(passwordEncoder).matches("password123!", "encodedPassword");
-        verify(jwtTokenProvider).generateToken("test@example.com", "USER");
+        verify(jwtTokenProvider).generateToken(anyLong(), anyString(), nullable(Long.class));
         verify(refreshTokenService).createRefreshToken(testAccount);
     }
 
@@ -174,7 +176,7 @@ class AuthServiceImplTest {
 
         verify(accountRepository).findByEmail("test@example.com");
         verify(passwordEncoder, never()).matches(anyString(), anyString());
-        verify(jwtTokenProvider, never()).generateToken(anyString(), anyString());
+        verify(jwtTokenProvider, never()).generateToken(anyLong(), anyString(), nullable(Long.class));
     }
 
     @Test
@@ -191,7 +193,7 @@ class AuthServiceImplTest {
 
         verify(accountRepository).findByEmail("test@example.com");
         verify(passwordEncoder).matches("password123!", "encodedPassword");
-        verify(jwtTokenProvider, never()).generateToken(anyString(), anyString());
+        verify(jwtTokenProvider, never()).generateToken(anyLong(), anyString(), nullable(Long.class));
     }
 
     @Test

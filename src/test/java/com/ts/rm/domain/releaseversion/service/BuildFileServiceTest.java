@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -183,7 +184,7 @@ class BuildFileServiceTest {
                         99L, "1.1.0", 260427, "1.1.0.260427", 0);
         given(releaseVersionService.createBuild(10L, req, "u@x")).willReturn(innerResp);
 
-        var result = buildFileService.createBuildWithZip(10L, req, null, "u@x");
+        var result = buildFileService.createBuildWithZip(10L, req, null, "u@x", mock(com.ts.rm.global.progress.ServerProgressService.class));
 
         assertThat(result.buildVersionId()).isEqualTo(99L);
         assertThat(result.fullVersion()).isEqualTo("1.1.0.260427");
@@ -214,7 +215,7 @@ class BuildFileServiceTest {
 
         Path zip = makeZip("web/foo.war", "engine/x.jar");
 
-        var result = buildFileService.createBuildWithZip(10L, req, zip, "u@x");
+        var result = buildFileService.createBuildWithZip(10L, req, zip, "u@x", mock(com.ts.rm.global.progress.ServerProgressService.class));
 
         assertThat(result.buildVersionId()).isEqualTo(99L);
         assertThat(result.uploadedFileCount()).isEqualTo(2);
