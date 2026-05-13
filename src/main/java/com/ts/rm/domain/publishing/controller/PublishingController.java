@@ -57,14 +57,18 @@ public class PublishingController implements PublishingControllerDocs {
             @RequestParam String publishingCategory,
             @RequestParam(required = false) String subCategory,
             @RequestParam(required = false) String description,
-            @RequestParam(required = false) Long customerId) {
+            @RequestParam(required = false) Long customerId,
+            @RequestParam(required = false) String glyphText,
+            @RequestParam(required = false) String glyphBackgroundColor) {
 
         log.info("퍼블리싱 생성 요청 - 이름: {}, 카테고리: {}", publishingName, publishingCategory);
 
         String createdBy = SecurityUtil.getTokenInfo().email();
 
         PublishingDto.CreateRequest request = new PublishingDto.CreateRequest(
-                publishingName, description, publishingCategory, subCategory, customerId, createdBy
+                publishingName, description, publishingCategory, subCategory, customerId,
+                glyphText, glyphBackgroundColor,
+                createdBy
         );
 
         PublishingDto.DetailResponse response = publishingService.createPublishing(zipFile, request);
@@ -103,6 +107,8 @@ public class PublishingController implements PublishingControllerDocs {
                 request.publishingCategory(),
                 request.subCategory(),
                 request.customerId(),
+                request.glyphText(),
+                request.glyphBackgroundColor(),
                 updatedBy
         );
 
