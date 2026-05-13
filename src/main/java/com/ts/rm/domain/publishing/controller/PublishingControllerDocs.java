@@ -71,7 +71,13 @@ public interface PublishingControllerDocs {
             @RequestParam(required = false) String description,
 
             @Parameter(description = "고객사 ID (커스터마이징인 경우)", example = "1")
-            @RequestParam(required = false) Long customerId
+            @RequestParam(required = false) Long customerId,
+
+            @Parameter(description = "글리프 텍스트(배지용)", example = "BETA")
+            @RequestParam(required = false) String glyphText,
+
+            @Parameter(description = "글리프 배경색(hex)", example = "#FF8800")
+            @RequestParam(required = false) String glyphBackgroundColor
     );
 
     @Operation(
