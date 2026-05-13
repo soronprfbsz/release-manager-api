@@ -1,0 +1,2 @@
+- [진행도 공용화 검증 이력](progress-unification-review.md) — 2026-05-08. complete() 비대칭 이슈 확인 (버전/빌드 서비스), WSL Java 17 미설치로 빌드 환경 제약
+- [백엔드 빌드 환경 제약](build-env.md) — WSL에 Java 21만 설치됨, toolchain=17 요구로 gradlew 직접 빌드 불가. 소스 분석으로 대체
