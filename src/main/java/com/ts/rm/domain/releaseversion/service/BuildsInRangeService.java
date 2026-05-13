@@ -99,19 +99,28 @@ public class BuildsInRangeService {
     }
 
     /**
-     * engine/ 디렉토리 직속 정규 파일 중 엔진 바이너리만 수집한다.
+     * engine/ 디렉토리 직속 항목에서 엔진을 수집한다.
      *
-     * <p>확장자가 있는 파일(nc_conf.conf 등 공유 자산)은 {@link EngineNameClassifier} 가 걸러낸다.
-     * 화이트리스트 외 신규 엔진도 NC_* / OZ_* prefix 가 있으면 자동 인식된다.
-     * 하위 디렉토리(구 모델)는 무시한다.
+     * <p>단일 파일형: 확장자가 있는 파일(nc_conf.conf 등 공유 자산)은
+     * {@link EngineNameClassifier} 가 걸러낸다. 화이트리스트 외 신규 엔진도
+     * NC_* / OZ_* prefix 가 있으면 자동 인식된다.
+     *
+     * <p>디렉토리형: {@link EngineNameClassifier#DIRECTORY_FORM_ENGINE_NAMES}
+     * 화이트리스트(예: {@code NC_AGENT_SERVER})의 이름과 일치하는 하위 디렉토리만
+     * 엔진 후보로 인식한다. 그 외 디렉토리는 무시한다.
      */
     private TreeSet<String> engineNamesInBuild(Path engineDir) {
         TreeSet<String> names = new TreeSet<>();
         if (!Files.isDirectory(engineDir)) return names;
         try (var stream = Files.list(engineDir)) {
-            stream.filter(Files::isRegularFile)
-                  .filter(p -> EngineNameClassifier.isEngineFile(p.getFileName().toString()))
-                  .forEach(p -> names.add(p.getFileName().toString()));
+            stream.forEach(p -> {
+                String name = p.getFileName().toString();
+                if (Files.isDirectory(p) && EngineNameClassifier.DIRECTORY_FORM_ENGINE_NAMES.contains(name)) {
+                    names.add(name);
+                } else if (Files.isRegularFile(p) && EngineNameClassifier.isEngineFile(name)) {
+                    names.add(name);
+                }
+            });
         } catch (IOException e) {
             log.warn("engine 디렉토리 list 실패: {}", engineDir, e);
         }

@@ -508,6 +508,7 @@ public class PatchGenerationService {
             content.append("   - 컨테이너의 `/opt/infraeye/nms/bin/<파일명>` 위치로 직접 복사 / 내용 수정\n");
             content.append("   - 자동 덮어쓰기를 하지 않는 이유: 운영자가 수정해 둔 값이 날아가는 사고 방지\n");
             content.append("7. `InfraEye eng patch` — 엔진 바이너리 패치 (NC_*, OZ_* 자동 적용 + 재기동)\n");
+            content.append("   - `engine/NC_AGENT_SERVER/` 가 포함된 경우, 그 안의 `patch_nc_agent_server.sh` 가 InfraEye CLI 에 의해 자동 실행됨\n");
             content.append("8. `InfraEye info version` — 변경된 사이트 버전 확인 (사후)\n\n");
 
             content.append("## 주의\n");
@@ -1131,26 +1132,31 @@ public class PatchGenerationService {
             selectedBuilds.put(bv.getReleaseVersionId(), bv);
         }
 
-        // b. ENGINE 부분 복사 (단일 파일)
+        // b. ENGINE 부분 복사 (단일 파일 또는 디렉토리 트리)
         if (sel.engines() != null) {
             for (PatchDto.SelectedEngine se : sel.engines()) {
                 ReleaseVersion bv = loadBuildVersion(se.buildVersionId());
                 Path src = fileSystemService.resolveBuildBasePath(bv)
                         .resolve("engine").resolve(se.engineName());
-                if (!Files.isRegularFile(src)) {
-                    throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
-                            "엔진 빌드 파일이 존재하지 않습니다: " + src);
-                }
                 Path dst = outputDir.resolve("engine").resolve(se.engineName());
-                Files.createDirectories(dst.getParent());
-                Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
-                // 실행 비트 보존: source 의 posix permission 을 dst 에 복사 (POSIX FS 일 때만)
-                try {
-                    var perms = Files.getPosixFilePermissions(src);
-                    Files.setPosixFilePermissions(dst, perms);
-                } catch (UnsupportedOperationException ignored) {
-                    // 비-POSIX FS (Windows) 는 setExecutable 폴백
-                    dst.toFile().setExecutable(true, false);
+                if (Files.isDirectory(src)
+                        && EngineNameClassifier.DIRECTORY_FORM_ENGINE_NAMES.contains(se.engineName())) {
+                    // 디렉토리형 엔진 (예: engine/NC_AGENT_SERVER/): 트리 그대로 복사
+                    copyDirectoryReplaceExisting(src, dst);
+                } else if (Files.isRegularFile(src)) {
+                    Files.createDirectories(dst.getParent());
+                    Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
+                    // 실행 비트 보존: source 의 posix permission 을 dst 에 복사 (POSIX FS 일 때만)
+                    try {
+                        var perms = Files.getPosixFilePermissions(src);
+                        Files.setPosixFilePermissions(dst, perms);
+                    } catch (UnsupportedOperationException ignored) {
+                        // 비-POSIX FS (Windows) 는 setExecutable 폴백
+                        dst.toFile().setExecutable(true, false);
+                    }
+                } else {
+                    throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
+                            "엔진 빌드 경로가 존재하지 않습니다: " + src);
                 }
                 selectedBuilds.putIfAbsent(bv.getReleaseVersionId(), bv);
             }
@@ -1512,6 +1518,7 @@ public class PatchGenerationService {
             content.append("   - 컨테이너의 `/opt/infraeye/nms/bin/<파일명>` 위치로 직접 복사 / 내용 수정\n");
             content.append("   - 자동 덮어쓰기를 하지 않는 이유: 운영자가 수정해 둔 값이 날아가는 사고 방지\n");
             content.append("7. `InfraEye eng patch` — 엔진 바이너리 패치 (NC_*, OZ_* 자동 적용 + 재기동)\n");
+            content.append("   - `engine/NC_AGENT_SERVER/` 가 포함된 경우, 그 안의 `patch_nc_agent_server.sh` 가 InfraEye CLI 에 의해 자동 실행됨\n");
             content.append("8. `InfraEye info version` — 변경된 사이트 버전 확인 (사후)\n\n");
 
             content.append("## 주의\n");
