@@ -30,6 +30,8 @@ public interface ReleaseVersionDtoMapper {
     @Mapping(target = "isDeletedCreator", expression = "java(releaseVersion.getCreator() == null)")
     @Mapping(target = "approvedBy", source = "approvedByEmail")
     @Mapping(target = "approvedByName", source = "approvedByName")
+    @Mapping(target = "approvedByAvatarStyle", source = "approver.avatarStyle")
+    @Mapping(target = "approvedByAvatarSeed", source = "approver.avatarSeed")
     @Mapping(target = "isDeletedApprover", expression = "java(releaseVersion.getApprover() == null && releaseVersion.getApprovedByEmail() != null)")
     ReleaseVersionDto.SimpleResponse toSimpleResponse(ReleaseVersion releaseVersion);
 
@@ -57,6 +59,8 @@ public interface ReleaseVersionDtoMapper {
     @Mapping(target = "isDeletedCreator", expression = "java(releaseVersion.getCreator() == null)")
     @Mapping(target = "approvedBy", source = "approvedByEmail")
     @Mapping(target = "approvedByName", source = "approvedByName")
+    @Mapping(target = "approvedByAvatarStyle", source = "approver.avatarStyle")
+    @Mapping(target = "approvedByAvatarSeed", source = "approver.avatarSeed")
     @Mapping(target = "isDeletedApprover", expression = "java(releaseVersion.getApprover() == null && releaseVersion.getApprovedByEmail() != null)")
     ReleaseVersionDto.DetailResponse toDetailResponse(ReleaseVersion releaseVersion);
 

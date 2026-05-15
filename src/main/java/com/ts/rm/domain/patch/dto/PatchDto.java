@@ -237,6 +237,15 @@ public final class PatchDto {
             @Schema(description = "패치 담당자 이름", example = "홍길동")
             String assigneeName,
 
+            @Schema(description = "패치 담당자 이메일", example = "user@example.com")
+            String assigneeEmail,
+
+            @Schema(description = "패치 담당자 아바타 스타일", example = "lorelei")
+            String assigneeAvatarStyle,
+
+            @Schema(description = "패치 담당자 아바타 시드", example = "abc123")
+            String assigneeAvatarSeed,
+
             @Schema(description = "등록일시")
             LocalDateTime createdAt,
 
@@ -372,6 +381,15 @@ public final class PatchDto {
 
             @Schema(description = "패치 담당자 이름", example = "홍길동")
             String assigneeName,
+
+            @Schema(description = "패치 담당자 이메일", example = "user@example.com")
+            String assigneeEmail,
+
+            @Schema(description = "패치 담당자 아바타 스타일", example = "lorelei")
+            String assigneeAvatarStyle,
+
+            @Schema(description = "패치 담당자 아바타 시드", example = "abc123")
+            String assigneeAvatarSeed,
 
             @Schema(description = "등록일시")
             LocalDateTime createdAt,

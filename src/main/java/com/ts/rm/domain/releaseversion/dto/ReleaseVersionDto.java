@@ -151,6 +151,12 @@ public final class ReleaseVersionDto {
             @Schema(description = "승인자 이름", example = "김관리자")
             String approvedByName,
 
+            @Schema(description = "승인자 아바타 스타일", example = "lorelei")
+            String approvedByAvatarStyle,
+
+            @Schema(description = "승인자 아바타 시드", example = "abc123")
+            String approvedByAvatarSeed,
+
             @Schema(description = "승인자 탈퇴 여부", example = "false")
             Boolean isDeletedApprover,
 
@@ -254,6 +260,12 @@ public final class ReleaseVersionDto {
 
             @Schema(description = "승인자 이름", example = "김관리자")
             String approvedByName,
+
+            @Schema(description = "승인자 아바타 스타일", example = "lorelei")
+            String approvedByAvatarStyle,
+
+            @Schema(description = "승인자 아바타 시드", example = "abc123")
+            String approvedByAvatarSeed,
 
             @Schema(description = "승인자 탈퇴 여부", example = "false")
             Boolean isDeletedApprover,
