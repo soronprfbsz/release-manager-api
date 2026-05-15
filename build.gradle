@@ -24,6 +24,14 @@ tasks.withType(Test) {
 	systemProperty 'file.encoding', 'UTF-8'
 }
 
+// bootRun 의 stdout/stderr 도 UTF-8 — Windows 콘솔 mojibake 방지
+// (기본은 OS default 라 Windows 에서는 CP949 로 인코딩되어 한글 깨짐)
+tasks.named('bootRun') {
+	systemProperty 'file.encoding', 'UTF-8'
+	systemProperty 'stdout.encoding', 'UTF-8'
+	systemProperty 'stderr.encoding', 'UTF-8'
+}
+
 // =============================================================================
 // 사전 부채 — 깨진 테스트 컴파일 제외 (도메인 리팩토링 후 미정리)
 // -----------------------------------------------------------------------------
