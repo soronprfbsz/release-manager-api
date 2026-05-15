@@ -98,8 +98,13 @@ public class DashboardService {
                 .collect(Collectors.toSet());
         Set<String> existingPatchNames = patchRepository.findExistingPatchNames(patchNames);
 
-        // 3. 파일이 삭제된(=정상 완료된) 항목만 RecentPatch 변환
+        // 3. 패치 완료 버튼(=completePatch)으로 처리된 항목만 RecentPatch 변환
+        //    - completedBy IS NOT NULL : 패치 완료 버튼으로 처리한 것 (직접 insert 등 비정상 row 제외)
+        //    - customer IS NOT NULL    : 고객사 지정 패치
+        //    - patch_file row 삭제됨   : 정상 완료 흐름 통과 (파일이 정리됨)
         List<RecentPatch> patches = patchHistories.stream()
+                .filter(ph -> ph.getCompletedBy() != null && !ph.getCompletedBy().isBlank())
+                .filter(ph -> ph.getCustomer() != null)
                 .filter(ph -> !existingPatchNames.contains(ph.getPatchName()))
                 .map(this::toRecentPatch)
                 .toList();
