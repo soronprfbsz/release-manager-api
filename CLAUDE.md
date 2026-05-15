@@ -5,9 +5,15 @@
 ## 첫 셋업 (한 번)
 
 ```bash
-sudo apt install -y openjdk-17-jdk     # Java 17 toolchain (gradle 자동 감지)
-sudo apt install -y docker.io docker-compose-plugin   # 인프라용
+sudo apt install -y openjdk-17-jdk-headless docker.io docker-compose-plugin
+
+# JAVA_HOME 영구 설정 — gradle toolchain 이 Java 17 을 확실히 찾도록
+echo 'export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64' >> ~/.zshrc
+source ~/.zshrc
 ```
+
+(bash 사용자는 `~/.bashrc` 로 교체. Java 21 도 함께 있으면 Gradle 의
+자동 감지가 17 을 못 찾는 경우가 있어 `JAVA_HOME` 명시가 가장 확실.)
 
 ## 명령
 
