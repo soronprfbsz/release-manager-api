@@ -180,11 +180,11 @@ public final class FileContentUtil {
 
             String fileName = filePath.getFileName().toString();
 
-            // MIME 타입 확인
-            String mimeType = Files.probeContentType(filePath);
-            if (mimeType == null) {
-                mimeType = "application/octet-stream";
-            }
+            // MIME 타입 확인 — Files.probeContentType 은 OS/JVM 환경 의존적이라
+            // 예를 들어 .sh 가 환경에 따라 null 또는 application/x-shellscript 로 반환되어
+            // 텍스트 파일이 binary 로 잘못 분류되는 문제가 있었다. getMimeType 헬퍼는
+            // probeContentType 실패 시 EXTENSION_MIME_MAP fallback 으로 안정성을 보장한다.
+            String mimeType = getMimeType(filePath);
 
             // 텍스트 파일 여부 판단
             boolean isBinary = !isTextMimeType(mimeType);
@@ -273,6 +273,8 @@ public final class FileContentUtil {
                mimeType.equals("application/ecmascript") ||
                mimeType.equals("application/xhtml+xml") ||
                mimeType.equals("application/x-sh") ||
+               mimeType.equals("application/x-shellscript") ||
+               mimeType.equals("application/x-csh") ||
                mimeType.equals("application/x-httpd-php") ||
                mimeType.equals("application/sql") ||
                mimeType.equals("application/graphql") ||
