@@ -3,9 +3,11 @@ package com.ts.rm.domain.analytics.repository;
 import com.querydsl.core.types.Projections;
 import com.querydsl.core.types.dsl.Expressions;
 import com.querydsl.core.types.dsl.StringTemplate;
+import com.querydsl.jpa.JPAExpressions;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import com.ts.rm.domain.analytics.dto.AnalyticsDto.CustomerPatchCount;
 import com.ts.rm.domain.analytics.dto.AnalyticsDto.MonthlyCustomerPatchRaw;
+import com.ts.rm.domain.analytics.dto.AnalyticsDto.VersionCustomerRaw;
 import com.ts.rm.domain.customer.entity.QCustomer;
 import com.ts.rm.domain.patch.entity.QPatchHistory;
 import java.time.LocalDateTime;
@@ -99,6 +101,40 @@ public class PatchAnalyticsRepositoryImpl implements PatchAnalyticsRepository {
                 )
                 .groupBy(yearMonthTemplate, customer.customerName)
                 .orderBy(yearMonthTemplate.asc(), customer.customerName.asc())
+                .fetch();
+    }
+
+    /**
+     * 프로젝트별 각 고객사의 최신 완료 patch_history.to_version 조회.
+     *
+     * <p>서브쿼리로 각 customer 의 MAX(completed_at) 인 row 만 선택.
+     */
+    @Override
+    public List<VersionCustomerRaw> findLatestVersionByCustomer(String projectId) {
+        QPatchHistory ph = QPatchHistory.patchHistory;
+        QPatchHistory ph2 = new QPatchHistory("ph2");
+        QCustomer customer = QCustomer.customer;
+
+        return queryFactory
+                .select(Projections.constructor(VersionCustomerRaw.class,
+                        ph.toVersion,
+                        customer.customerId,
+                        customer.customerCode,
+                        customer.customerName))
+                .from(ph)
+                .join(ph.customer, customer)
+                .where(
+                        ph.project.projectId.eq(projectId),
+                        ph.customer.isNotNull(),
+                        ph.completedAt.eq(
+                                JPAExpressions
+                                        .select(ph2.completedAt.max())
+                                        .from(ph2)
+                                        .where(ph2.customer.eq(ph.customer)
+                                                .and(ph2.project.projectId.eq(projectId)))
+                        )
+                )
+                .orderBy(customer.customerName.asc())
                 .fetch();
     }
 }

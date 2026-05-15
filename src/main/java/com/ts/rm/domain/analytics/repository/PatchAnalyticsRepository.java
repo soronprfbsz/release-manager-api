@@ -2,6 +2,7 @@ package com.ts.rm.domain.analytics.repository;
 
 import com.ts.rm.domain.analytics.dto.AnalyticsDto.CustomerPatchCount;
 import com.ts.rm.domain.analytics.dto.AnalyticsDto.MonthlyCustomerPatchRaw;
+import com.ts.rm.domain.analytics.dto.AnalyticsDto.VersionCustomerRaw;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -30,4 +31,15 @@ public interface PatchAnalyticsRepository {
      * @return 월별+고객별 패치 건수 목록 (연월 오름차순, 고객명 오름차순)
      */
     List<MonthlyCustomerPatchRaw> findMonthlyCustomerPatchCounts(String projectId, LocalDateTime startDate);
+
+    /**
+     * 프로젝트별 각 고객사의 최신 완료 패치 to_version 조회
+     *
+     * <p>고객사별로 가장 최근 완료된 patch_history 의 to_version 을 1건씩 반환.
+     * 그룹화 / 정렬은 서비스 레이어에서 수행.
+     *
+     * @param projectId 프로젝트 ID
+     * @return (version, customer*) 목록
+     */
+    List<VersionCustomerRaw> findLatestVersionByCustomer(String projectId);
 }

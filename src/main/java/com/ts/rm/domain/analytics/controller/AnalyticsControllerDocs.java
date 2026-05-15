@@ -2,6 +2,7 @@ package com.ts.rm.domain.analytics.controller;
 
 import com.ts.rm.domain.analytics.dto.AnalyticsDto.MonthlyPatchResponse;
 import com.ts.rm.domain.analytics.dto.AnalyticsDto.TopCustomersResponse;
+import com.ts.rm.domain.analytics.dto.AnalyticsDto.VersionCustomerDistributionResponse;
 import com.ts.rm.global.response.ApiResponse;
 import com.ts.rm.global.response.SwaggerResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -138,6 +139,26 @@ public interface AnalyticsControllerDocs {
             @RequestParam(defaultValue = "6") int months
     );
 
+    @Operation(
+            summary = "버전별 고객사 분포 조회",
+            description = "각 고객사의 최신 완료 patch_history.to_version 을 기준으로 버전별로 고객사를 그룹화하여 반환합니다.\n\n"
+                    + "**참고**:\n"
+                    + "- CUSTOM 타입 패치만 집계 (STANDARD 는 고객사 정보 없음)\n"
+                    + "- 버전 내림차순 정렬",
+            responses = @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "성공",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = VersionCustomerDistributionApiResponse.class)
+                    )
+            )
+    )
+    ApiResponse<VersionCustomerDistributionResponse> getVersionCustomerDistribution(
+            @Parameter(description = "프로젝트 ID", required = true, example = "infraeye2")
+            @PathVariable String projectId
+    );
+
     /**
      * Swagger 스키마용 wrapper 클래스 - 고객사 Top-N 응답
      */
@@ -160,5 +181,17 @@ public interface AnalyticsControllerDocs {
 
         @Schema(description = "월별 패치 통계 데이터")
         public MonthlyPatchResponse data;
+    }
+
+    /**
+     * Swagger 스키마용 wrapper 클래스 - 버전별 고객사 분포 응답
+     */
+    @Schema(description = "버전별 고객사 분포 API 응답")
+    class VersionCustomerDistributionApiResponse {
+        @Schema(description = "응답 상태", example = "success")
+        public String status;
+
+        @Schema(description = "버전별 고객사 분포 데이터")
+        public VersionCustomerDistributionResponse data;
     }
 }

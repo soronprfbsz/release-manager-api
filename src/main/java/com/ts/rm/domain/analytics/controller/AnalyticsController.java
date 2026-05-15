@@ -2,6 +2,7 @@ package com.ts.rm.domain.analytics.controller;
 
 import com.ts.rm.domain.analytics.dto.AnalyticsDto.MonthlyPatchResponse;
 import com.ts.rm.domain.analytics.dto.AnalyticsDto.TopCustomersResponse;
+import com.ts.rm.domain.analytics.dto.AnalyticsDto.VersionCustomerDistributionResponse;
 import com.ts.rm.domain.analytics.service.AnalyticsService;
 import com.ts.rm.global.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
@@ -48,6 +49,18 @@ public class AnalyticsController implements AnalyticsControllerDocs {
         log.info("프로젝트별 월별+고객별 패치 통계 조회 요청 - projectId: {}, 최근 {}개월", id, months);
 
         MonthlyPatchResponse response = analyticsService.getMonthlyPatchCounts(id, months);
+
+        return ApiResponse.success(response);
+    }
+
+    @Override
+    @GetMapping("/patches/version-customers")
+    public ApiResponse<VersionCustomerDistributionResponse> getVersionCustomerDistribution(
+            @PathVariable String id) {
+
+        log.info("프로젝트별 버전별 고객사 분포 조회 요청 - projectId: {}", id);
+
+        VersionCustomerDistributionResponse response = analyticsService.getVersionCustomerDistribution(id);
 
         return ApiResponse.success(response);
     }

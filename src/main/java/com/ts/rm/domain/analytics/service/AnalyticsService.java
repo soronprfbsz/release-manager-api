@@ -1,10 +1,14 @@
 package com.ts.rm.domain.analytics.service;
 
+import com.ts.rm.domain.analytics.dto.AnalyticsDto.CustomerInfo;
 import com.ts.rm.domain.analytics.dto.AnalyticsDto.CustomerPatchCount;
 import com.ts.rm.domain.analytics.dto.AnalyticsDto.MonthlyCustomerPatchCount;
 import com.ts.rm.domain.analytics.dto.AnalyticsDto.MonthlyCustomerPatchRaw;
 import com.ts.rm.domain.analytics.dto.AnalyticsDto.MonthlyPatchResponse;
 import com.ts.rm.domain.analytics.dto.AnalyticsDto.TopCustomersResponse;
+import com.ts.rm.domain.analytics.dto.AnalyticsDto.VersionCustomerDistributionResponse;
+import com.ts.rm.domain.analytics.dto.AnalyticsDto.VersionCustomerGroup;
+import com.ts.rm.domain.analytics.dto.AnalyticsDto.VersionCustomerRaw;
 import com.ts.rm.domain.analytics.repository.PatchAnalyticsRepository;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
@@ -116,6 +120,60 @@ public class AnalyticsService {
         log.info("월별+고객별 패치 통계 조회 완료 - 월수: {}, 고객수: {}", monthly.size(), customers.size());
 
         return new MonthlyPatchResponse(months, customers, monthly);
+    }
+
+    /**
+     * 프로젝트별 버전별 고객사 분포 조회
+     *
+     * <p>각 고객사의 최신 완료 patch_history.to_version 을 기준으로
+     * 버전별로 고객사를 그룹화하여 반환한다. version 정렬은 내림차순.
+     *
+     * @param projectId 프로젝트 ID
+     * @return 버전별 고객사 분포 응답
+     */
+    public VersionCustomerDistributionResponse getVersionCustomerDistribution(String projectId) {
+        log.info("프로젝트별 버전별 고객사 분포 조회 - projectId: {}", projectId);
+
+        List<VersionCustomerRaw> raw = patchAnalyticsRepository.findLatestVersionByCustomer(projectId);
+
+        // version 별 고객사 그룹화
+        Map<String, List<CustomerInfo>> grouped = new LinkedHashMap<>();
+        for (VersionCustomerRaw r : raw) {
+            grouped.computeIfAbsent(r.version(), k -> new ArrayList<>())
+                    .add(new CustomerInfo(r.customerId(), r.customerCode(), r.customerName()));
+        }
+
+        // version 내림차순 정렬 (semver-aware 가벼운 비교)
+        List<VersionCustomerGroup> versions = new ArrayList<>(grouped.entrySet().stream()
+                .map(e -> new VersionCustomerGroup(e.getKey(), (long) e.getValue().size(), e.getValue()))
+                .sorted((a, b) -> compareVersionDesc(a.version(), b.version()))
+                .toList());
+
+        log.info("버전별 고객사 분포 조회 완료 - 버전 수: {}", versions.size());
+        return new VersionCustomerDistributionResponse(versions);
+    }
+
+    /**
+     * 버전 문자열을 숫자 segment 로 분해해 내림차순 비교. 1.1.0 / 1.1.0.260514-1 / 1.1.0-customerA.1.0.0 모두 처리.
+     */
+    private int compareVersionDesc(String a, String b) {
+        String[] aParts = a.split("[.\\-]");
+        String[] bParts = b.split("[.\\-]");
+        int len = Math.max(aParts.length, bParts.length);
+        for (int i = 0; i < len; i++) {
+            int ai = i < aParts.length ? parseIntSafe(aParts[i]) : 0;
+            int bi = i < bParts.length ? parseIntSafe(bParts[i]) : 0;
+            if (ai != bi) return bi - ai;
+        }
+        return 0;
+    }
+
+    private int parseIntSafe(String s) {
+        try {
+            return Integer.parseInt(s);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     /**

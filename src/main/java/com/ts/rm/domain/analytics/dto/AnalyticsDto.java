@@ -105,4 +105,63 @@ public final class AnalyticsDto {
             List<MonthlyCustomerPatchCount> monthly
     ) {
     }
+
+    /**
+     * 버전별 고객사 분포 - 원본 (내부 사용)
+     */
+    public record VersionCustomerRaw(
+            String version,
+            Long customerId,
+            String customerCode,
+            String customerName
+    ) {
+    }
+
+    /**
+     * 고객사 간단 정보
+     */
+    @Schema(description = "고객사 간단 정보")
+    public record CustomerInfo(
+            @Schema(description = "고객사 ID", example = "1")
+            Long customerId,
+
+            @Schema(description = "고객사 코드", example = "CUSTOMER_A")
+            String customerCode,
+
+            @Schema(description = "고객사명", example = "A회사")
+            String customerName
+    ) {
+    }
+
+    /**
+     * 버전별 고객사 그룹
+     *
+     * @param version   버전 (PatchHistory.toVersion 그대로)
+     * @param count     해당 버전을 운영중인 고객사 수
+     * @param customers 고객사 목록
+     */
+    @Schema(description = "버전별 고객사 그룹")
+    public record VersionCustomerGroup(
+            @Schema(description = "버전", example = "1.1.0")
+            String version,
+
+            @Schema(description = "해당 버전을 운영중인 고객사 수", example = "3")
+            Long count,
+
+            @Schema(description = "고객사 목록")
+            List<CustomerInfo> customers
+    ) {
+    }
+
+    /**
+     * 버전별 고객사 분포 응답
+     *
+     * <p>각 고객사의 최근 완료 patch_history.to_version 기준으로 집계.
+     */
+    @Schema(description = "버전별 고객사 분포 응답")
+    public record VersionCustomerDistributionResponse(
+            @Schema(description = "버전별 그룹 목록 (버전 내림차순)")
+            List<VersionCustomerGroup> versions
+    ) {
+    }
 }
