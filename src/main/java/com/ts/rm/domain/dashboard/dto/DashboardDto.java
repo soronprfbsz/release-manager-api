@@ -75,9 +75,6 @@ public class DashboardDto {
             @Schema(description = "설명")
             String description,
 
-            @Schema(description = "파일 삭제 여부 (patch_file에서 삭제됨)", example = "false")
-            Boolean fileDeleted,
-
             @Schema(description = "고객사 ID (CUSTOM 타입인 경우)", example = "1")
             Long customerId,
 
@@ -124,27 +121,19 @@ public class DashboardDto {
     }
 
     /**
-     * 커스텀본 최신 릴리즈 버전 응답
+     * 최신 빌드 버전 정보 (표준 + 커스텀 통합)
+     *
+     * <p>version 필드는 핫픽스/빌드 라벨을 포함한 full 버전 (예: "1.1.0.260501-1")
      */
-    @Schema(description = "커스텀본 최신 릴리즈 버전 응답")
-    public record RecentCustomResponse(
-            @Schema(description = "커스텀본 최신 릴리즈 버전 목록")
-            List<RecentCustomVersion> versions
-    ) {
-    }
-
-    /**
-     * 커스텀본 릴리즈 버전 정보 (고객사 정보 포함)
-     */
-    @Schema(description = "커스텀본 릴리즈 버전 정보")
-    public record RecentCustomVersion(
+    @Schema(description = "최신 빌드 버전 정보")
+    public record RecentBuildVersion(
             @Schema(description = "릴리즈 버전 ID", example = "2")
             Long releaseVersionId,
 
-            @Schema(description = "버전", example = "1.1.0")
+            @Schema(description = "빌드 라벨이 포함된 전체 버전", example = "1.1.0.260501-1")
             String version,
 
-            @Schema(description = "릴리즈 타입", example = "CUSTOM")
+            @Schema(description = "릴리즈 타입", example = "STANDARD")
             String releaseType,
 
             @Schema(description = "생성일시")
@@ -157,13 +146,13 @@ public class DashboardDto {
             @Schema(description = "파일 카테고리 목록", example = "[\"DATABASE\", \"WEB\"]")
             List<String> fileCategories,
 
-            @Schema(description = "고객사 ID", example = "1")
+            @Schema(description = "고객사 ID (CUSTOM 타입인 경우)", example = "1")
             Long customerId,
 
-            @Schema(description = "고객사 코드", example = "CUST001")
+            @Schema(description = "고객사 코드 (CUSTOM 타입인 경우)", example = "CUST001")
             String customerCode,
 
-            @Schema(description = "고객사명", example = "A회사")
+            @Schema(description = "고객사명 (CUSTOM 타입인 경우)", example = "A회사")
             String customerName,
 
             @Schema(description = "생성자명", example = "홍길동")
@@ -177,6 +166,16 @@ public class DashboardDto {
 
             @Schema(description = "생성자 아바타 시드", example = "abc123xyz")
             String createdByAvatarSeed
+    ) {
+    }
+
+    /**
+     * 최신 빌드 버전 응답 (표준 + 커스텀 통합)
+     */
+    @Schema(description = "최신 빌드 버전 응답")
+    public record RecentBuildResponse(
+            @Schema(description = "최신 빌드 버전 목록")
+            List<RecentBuildVersion> versions
     ) {
     }
 

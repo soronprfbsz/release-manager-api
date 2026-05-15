@@ -34,12 +34,12 @@ public class DashboardController implements DashboardControllerDocs {
     }
 
     @Override
-    @GetMapping("/recent/custom")
-    public ResponseEntity<ApiResponse<DashboardDto.RecentCustomResponse>> getRecentCustomVersions(
+    @GetMapping("/recent/build")
+    public ResponseEntity<ApiResponse<DashboardDto.RecentBuildResponse>> getRecentBuildVersions(
             @PathVariable String id,
             @RequestParam(defaultValue = "5") int limit) {
 
-        DashboardDto.RecentCustomResponse response = dashboardService.getRecentCustomVersions(id, limit);
+        DashboardDto.RecentBuildResponse response = dashboardService.getRecentBuildVersions(id, limit);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 

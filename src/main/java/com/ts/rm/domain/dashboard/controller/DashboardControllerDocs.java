@@ -43,22 +43,23 @@ public interface DashboardControllerDocs {
     );
 
     @Operation(
-            summary = "커스텀본 최신 릴리즈 버전 조회",
-            description = "프로젝트별 커스텀본(CUSTOM) 최신 릴리즈 버전을 조회합니다.\n\n"
+            summary = "최신 빌드 버전 조회 (표준+커스텀)",
+            description = "프로젝트별 최신 빌드 버전을 조회합니다 (buildVersion > 0).\n\n"
                     + "**응답 정보**:\n"
-                    + "- 버전 정보, 파일 카테고리 목록\n"
-                    + "- 고객사 정보 (ID, 코드, 이름)\n"
+                    + "- 빌드 라벨 포함 전체 버전 (예: 1.1.0.260501-1)\n"
+                    + "- 파일 카테고리 목록\n"
+                    + "- 고객사 정보 (CUSTOM 타입인 경우)\n"
                     + "- 생성자 정보 (이름, 이메일, 아바타)",
             responses = @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "200",
                     description = "성공",
                     content = @Content(
                             mediaType = "application/json",
-                            schema = @Schema(implementation = RecentCustomApiResponse.class)
+                            schema = @Schema(implementation = RecentBuildApiResponse.class)
                     )
             )
     )
-    ResponseEntity<ApiResponse<DashboardDto.RecentCustomResponse>> getRecentCustomVersions(
+    ResponseEntity<ApiResponse<DashboardDto.RecentBuildResponse>> getRecentBuildVersions(
             @Parameter(description = "프로젝트 ID", required = true, example = "infraeye2")
             @PathVariable String projectId,
 
@@ -68,10 +69,11 @@ public interface DashboardControllerDocs {
 
     @Operation(
             summary = "최근 생성 패치 조회 (표준+커스텀)",
-            description = "프로젝트별 최근 생성된 패치를 조회합니다 (표준+커스텀 모두).\n\n"
+            description = "프로젝트별 최근 완료된 패치를 조회합니다 (표준+커스텀 모두).\n\n"
+                    + "**필터링**: patch_history 에 기록된 항목 중 patch_file 에서 파일이 삭제된\n"
+                    + "정상 완료 패치만 반환합니다.\n\n"
                     + "**응답 정보**:\n"
                     + "- 패치 정보 (이름, 버전 범위, 릴리즈 타입)\n"
-                    + "- 파일 삭제 여부 (patch_file 테이블에서 삭제 시 true)\n"
                     + "- 고객사 정보 (CUSTOM 타입인 경우)\n"
                     + "- 담당자 정보 (이름, 이메일, 아바타)\n"
                     + "- 생성자 정보 (이름, 이메일, 아바타)",
@@ -105,15 +107,15 @@ public interface DashboardControllerDocs {
     }
 
     /**
-     * Swagger 스키마용 wrapper 클래스 - 커스텀본 최신 버전 응답
+     * Swagger 스키마용 wrapper 클래스 - 최신 빌드 버전 응답
      */
-    @Schema(description = "커스텀본 최신 릴리즈 버전 API 응답")
-    class RecentCustomApiResponse {
+    @Schema(description = "최신 빌드 버전 API 응답")
+    class RecentBuildApiResponse {
         @Schema(description = "응답 상태", example = "success")
         public String status;
 
-        @Schema(description = "커스텀본 최신 버전 데이터")
-        public DashboardDto.RecentCustomResponse data;
+        @Schema(description = "최신 빌드 버전 데이터")
+        public DashboardDto.RecentBuildResponse data;
     }
 
     /**

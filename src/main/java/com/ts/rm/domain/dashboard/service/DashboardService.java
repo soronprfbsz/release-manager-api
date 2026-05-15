@@ -3,7 +3,7 @@ package com.ts.rm.domain.dashboard.service;
 import com.ts.rm.domain.account.entity.Account;
 import com.ts.rm.domain.customer.entity.Customer;
 import com.ts.rm.domain.dashboard.dto.DashboardDto;
-import com.ts.rm.domain.dashboard.dto.DashboardDto.RecentCustomVersion;
+import com.ts.rm.domain.dashboard.dto.DashboardDto.RecentBuildVersion;
 import com.ts.rm.domain.dashboard.dto.DashboardDto.RecentPatch;
 import com.ts.rm.domain.dashboard.dto.DashboardDto.RecentVersion;
 import com.ts.rm.domain.patch.entity.PatchHistory;
@@ -33,7 +33,6 @@ public class DashboardService {
     private final PatchRepository patchRepository;
 
     private static final String RELEASE_TYPE_STANDARD = "STANDARD";
-    private static final String RELEASE_TYPE_CUSTOM = "CUSTOM";
 
     /**
      * 표준본 최신 릴리즈 버전 조회
@@ -56,27 +55,31 @@ public class DashboardService {
     }
 
     /**
-     * 커스텀본 최신 릴리즈 버전 조회
+     * 최신 빌드 버전 조회 (표준 + 커스텀 통합)
      *
      * @param projectId 프로젝트 ID
      * @param limit     조회 개수
-     * @return 커스텀본 최신 릴리즈 버전 응답
+     * @return 최신 빌드 버전 응답
      */
-    public DashboardDto.RecentCustomResponse getRecentCustomVersions(String projectId, int limit) {
-        log.info("커스텀본 최신 릴리즈 버전 조회 - projectId: {}, limit: {}", projectId, limit);
+    public DashboardDto.RecentBuildResponse getRecentBuildVersions(String projectId, int limit) {
+        log.info("최신 빌드 버전 조회 - projectId: {}, limit: {}", projectId, limit);
 
-        List<RecentCustomVersion> versions = releaseVersionRepository
-                .findRecentByProjectIdAndReleaseType(projectId, RELEASE_TYPE_CUSTOM, limit)
+        List<RecentBuildVersion> versions = releaseVersionRepository
+                .findRecentBuildsByProjectId(projectId, limit)
                 .stream()
-                .map(this::toRecentCustomVersion)
+                .map(this::toRecentBuildVersion)
                 .toList();
 
-        log.info("커스텀본 최신 릴리즈 버전 조회 완료 - {}개", versions.size());
-        return new DashboardDto.RecentCustomResponse(versions);
+        log.info("최신 빌드 버전 조회 완료 - {}개", versions.size());
+        return new DashboardDto.RecentBuildResponse(versions);
     }
 
     /**
      * 최근 생성 패치 조회 (표준+커스텀)
+     *
+     * <p>patch_history 는 패치 완료 시점에 기록되므로 이미 "완료된" 패치만 들어있다.
+     * 단, 정상 흐름이라면 완료 시 파일이 삭제되므로 patch_file 에 남아있는 항목은
+     * 비정상 케이스로 보고 제외한다.
      *
      * @param projectId 프로젝트 ID
      * @param limit     조회 개수
@@ -89,15 +92,16 @@ public class DashboardService {
         List<PatchHistory> patchHistories = patchHistoryRepository
                 .findRecentByProjectId(projectId, limit);
 
-        // 2. 패치 파일 존재 여부 확인
+        // 2. patch_file 에 남아있는 패치명 조회 (완료 후 파일이 삭제된 항목만 남기기 위함)
         Set<String> patchNames = patchHistories.stream()
                 .map(PatchHistory::getPatchName)
                 .collect(Collectors.toSet());
         Set<String> existingPatchNames = patchRepository.findExistingPatchNames(patchNames);
 
-        // 3. RecentPatch 변환
+        // 3. 파일이 삭제된(=정상 완료된) 항목만 RecentPatch 변환
         List<RecentPatch> patches = patchHistories.stream()
-                .map(ph -> toRecentPatch(ph, existingPatchNames))
+                .filter(ph -> !existingPatchNames.contains(ph.getPatchName()))
+                .map(this::toRecentPatch)
                 .toList();
 
         log.info("최근 생성 패치 조회 완료 - {}개", patches.size());
@@ -131,10 +135,11 @@ public class DashboardService {
     }
 
     /**
-     * ReleaseVersion -> RecentCustomVersion 변환 (고객사 정보 포함)
+     * ReleaseVersion -> RecentBuildVersion 변환
+     *
+     * <p>version 필드는 getFullVersion() 으로 빌드 라벨까지 포함 (예: "1.1.0.260501-1").
      */
-    private RecentCustomVersion toRecentCustomVersion(ReleaseVersion rv) {
-        // 해당 버전의 파일 카테고리 목록 조회 (fileCategory가 null인 경우 제외)
+    private RecentBuildVersion toRecentBuildVersion(ReleaseVersion rv) {
         List<String> fileCategories = rv.getReleaseFiles().stream()
                 .filter(rf -> rf.getFileCategory() != null)
                 .map(rf -> rf.getFileCategory().name())
@@ -142,15 +147,14 @@ public class DashboardService {
                 .sorted()
                 .toList();
 
-        // 고객사 정보
         Customer customer = rv.getCustomer();
         Long customerId = customer != null ? customer.getCustomerId() : null;
         String customerCode = customer != null ? customer.getCustomerCode() : null;
         String customerName = customer != null ? customer.getCustomerName() : null;
 
-        return new RecentCustomVersion(
+        return new RecentBuildVersion(
                 rv.getReleaseVersionId(),
-                rv.getVersion(),
+                rv.getFullVersion(),
                 rv.getReleaseType(),
                 rv.getCreatedAt(),
                 rv.getComment(),
@@ -167,33 +171,20 @@ public class DashboardService {
 
     /**
      * PatchHistory -> RecentPatch 변환
-     *
-     * <p>patch_file 테이블은 용량 문제로 삭제될 수 있으므로
-     * patch_history 테이블을 사용하여 최근 패치 정보 조회
-     *
-     * @param patchHistory       패치 이력
-     * @param existingPatchNames 존재하는 패치명 Set (patch_file 테이블)
-     * @return RecentPatch DTO
      */
-    private RecentPatch toRecentPatch(PatchHistory patchHistory, Set<String> existingPatchNames) {
-        // 고객사 정보
+    private RecentPatch toRecentPatch(PatchHistory patchHistory) {
         Customer customer = patchHistory.getCustomer();
         Long customerId = customer != null ? customer.getCustomerId() : null;
         String customerCode = customer != null ? customer.getCustomerCode() : null;
         String customerName = customer != null ? customer.getCustomerName() : null;
 
-        // 담당자 정보 (아바타 포함)
         Account assignee = patchHistory.getAssignee();
         String assigneeAvatarStyle = assignee != null ? assignee.getAvatarStyle() : null;
         String assigneeAvatarSeed = assignee != null ? assignee.getAvatarSeed() : null;
 
-        // 생성자 정보 (아바타 포함)
         Account creator = patchHistory.getCreator();
         String createdByAvatarStyle = creator != null ? creator.getAvatarStyle() : null;
         String createdByAvatarSeed = creator != null ? creator.getAvatarSeed() : null;
-
-        // 파일 삭제 여부 (patch_file 테이블에 존재하지 않으면 삭제됨)
-        boolean fileDeleted = !existingPatchNames.contains(patchHistory.getPatchName());
 
         return new RecentPatch(
                 patchHistory.getHistoryId(),
@@ -203,7 +194,6 @@ public class DashboardService {
                 patchHistory.getReleaseType(),
                 patchHistory.getCreatedAt(),
                 patchHistory.getDescription(),
-                fileDeleted,
                 customerId,
                 customerCode,
                 customerName,

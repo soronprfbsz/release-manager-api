@@ -107,6 +107,21 @@ public class ReleaseVersionRepositoryImpl implements ReleaseVersionRepositoryCus
     }
 
     @Override
+    public List<ReleaseVersion> findRecentBuildsByProjectId(String projectId, int limit) {
+        QReleaseVersion rv = QReleaseVersion.releaseVersion;
+
+        return queryFactory
+                .selectFrom(rv)
+                .where(
+                        rv.project.projectId.eq(projectId),
+                        rv.buildVersion.gt(0)  // 빌드 행만
+                )
+                .orderBy(rv.createdAt.desc())
+                .limit(limit)
+                .fetch();
+    }
+
+    @Override
     public List<ReleaseVersion> findUnapprovedVersionsBetween(String projectId, String releaseType,
             String fromVersion, String toVersion) {
         QReleaseVersion rv = QReleaseVersion.releaseVersion;

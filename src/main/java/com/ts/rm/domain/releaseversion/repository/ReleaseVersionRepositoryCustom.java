@@ -43,6 +43,17 @@ public interface ReleaseVersionRepositoryCustom {
     List<ReleaseVersion> findRecentByProjectIdAndReleaseType(String projectId, String releaseType, int limit);
 
     /**
+     * 프로젝트별 최근 빌드 버전 N개 조회 (표준 + 커스텀 통합)
+     *
+     * <p>buildVersion &gt; 0 인 행만 반환. createdAt DESC 정렬.
+     *
+     * @param projectId 프로젝트 ID
+     * @param limit     조회 개수
+     * @return 최근 빌드 버전 목록
+     */
+    List<ReleaseVersion> findRecentBuildsByProjectId(String projectId, int limit);
+
+    /**
      * 버전 범위 내 미승인 버전 조회 (from ~ to)
      *
      * @param projectId   프로젝트 ID
