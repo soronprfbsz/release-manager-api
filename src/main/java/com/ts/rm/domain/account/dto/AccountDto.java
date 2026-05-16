@@ -2,7 +2,6 @@ package com.ts.rm.domain.account.dto;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Email;
@@ -119,10 +118,13 @@ public final class AccountDto {
      *
      * <p>부서 변경 방식:
      * <ul>
-     *   <li>필드 미전송: 부서 변경 없음</li>
-     *   <li>departmentId: null → 부서 배치 해제</li>
-     *   <li>departmentId: 5 → 해당 부서로 배치</li>
+     *   <li>departmentId / unassignDepartment 둘 다 미전송: 부서 변경 없음</li>
+     *   <li>unassignDepartment = true: 부서 배치 해제</li>
+     *   <li>departmentId = 5: 해당 부서로 배치</li>
      * </ul>
+     * <p>Optional 대신 명시적 플래그를 쓰는 이유: Jackson 의 Jdk8Module 은 JSON 키
+     * 미전송(absent)과 명시적 null 을 모두 Optional.empty 로 처리하여 "변경 없음"과
+     * "배치 해제"를 구분할 수 없기 때문.
      */
     @Builder
     @Schema(description = "계정 수정 요청 (ADMIN 전용)")
@@ -139,8 +141,11 @@ public final class AccountDto {
             @Size(max = 100, message = "직급 코드는 100자 이하여야 합니다")
             String position,
 
-            @Schema(description = "부서 ID (null: 배치 해제, 숫자: 해당 부서 배치, 미전송: 변경 없음)", example = "2")
-            Optional<Long> departmentId,
+            @Schema(description = "배치할 부서 ID (지정 시 해당 부서로 배치, 미전송 시 변경 없음)", example = "2")
+            Long departmentId,
+
+            @Schema(description = "부서 배치 해제 여부 (true 시 미배치 상태로)", example = "false")
+            Boolean unassignDepartment,
 
             @Schema(description = "권한 (ADMIN, USER)", example = "USER")
             String role,

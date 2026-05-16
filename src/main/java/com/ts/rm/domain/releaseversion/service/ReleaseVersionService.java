@@ -323,6 +323,8 @@ public class ReleaseVersionService {
                 response.isApproved(),
                 response.approvedBy(),
                 response.approvedByName(),     // 승인자 이름
+                response.approvedByAvatarStyle(),
+                response.approvedByAvatarSeed(),
                 response.isDeletedApprover(),  // 승인자 탈퇴 여부
                 response.approvedAt(),
                 fileCategories,

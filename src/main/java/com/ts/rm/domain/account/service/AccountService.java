@@ -215,20 +215,18 @@ public class AccountService {
             log.debug("Position updated to {} for accountId: {}", request.position(), accountId);
         }
 
-        // 부서 수정 (Optional: null=미전송→변경없음, empty=명시적null→배치해제, present=값→해당부서배치)
-        if (request.departmentId() != null) {
-            if (request.departmentId().isEmpty()) {
-                // departmentId: null → 부서 배치 해제
-                account.setDepartment(null);
-                log.debug("Department unassigned for accountId: {}", accountId);
-            } else {
-                // departmentId: 숫자 → 해당 부서로 배치
-                Department department = findDepartmentById(request.departmentId().get());
-                account.setDepartment(department);
-                log.debug("Department updated to {} for accountId: {}", request.departmentId().get(), accountId);
-            }
+        // 부서 수정
+        //  - unassignDepartment = true : 부서 배치 해제
+        //  - departmentId 지정         : 해당 부서로 배치
+        //  - 둘 다 미전송               : 부서 변경 없음
+        if (Boolean.TRUE.equals(request.unassignDepartment())) {
+            account.setDepartment(null);
+            log.debug("Department unassigned for accountId: {}", accountId);
+        } else if (request.departmentId() != null) {
+            Department department = findDepartmentById(request.departmentId());
+            account.setDepartment(department);
+            log.debug("Department updated to {} for accountId: {}", request.departmentId(), accountId);
         }
-        // departmentId 미전송 → 부서 변경 없음
 
         // 권한 수정
         if (request.role() != null && !request.role().isBlank()) {
