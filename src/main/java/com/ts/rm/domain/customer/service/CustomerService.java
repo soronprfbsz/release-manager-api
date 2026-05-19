@@ -64,6 +64,8 @@ public class CustomerService {
         Account creator = accountLookupService.findByEmail(createdByEmail);
 
         Customer customer = mapper.toEntity(request);
+        // 글리프 정보 정규화 (빈 문자열이면 null 로 저장)
+        customer.updateGlyph(request.glyphText(), request.glyphBackgroundColor());
         customer.setCreator(creator);
         customer.setCreatedByEmail(creator.getEmail());
         customer.setUpdater(creator);
@@ -163,7 +165,9 @@ public class CustomerService {
                     customer.getIsActive(),
                     hasCustomVersion,
                     projectInfo,
-                    customer.getCreatedAt()
+                    customer.getCreatedAt(),
+                    customer.getGlyphText(),
+                    customer.getGlyphBackgroundColor()
             );
         });
     }
@@ -199,6 +203,8 @@ public class CustomerService {
         if (request.isActive() != null) {
             customer.setIsActive(request.isActive());
         }
+        // 글리프 정보 수정 (null=미변경, ""=제거)
+        customer.updateGlyph(request.glyphText(), request.glyphBackgroundColor());
         // updater는 항상 설정
         customer.setUpdater(updater);
         customer.setUpdatedByEmail(updater.getEmail());
@@ -336,7 +342,9 @@ public class CustomerService {
                 customer.getUpdatedByEmail(),
                 customer.getUpdater() != null ? customer.getUpdater().getAvatarStyle() : null,
                 customer.getUpdater() != null ? customer.getUpdater().getAvatarSeed() : null,
-                customer.getUpdater() == null
+                customer.getUpdater() == null,
+                customer.getGlyphText(),
+                customer.getGlyphBackgroundColor()
         );
     }
 }

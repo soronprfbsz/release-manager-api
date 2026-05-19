@@ -37,7 +37,13 @@ public final class CustomerDto {
             Boolean isActive,
 
             @Schema(description = "사용 프로젝트 ID", example = "infraeye2")
-            String projectId
+            String projectId,
+
+            @Schema(description = "카드 글리프 텍스트 (1~3자)", example = "A") @Size(max = 3, message = "글리프 텍스트는 3자 이하여야 합니다")
+            String glyphText,
+
+            @Schema(description = "카드 글리프 배경 색상 키", example = "mint") @Size(max = 30, message = "글리프 배경 색상 키는 30자 이하여야 합니다")
+            String glyphBackgroundColor
     ) {
 
         public CreateRequest {
@@ -62,7 +68,13 @@ public final class CustomerDto {
             String description,
 
             @Schema(description = "활성 여부", example = "true")
-            Boolean isActive
+            Boolean isActive,
+
+            @Schema(description = "카드 글리프 텍스트 (1~3자, 빈 문자열이면 제거)", example = "A") @Size(max = 3, message = "글리프 텍스트는 3자 이하여야 합니다")
+            String glyphText,
+
+            @Schema(description = "카드 글리프 배경 색상 키 (빈 문자열이면 제거)", example = "mint") @Size(max = 30, message = "글리프 배경 색상 키는 30자 이하여야 합니다")
+            String glyphBackgroundColor
     ) {
 
     }
@@ -145,7 +157,13 @@ public final class CustomerDto {
             String updatedByAvatarSeed,
 
             @Schema(description = "수정자 탈퇴 여부", example = "false")
-            Boolean isDeletedUpdater
+            Boolean isDeletedUpdater,
+
+            @Schema(description = "카드 글리프 텍스트", example = "A")
+            String glyphText,
+
+            @Schema(description = "카드 글리프 배경 색상 키", example = "mint")
+            String glyphBackgroundColor
     ) {
 
     }
@@ -200,7 +218,13 @@ public final class CustomerDto {
             ProjectInfo project,
 
             @Schema(description = "생성일시")
-            LocalDateTime createdAt
+            LocalDateTime createdAt,
+
+            @Schema(description = "카드 글리프 텍스트", example = "A")
+            String glyphText,
+
+            @Schema(description = "카드 글리프 배경 색상 키", example = "mint")
+            String glyphBackgroundColor
     ) {
 
     }

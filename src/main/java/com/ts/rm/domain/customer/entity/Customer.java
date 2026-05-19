@@ -44,6 +44,18 @@ public class Customer extends BaseEntity {
     @Column(name = "is_active", nullable = false)
     private Boolean isActive;
 
+    /**
+     * 카드 좌상단 글리프 텍스트 (1~3자)
+     */
+    @Column(name = "glyph_text", length = 3)
+    private String glyphText;
+
+    /**
+     * 글리프 배경 색상 키 (예: mint, lavender, peach)
+     */
+    @Column(name = "glyph_background_color", length = 30)
+    private String glyphBackgroundColor;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by")
     private Account creator;
@@ -78,5 +90,18 @@ public class Customer extends BaseEntity {
     @Transient
     public String getUpdatedByName() {
         return updater != null ? updater.getAccountName() : null;
+    }
+
+    /**
+     * 글리프 정보 수정
+     * null 이면 기존 값 유지, 빈 문자열("")이면 null 로 저장 (글리프 제거 의도).
+     */
+    public void updateGlyph(String glyphText, String glyphBackgroundColor) {
+        if (glyphText != null) {
+            this.glyphText = glyphText.isBlank() ? null : glyphText;
+        }
+        if (glyphBackgroundColor != null) {
+            this.glyphBackgroundColor = glyphBackgroundColor.isBlank() ? null : glyphBackgroundColor;
+        }
     }
 }
