@@ -14,11 +14,21 @@ public interface PatchHistoryRepository extends JpaRepository<PatchHistory, Long
         PatchHistoryRepositoryCustom {
 
     /**
-     * 고객사의 모든 패치 이력 삭제 (고객사 초기화용).
+     * 고객사의 패치 이력 건수 조회 (고객사 초기화용).
      *
      * @param customerId 고객사 ID
-     * @return 삭제된 건수
+     * @return 패치 이력 건수
      */
-    long deleteAllByCustomer_CustomerId(Long customerId);
+    long countByCustomer_CustomerId(Long customerId);
+
+    /**
+     * 고객사의 모든 패치 이력 삭제 (고객사 초기화용).
+     *
+     * <p>파생 delete 쿼리는 {@code void} 반환만 안정적으로 동작하므로,
+     * 삭제 건수는 {@link #countByCustomer_CustomerId} 로 별도 조회한다.
+     *
+     * @param customerId 고객사 ID
+     */
+    void deleteAllByCustomer_CustomerId(Long customerId);
 
 }

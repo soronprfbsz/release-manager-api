@@ -260,8 +260,9 @@ public class CustomerService {
         customerProjects.forEach(cp -> cp.updateLastPatchInfo(null, null));
         log.info("customer_project 초기화 완료 - customerId: {}, 건수: {}", customerId, customerProjects.size());
 
-        // 3) patch_history 삭제
-        long patchHistoryCount = patchHistoryRepository.deleteAllByCustomer_CustomerId(customerId);
+        // 3) patch_history 삭제 (건수 먼저 조회 후 삭제)
+        long patchHistoryCount = patchHistoryRepository.countByCustomer_CustomerId(customerId);
+        patchHistoryRepository.deleteAllByCustomer_CustomerId(customerId);
         log.info("patch_history 삭제 완료 - customerId: {}, 건수: {}, 요청자: {}",
                 customerId, patchHistoryCount, requestorEmail);
 
