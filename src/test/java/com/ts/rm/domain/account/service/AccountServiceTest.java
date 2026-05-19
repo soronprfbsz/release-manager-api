@@ -17,6 +17,10 @@ import com.ts.rm.domain.account.entity.Account;
 import com.ts.rm.domain.account.enums.AccountStatus;
 import com.ts.rm.domain.account.mapper.AccountDtoMapper;
 import com.ts.rm.domain.account.repository.AccountRepository;
+import com.ts.rm.domain.common.repository.CodeRepository;
+import com.ts.rm.domain.department.repository.DepartmentHierarchyRepository;
+import com.ts.rm.domain.department.repository.DepartmentRepository;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
 import java.time.LocalDateTime;
@@ -33,6 +37,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
 /**
  * Account Service 단위 테스트
@@ -49,6 +55,18 @@ class AccountServiceTest {
 
     @Mock
     private AccountDtoMapper mapper;
+
+    @Mock
+    private DepartmentRepository departmentRepository;
+
+    @Mock
+    private DepartmentHierarchyRepository departmentHierarchyRepository;
+
+    @Mock
+    private CodeRepository codeRepository;
+
+    @Mock
+    private PasswordEncoder passwordEncoder;
 
     @InjectMocks
     private AccountService accountService;
@@ -80,6 +98,8 @@ class AccountServiceTest {
                 1L,
                 "test@example.com",
                 "테스트계정",
+                null, null, null, null, null,
+                null, null,
                 "USER",
                 "ACTIVE",
                 LocalDateTime.now(),
@@ -164,7 +184,7 @@ class AccountServiceTest {
         given(accountRepository.findAll(any(Pageable.class))).willReturn(accountPage);
 
         // when
-        Page<AccountDto.ListResponse> result = accountService.getAccounts(null, null, pageable);
+        Page<AccountDto.ListResponse> result = accountService.getAccounts(null, null, null, null, false, null, pageable);
 
         // then
         assertThat(result.getContent()).hasSize(1);
@@ -183,7 +203,7 @@ class AccountServiceTest {
 
         // when
         Page<AccountDto.ListResponse> result = accountService.getAccounts(
-                AccountStatus.ACTIVE, null, pageable);
+                AccountStatus.ACTIVE, null, null, null, false, null, pageable);
 
         // then
         assertThat(result.getContent()).hasSize(1);
@@ -272,7 +292,7 @@ class AccountServiceTest {
         given(accountRepository.findByAccountNameContaining(anyString(), any(Pageable.class))).willReturn(accountPage);
 
         // when
-        Page<AccountDto.ListResponse> result = accountService.getAccounts(null, "테스트", pageable);
+        Page<AccountDto.ListResponse> result = accountService.getAccounts(null, null, null, null, false, "테스트", pageable);
 
         // then
         assertThat(result.getContent()).hasSize(1);
@@ -292,7 +312,7 @@ class AccountServiceTest {
                 .build();
 
         AccountDto.DetailResponse expectedResponse = new AccountDto.DetailResponse(
-                1L, "test@example.com", "테스트계정", "USER", "ACTIVE",
+                1L, "test@example.com", "테스트계정", null, null, null, null, null, null, null, "USER", "ACTIVE",
                 LocalDateTime.now(), LocalDateTime.now()
         );
 
@@ -317,7 +337,7 @@ class AccountServiceTest {
                 .build();
 
         AccountDto.DetailResponse expectedResponse = new AccountDto.DetailResponse(
-                1L, "test@example.com", "테스트계정", "ADMIN", "ACTIVE",
+                1L, "test@example.com", "테스트계정", null, null, null, null, null, null, null, "ADMIN", "ACTIVE",
                 LocalDateTime.now(), LocalDateTime.now()
         );
 
@@ -342,7 +362,7 @@ class AccountServiceTest {
                 .build();
 
         AccountDto.DetailResponse expectedResponse = new AccountDto.DetailResponse(
-                1L, "test@example.com", "테스트계정", "USER", "INACTIVE",
+                1L, "test@example.com", "테스트계정", null, null, null, null, null, null, null, "USER", "INACTIVE",
                 LocalDateTime.now(), LocalDateTime.now()
         );
 
@@ -369,7 +389,7 @@ class AccountServiceTest {
                 .build();
 
         AccountDto.DetailResponse expectedResponse = new AccountDto.DetailResponse(
-                1L, "test@example.com", "테스트계정", "ADMIN", "INACTIVE",
+                1L, "test@example.com", "테스트계정", null, null, null, null, null, null, null, "ADMIN", "INACTIVE",
                 LocalDateTime.now(), LocalDateTime.now()
         );
 

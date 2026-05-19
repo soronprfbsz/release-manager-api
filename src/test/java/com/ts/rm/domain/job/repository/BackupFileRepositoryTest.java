@@ -30,7 +30,7 @@ class BackupFileRepositoryTest extends AbstractTestBase {
                 .fileSize(1024L)
                 .checksum("abc123")
                 .description("테스트 백업 파일")
-                .createdBy("test@test.com")
+                .createdByEmail("test@test.com")
                 .build();
 
         // when
@@ -53,7 +53,7 @@ class BackupFileRepositoryTest extends AbstractTestBase {
                 .filePath("job/MARIADB/backup_files/duplicate_test.sql")
                 .fileSize(1024L)
                 .checksum("abc123")
-                .createdBy("test@test.com")
+                .createdByEmail("test@test.com")
                 .build();
         backupFileRepository.save(backupFile1);
 
@@ -65,7 +65,7 @@ class BackupFileRepositoryTest extends AbstractTestBase {
                 .filePath("job/MARIADB/backup_files/duplicate_test.sql")  // 동일한 경로
                 .fileSize(2048L)
                 .checksum("def456")
-                .createdBy("test@test.com")
+                .createdByEmail("test@test.com")
                 .build();
 
         // then - 중복 키 예외 발생
@@ -87,7 +87,7 @@ class BackupFileRepositoryTest extends AbstractTestBase {
                 .filePath(filePath)
                 .fileSize(1024L)
                 .checksum("abc123")
-                .createdBy("test@test.com")
+                .createdByEmail("test@test.com")
                 .build();
         backupFileRepository.save(backupFile);
 
@@ -111,7 +111,7 @@ class BackupFileRepositoryTest extends AbstractTestBase {
                 .filePath("job/MARIADB/backup_files/find_test.sql")
                 .fileSize(1024L)
                 .checksum("abc123")
-                .createdBy("test@test.com")
+                .createdByEmail("test@test.com")
                 .build();
         backupFileRepository.save(backupFile);
 

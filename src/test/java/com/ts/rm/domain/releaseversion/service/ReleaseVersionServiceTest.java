@@ -396,6 +396,8 @@ class ReleaseVersionServiceTest {
                 false,               // isApproved
                 null,                // approvedBy
                 null,                // approvedByName
+                null,                // approvedByAvatarStyle
+                null,                // approvedByAvatarSeed
                 false,               // isDeletedApprover
                 null,                // approvedAt
                 null,                // customMajorVersion
@@ -433,6 +435,8 @@ class ReleaseVersionServiceTest {
                 false,               // isApproved
                 null,                // approvedBy
                 null,                // approvedByName
+                null,                // approvedByAvatarStyle
+                null,                // approvedByAvatarSeed
                 false,               // isDeletedApprover
                 null,                // approvedAt
                 new ArrayList<>(),   // fileCategories
