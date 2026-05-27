@@ -101,7 +101,9 @@ public class ReleaseVersionRepositoryImpl implements ReleaseVersionRepositoryCus
                         rv.hotfixVersion.eq(0),  // 핫픽스 제외
                         rv.buildVersion.eq(0)   // 빌드 버전 제외 (정식 릴리즈만)
                 )
-                .orderBy(rv.createdAt.desc())
+                // "최신 버전" = 버전 번호 최고값 (생성 시각이 아님 — createdAt 역전 데이터에서 오답 방지)
+                .orderBy(rv.majorVersion.desc(), rv.minorVersion.desc(), rv.patchVersion.desc(),
+                        rv.createdAt.desc())
                 .limit(limit)
                 .fetch();
     }
