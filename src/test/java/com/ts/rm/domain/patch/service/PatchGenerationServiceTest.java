@@ -33,6 +33,7 @@ import com.ts.rm.domain.releaseversion.repository.ReleaseVersionRepository;
 import com.ts.rm.domain.releaseversion.service.ReleaseVersionFileSystemService;
 import com.ts.rm.global.account.AccountLookupService;
 import com.ts.rm.global.exception.BusinessException;
+import com.ts.rm.global.progress.ServerProgressService;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -95,6 +96,9 @@ class PatchGenerationServiceTest {
 
     @Mock
     private ReleaseVersionFileSystemService fileSystemService;
+
+    @Mock
+    private ServerProgressService progressService;
 
     @InjectMocks
     private PatchGenerationService patchGenerationService;
@@ -321,7 +325,45 @@ class PatchGenerationServiceTest {
     }
 
     @Test
-    @DisplayName("buildSelection.enabled=true: 선택된 WEB / engine/<엔진명> 단일파일 / etc 만 복사")
+    @DisplayName("accumulateBuildEngineFiles: 범위 빌드의 engine/ 를 경로별 최신 누적 — 옛 빌드 전용 파일 보존, 겹치면 최신 승")
+    void accumulate_perPathLatestWins(@TempDir Path tempDir) throws IOException {
+        com.ts.rm.domain.project.entity.Project p = new com.ts.rm.domain.project.entity.Project();
+        p.setProjectId("infraeye2");
+        ReleaseVersion base = new ReleaseVersion();
+        base.setReleaseVersionId(10L); base.setProject(p);
+        base.setMajorVersion(1); base.setMinorVersion(1); base.setPatchVersion(1);
+
+        ReleaseVersion older = new ReleaseVersion();
+        older.setReleaseVersionId(101L); older.setBuildBaseVersion(base);
+        older.setBuildVersion(260514); older.setBuildIteration(1);
+        ReleaseVersion newer = new ReleaseVersion();
+        newer.setReleaseVersionId(102L); newer.setBuildBaseVersion(base);
+        newer.setBuildVersion(260527); newer.setBuildIteration(1);
+
+        Path olderDir = tempDir.resolve("b_older");
+        Files.createDirectories(olderDir.resolve("engine/NC_AGENT_SERVER/config"));
+        Files.writeString(olderDir.resolve("engine/NC_AGENT_SERVER/NC_AGENT_SERVER"), "binary-v1");
+        Files.writeString(olderDir.resolve("engine/NC_AGENT_SERVER/config/config.yml"), "cfg-v1");
+        Files.writeString(olderDir.resolve("engine/NC_AGENT_SERVER/agent.zip"), "agent-v1");
+
+        Path newerDir = tempDir.resolve("b_newer");
+        Files.createDirectories(newerDir.resolve("engine/NC_AGENT_SERVER"));
+        Files.writeString(newerDir.resolve("engine/NC_AGENT_SERVER/NC_AGENT_SERVER"), "binary-v2");
+
+        when(fileSystemService.resolveBuildBasePath(older)).thenReturn(olderDir);
+        when(fileSystemService.resolveBuildBasePath(newer)).thenReturn(newerDir);
+
+        Path out = tempDir.resolve("patch");
+        patchGenerationService.accumulateBuildEngineFiles(out, java.util.List.of(newer, older));
+
+        Path eng = out.resolve("engine/NC_AGENT_SERVER");
+        assertThat(Files.readString(eng.resolve("NC_AGENT_SERVER"))).isEqualTo("binary-v2");
+        assertThat(Files.readString(eng.resolve("config/config.yml"))).isEqualTo("cfg-v1");
+        assertThat(Files.readString(eng.resolve("agent.zip"))).isEqualTo("agent-v1");
+    }
+
+    @Test
+    @DisplayName("buildSelection.enabled=true: WEB 은 picker 통째 복사, ENGINE 은 범위 누적(최신 승)")
     void pickerSelection_partialCopy(@TempDir Path tempDir) throws IOException {
         // GIVEN — 파일시스템 구조 생성 (새 모델: engine/ 직속 단일 파일)
         // 빌드 v260427: web/foo.war, engine/NC_SMS (단일 파일), engine/NC_FAULT_MS (단일 파일), etc/note.txt
@@ -429,26 +471,30 @@ class PatchGenerationServiceTest {
         // WHEN — generatePatch 전체 경로 호출 (가드 조건 if (buildSelection != null && buildSelection.enabled()) 까지 통합 검증)
         when(releaseVersionRepository.findHotfixesInBaseRange(anyString(), any(), any(), any()))
                 .thenReturn(java.util.List.of());
+        // ENGINE 누적 소스: 범위 내 전체 빌드 (정렬상 260428 이 최신 → 최신 승)
+        when(releaseVersionRepository.findBuildsInBaseRange(anyString(), any(), any(), any()))
+                .thenReturn(java.util.List.of(bv427, bv428));
         PatchGenerationService.GenerateResult result = patchGenerationService.generatePatch(
                 projectId, 10L, 20L, null, createdBy, null, null, "test-patch", buildSelection);
 
         // THEN — outputPath 아래 파일 검증
         Path outputDir = tempDir.resolve(result.patch().getOutputPath());
 
-        // web/foo.war — v260428 의 내용
+        // web/foo.war — picker WEB(v260428) 통째 복사
         assertThat(outputDir.resolve("web/foo.war")).exists();
         assertThat(Files.readString(outputDir.resolve("web/foo.war"))).isEqualTo("war-v260428");
 
-        // engine/NC_SMS — 단일 파일, v260427 의 내용
+        // engine/NC_SMS — 범위 누적, 최신(260428) 빌드의 내용 (picker 선택과 무관하게 누적)
         assertThat(outputDir.resolve("engine/NC_SMS")).exists();
-        assertThat(Files.readString(outputDir.resolve("engine/NC_SMS"))).isEqualTo("engine-NC_SMS-v260427");
+        assertThat(Files.readString(outputDir.resolve("engine/NC_SMS"))).isEqualTo("engine-NC_SMS-v260428");
 
-        // engine/NC_FAULT_MS — 미선택이므로 존재하지 않음
-        assertThat(outputDir.resolve("engine/NC_FAULT_MS")).doesNotExist();
+        // engine/NC_FAULT_MS — 미선택이라도 범위 누적으로 동반 (최신 260428 내용)
+        assertThat(outputDir.resolve("engine/NC_FAULT_MS")).exists();
+        assertThat(Files.readString(outputDir.resolve("engine/NC_FAULT_MS"))).isEqualTo("engine-NC_FAULT_MS-v260428");
     }
 
     @Test
-    @DisplayName("Q-S3: 두 빌드 모두 etc/note.txt 가 있으면 큰 buildVersion 의 내용이 살아남음")
+    @DisplayName("서로 다른 엔진 파일은 각자 보존되고, 같은 경로 충돌은 최신 buildVersion 이 승")
     void etcConflict_largerBuildVersionWins(@TempDir Path tempDir) throws IOException {
         // GIVEN: 빌드 v260427: engine/NC_SMS(단일파일), 빌드 v260428: engine/NC_FAULT_MS(단일파일)
         //        picker: NC_SMS=v260427, NC_FAULT_MS=v260428 → etc 는 빌드에서 복사 안 함
@@ -515,6 +561,9 @@ class PatchGenerationServiceTest {
                 .thenReturn(java.util.List.of());
         when(fileSystemService.resolveBuildBasePath(bv427)).thenReturn(buildDir427);
         when(fileSystemService.resolveBuildBasePath(bv428)).thenReturn(buildDir428);
+        // ENGINE 누적 소스: 범위 내 전체 빌드
+        when(releaseVersionRepository.findBuildsInBaseRange(anyString(), any(), any(), any()))
+                .thenReturn(java.util.List.of(bv427, bv428));
         Account creator = Account.builder()
                 .accountId(1L)
                 .email(createdBy)
@@ -525,7 +574,7 @@ class PatchGenerationServiceTest {
         when(patchRepository.save(any(Patch.class))).thenAnswer(inv -> inv.getArgument(0));
         when(patchHistoryRepository.save(any(PatchHistory.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        // picker: NC_SMS=v260427(ID=21), NC_FAULT_MS=v260428(ID=20) — ETC 동행은 buildVersion 오름차순
+        // picker: NC_SMS=v260427(ID=21), NC_FAULT_MS=v260428(ID=20) — ENGINE 은 범위 누적으로 동반
         PatchDto.BuildSelection buildSelection = new PatchDto.BuildSelection(
                 true,
                 null,
@@ -941,7 +990,7 @@ class PatchGenerationServiceTest {
     }
 
     // ==================================================================================
-    // 빌드 공유 자산 자동 동반 테스트 (copyBuildSharedAssets)
+    // ENGINE 빌드 파일 범위 누적 테스트 (accumulateBuildEngineFiles)
     // ==================================================================================
 
     @Test
@@ -1072,6 +1121,9 @@ class PatchGenerationServiceTest {
         when(fileSystemService.resolveBuildBasePath(bv150_260415)).thenReturn(buildDir260415);
         when(fileSystemService.resolveBuildBasePath(bv150_260430)).thenReturn(buildDir260430);
         when(fileSystemService.resolveBuildBasePath(bv151_260501)).thenReturn(buildDir260501);
+        // ENGINE 누적 소스: 범위 내 전체 빌드 (260415 < 260430 < 260501 정렬)
+        when(releaseVersionRepository.findBuildsInBaseRange(anyString(), any(), any(), any()))
+                .thenReturn(List.of(bv150_260415, bv150_260430, bv151_260501));
 
         Account creator = Account.builder()
                 .accountId(1L)
@@ -1199,6 +1251,9 @@ class PatchGenerationServiceTest {
                 .thenReturn(List.of());
         when(fileSystemService.resolveBuildBasePath(bv150_260415)).thenReturn(buildDir260415);
         when(fileSystemService.resolveBuildBasePath(bv150_260430)).thenReturn(buildDir260430);
+        // ENGINE 누적 소스: 범위 내 전체 빌드 (260415 < 260430 정렬 → 260430 최신)
+        when(releaseVersionRepository.findBuildsInBaseRange(anyString(), any(), any(), any()))
+                .thenReturn(List.of(bv150_260415, bv150_260430));
 
         Account creator = Account.builder()
                 .accountId(1L)
@@ -1210,10 +1265,11 @@ class PatchGenerationServiceTest {
         when(patchRepository.save(any(Patch.class))).thenAnswer(inv -> inv.getArgument(0));
         when(patchHistoryRepository.save(any(PatchHistory.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        // picker 없음 (buildSelection null)
+        // engine picker 없이 buildSelection enabled (ENGINE 누적만 발동)
+        PatchDto.BuildSelection buildSelection = new PatchDto.BuildSelection(true, null, List.of());
         // WHEN
         patchGenerationService.generatePatch(
-                projectId, 1L, 10L, null, createdBy, null, null, "multi-build-shared-patch", null);
+                projectId, 1L, 10L, null, createdBy, null, null, "multi-build-shared-patch", buildSelection);
 
         // THEN
         // outputPath 는 "patches/infraeye2/multi-build-shared-patch"
@@ -1223,103 +1279,6 @@ class PatchGenerationServiceTest {
         assertThat(Files.readString(outputDir.resolve("engine/nc_conf.conf")))
                 .describedAs("마지막(260430) 빌드의 내용이어야 함")
                 .isEqualTo("v260430");
-    }
-
-    @Test
-    @DisplayName("picker 미선택 엔진은 공유 자산 자동 동반에 포함되지 않는다 (EngineNameClassifier 로 skip)")
-    void unselectedEngineNotAutoIncluded(@TempDir Path tempDir) throws IOException {
-        // GIVEN: 빌드에 NC_SMS (엔진) + nc_conf.conf (공유 자산) 존재
-        //        picker 에는 NC_SMS 미선택
-        //        → NC_SMS 는 엔진이므로 copyBuildSharedAssets 에서 skip
-        //          nc_conf.conf 는 공유 자산이므로 동반됨
-
-        ReflectionTestUtils.setField(patchGenerationService, "releaseBasePath", tempDir.toString());
-
-        String projectId = "infraeye2";
-        String createdBy = "test@tscientific";
-
-        Project project = Project.builder()
-                .projectId(projectId)
-                .projectName("InfraEye 2.0")
-                .build();
-
-        ReleaseVersion from150 = ReleaseVersion.builder()
-                .releaseVersionId(1L)
-                .project(project)
-                .releaseType("STANDARD")
-                .version("1.5.0")
-                .majorVersion(1).minorVersion(5).patchVersion(0)
-                .buildVersion(0)
-                .isApproved(true)
-                .build();
-
-        ReleaseVersion base151 = ReleaseVersion.builder()
-                .releaseVersionId(2L)
-                .project(project)
-                .releaseType("STANDARD")
-                .version("1.5.1")
-                .majorVersion(1).minorVersion(5).patchVersion(1)
-                .buildVersion(0)
-                .isApproved(true)
-                .build();
-
-        ReleaseVersion bv151_260501 = ReleaseVersion.builder()
-                .releaseVersionId(3L)
-                .project(project)
-                .releaseType("STANDARD")
-                .version("1.5.1")
-                .majorVersion(1).minorVersion(5).patchVersion(1)
-                .buildVersion(260501)
-                .buildBaseVersion(base151)
-                .isApproved(true)
-                .build();
-
-        // 빌드 디렉토리: NC_SMS (엔진) + nc_conf.conf (공유 자산)
-        Path buildDir = tempDir.resolve("build260501");
-        Files.createDirectories(buildDir.resolve("engine"));
-        Files.writeString(buildDir.resolve("engine/NC_SMS"), "NC_SMS-content");
-        Files.writeString(buildDir.resolve("engine/nc_conf.conf"), "nc_conf-content");
-
-        when(projectRepository.findById(projectId)).thenReturn(Optional.of(project));
-        when(releaseVersionRepository.findById(1L)).thenReturn(Optional.of(from150));
-        when(releaseVersionRepository.findById(2L)).thenReturn(Optional.of(base151));
-        when(releaseVersionRepository.findUnapprovedVersionsBetween(
-                anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(List.of());
-        when(releaseVersionRepository.findVersionsBetween(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(List.of(base151, bv151_260501));
-        when(releaseFileRepository.findAllByReleaseVersion_ReleaseVersionIdOrderByExecutionOrderAsc(any()))
-                .thenReturn(List.of());
-        when(releaseVersionRepository.findHotfixesInBaseRange(anyString(), any(), any(), any()))
-                .thenReturn(List.of());
-        when(fileSystemService.resolveBuildBasePath(bv151_260501)).thenReturn(buildDir);
-
-        Account creator = Account.builder()
-                .accountId(1L)
-                .email(createdBy)
-                .accountName("테스트 계정")
-                .password("pw")
-                .build();
-        when(accountLookupService.findByEmail(createdBy)).thenReturn(creator);
-        when(patchRepository.save(any(Patch.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(patchHistoryRepository.save(any(PatchHistory.class))).thenAnswer(inv -> inv.getArgument(0));
-
-        // picker 없음 (buildSelection null)
-        patchGenerationService.generatePatch(
-                projectId, 1L, 2L, null, createdBy, null, null, "engine-skip-patch", null);
-
-        // THEN
-        Path outputDir = tempDir.resolve("patches/infraeye2/engine-skip-patch");
-
-        // NC_SMS 는 EngineNameClassifier.isEngineFile=true → copyBuildSharedAssets 에서 skip
-        assertThat(outputDir.resolve("engine/NC_SMS"))
-                .describedAs("picker 미선택 엔진(NC_SMS)은 공유 자산 자동 동반에서 제외되어야 함")
-                .doesNotExist();
-
-        // nc_conf.conf 는 공유 자산 → 동반됨
-        assertThat(outputDir.resolve("engine/nc_conf.conf"))
-                .describedAs("공유 자산(nc_conf.conf)은 자동 동반되어야 함")
-                .exists();
     }
 
     @Test
@@ -1473,7 +1432,7 @@ class PatchGenerationServiceTest {
         Files.createDirectories(buildDir151.resolve("engine"));
         Files.writeString(buildDir151.resolve("engine/NC_CONF"), "NC_CONF-binary");
 
-        // 빌드 파일시스템: build150 — copyBuildSharedAssets 가 디스크 walk 할 디렉토리
+        // 빌드 파일시스템: build150 — accumulateBuildEngineFiles 가 디스크 walk 할 디렉토리
         // (공유 자산 nc_conf.conf 포함, 엔진은 없음)
         Path buildDir150 = tempDir.resolve("build_1.5.0.260430");
         Files.createDirectories(buildDir150.resolve("engine"));
@@ -1525,9 +1484,12 @@ class PatchGenerationServiceTest {
                 .thenReturn(List.of(engineFile));  // build151: NC_CONF (picker skip)
         when(releaseVersionRepository.findHotfixesInBaseRange(anyString(), any(), any(), any()))
                 .thenReturn(List.of());
-        // copyBuildSharedAssets 가 build150, build151 의 engine 디렉토리를 walk 함
+        // accumulateBuildEngineFiles 가 build150, build151 의 engine 디렉토리를 walk 함
         when(fileSystemService.resolveBuildBasePath(build150)).thenReturn(buildDir150);
         when(fileSystemService.resolveBuildBasePath(build151)).thenReturn(buildDir151);
+        // ENGINE 누적 소스: 범위 내 전체 빌드 (1.5.0.260430 < 1.5.1.260501 정렬)
+        when(releaseVersionRepository.findBuildsInBaseRange(anyString(), any(), any(), any()))
+                .thenReturn(List.of(build150, build151));
 
         Account creator = Account.builder()
                 .accountId(1L)
@@ -1572,10 +1534,12 @@ class PatchGenerationServiceTest {
     }
 
     @Test
-    @DisplayName("ENGINE 미선택 엔진(NC_SMS)은 빌드 ReleaseFile 에 있어도 누적 skip — 패치에 포함 안 됨")
+    @DisplayName("ENGINE 카테고리 ReleaseFile 은 copySqlFiles 누적 walk 에서 skip — 패치 engine/ 에 미포함")
     void unpickedEngineInBuildReleaseFile_cumulativeSkip(@TempDir Path tempDir) throws IOException {
-        // GIVEN: 빌드 1.5.1.260501 에 NC_SMS ReleaseFile 존재 + picker 미선택
-        // NC_SMS 는 EngineNameClassifier.isEngineFile("NC_SMS")=true → 누적 skip
+        // GIVEN: 빌드 1.5.0.260501 에 NC_SMS ReleaseFile(ENGINE 카테고리) 존재 + picker 미선택
+        //        누적 소스(findBuildsInBaseRange)를 명시적으로 빈 List 로 stub → 디스크 경유 없음
+        //        따라서 NC_SMS 의 유일한 출처는 ReleaseFile; copySqlFiles 가 ENGINE 카테고리를
+        //        skip 하지 않으면 engine/NC_SMS 가 생성돼 단언이 실패 → 진짜 skip 검증
         ReflectionTestUtils.setField(patchGenerationService, "releaseBasePath", tempDir.toString());
 
         String projectId = "infraeye2";
@@ -1617,12 +1581,6 @@ class PatchGenerationServiceTest {
                 .isApproved(true)
                 .build();
 
-        // NC_SMS 파일시스템 준비
-        // copyBuildSharedAssets 가 buildRv engine 디렉토리를 walk 함 — NC_SMS 는 엔진이므로 skip
-        Path buildRvDir = tempDir.resolve("build_1.5.0.260501");
-        Files.createDirectories(buildRvDir.resolve("engine"));
-        Files.writeString(buildRvDir.resolve("engine/NC_SMS"), "NC_SMS-content");
-
         ReleaseFile smsFile = ReleaseFile.builder()
                 .releaseFileId(2001L)
                 .releaseVersion(buildRv)
@@ -1650,8 +1608,9 @@ class PatchGenerationServiceTest {
         when(releaseFileRepository.findReleaseFilesBetweenVersionsBySubCategory(
                 anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(List.of());
-        // copyBuildSharedAssets: buildRv engine/ 디렉토리 walk
-        when(fileSystemService.resolveBuildBasePath(buildRv)).thenReturn(buildRvDir);
+        // 누적 소스를 명시적으로 비움 → 디스크 경유 없이 ReleaseFile 만이 NC_SMS 출처
+        when(releaseVersionRepository.findBuildsInBaseRange(anyString(), any(), any(), any()))
+                .thenReturn(List.of());
 
         Account creator = Account.builder()
                 .accountId(1L)
@@ -1674,10 +1633,10 @@ class PatchGenerationServiceTest {
         PatchGenerationService.GenerateResult result = patchGenerationService.generatePatch(
                 projectId, 1L, 2L, null, createdBy, null, null, "unpicked-engine-patch", buildSelection);
 
-        // THEN: NC_SMS 는 isEngineByClassifier=true 이므로 누적 skip → 패치에 없어야 함
+        // THEN: NC_SMS 는 ReleaseFile(ENGINE) 로만 존재 → copySqlFiles 가 ENGINE 카테고리 skip → 미포함
         Path outputDir = tempDir.resolve(result.patch().getOutputPath());
         assertThat(outputDir.resolve("engine/NC_SMS"))
-                .describedAs("picker 미선택 + EngineNameClassifier=true 인 NC_SMS 는 누적 skip 되어야 함")
+                .describedAs("ENGINE 카테고리 ReleaseFile 은 copySqlFiles 에서 skip 되어 패치에 없어야 함")
                 .doesNotExist();
     }
 }

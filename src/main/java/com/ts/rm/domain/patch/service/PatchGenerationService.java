@@ -33,6 +33,7 @@ import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -288,7 +289,7 @@ public class PatchGenerationService {
             copySqlFiles(betweenVersions, outputPath, pickerEngineNames);
 
             // ---- buildSelection 별도 단계 (표준 흐름과 동일) ----
-            progressService.update(4, TOTAL_STEPS, "WEB / ENGINE 빌드 파일 복사 중");
+            progressService.update(4, TOTAL_STEPS, "WEB 빌드 파일 복사 중");
             Map<Long, ReleaseVersion> selectedBuilds;
             if (buildSelection != null && buildSelection.enabled()) {
                 selectedBuilds = applyBuildSelection(Paths.get(releaseBasePath, outputPath), buildSelection);
@@ -296,9 +297,13 @@ public class PatchGenerationService {
                 selectedBuilds = Map.of();
             }
 
-            // ---- 빌드 공유 자산 자동 동반 ----
-            progressService.update(5, TOTAL_STEPS, "빌드 공유 자산 동반 중");
-            copyBuildSharedAssets(Paths.get(releaseBasePath, outputPath), betweenVersions);
+            // ---- ENGINE: 범위 내 전체 빌드의 engine/ 를 경로별 최신 누적 ----
+            progressService.update(5, TOTAL_STEPS, "ENGINE 빌드 파일 범위 누적 중");
+            if (buildSelection != null && buildSelection.enabled()) {
+                List<ReleaseVersion> rangeBuilds = releaseVersionRepository.findBuildsInBaseRange(
+                        projectId, fromVersion.getReleaseVersionId(), toVersion.getReleaseVersionId(), customerId);
+                accumulateBuildEngineFiles(Paths.get(releaseBasePath, outputPath), rangeBuilds);
+            }
 
             // 7. 패치 스크립트 생성
             progressService.update(6, TOTAL_STEPS, "패치 스크립트 생성 중");
@@ -622,7 +627,7 @@ public class PatchGenerationService {
             copySqlFiles(betweenVersions, outputPath, pickerEngineNames);
 
             // ---- buildSelection 별도 단계 (spec §5.1 / Q-S2) ----
-            progressService.update(4, TOTAL_STEPS, "WEB / ENGINE 빌드 파일 복사 중");
+            progressService.update(4, TOTAL_STEPS, "WEB 빌드 파일 복사 중");
             Map<Long, ReleaseVersion> selectedBuilds;
             if (buildSelection != null && buildSelection.enabled()) {
                 selectedBuilds = applyBuildSelection(Paths.get(releaseBasePath, outputPath), buildSelection);
@@ -630,10 +635,14 @@ public class PatchGenerationService {
                 selectedBuilds = Map.of();
             }
 
-            // ---- 빌드 공유 자산 자동 동반 ----
-            // 빌드 ZIP 업로드는 ReleaseFile 인덱스를 등록하지 않으므로, 공유 자산은 디스크에서 직접 walk 한다.
-            progressService.update(5, TOTAL_STEPS, "빌드 공유 자산 동반 중");
-            copyBuildSharedAssets(Paths.get(releaseBasePath, outputPath), betweenVersions);
+            // ---- ENGINE: 범위 내 전체 빌드의 engine/ 를 경로별 최신 누적 ----
+            progressService.update(5, TOTAL_STEPS, "ENGINE 빌드 파일 범위 누적 중");
+            if (buildSelection != null && buildSelection.enabled()) {
+                // 표준 빌드는 customer=null. 범위 전체 빌드를 소스로 누적.
+                List<ReleaseVersion> rangeBuilds = releaseVersionRepository.findBuildsInBaseRange(
+                        projectId, fromVersionId, toVersionId, null);
+                accumulateBuildEngineFiles(Paths.get(releaseBasePath, outputPath), rangeBuilds);
+            }
 
             // 7. 패치 스크립트 생성
             progressService.update(6, TOTAL_STEPS, "패치 스크립트 생성 중");
@@ -1124,13 +1133,13 @@ public class PatchGenerationService {
      * @return buildVersionId → ReleaseVersion 매핑 (insertion order 유지).
      */
     private Map<Long, ReleaseVersion> applyBuildSelection(Path outputDir, PatchDto.BuildSelection sel) throws IOException {
-        log.info("picker 복사 시작 - WEB: {}, ENGINE: {}",
+        log.info("WEB 빌드 복사 시작 - WEB: {}, ENGINE(메타): {}",
                 sel.web() == null ? "(없음)" : sel.web().buildVersionId(),
                 sel.engines() == null ? List.of() : sel.engines());
 
         Map<Long, ReleaseVersion> selectedBuilds = new LinkedHashMap<>();
 
-        // a. WEB 부분 복사
+        // a. WEB 통째 복사 (전체 교체)
         if (sel.web() != null) {
             ReleaseVersion bv = loadBuildVersion(sel.web().buildVersionId());
             Path src = fileSystemService.resolveBuildBasePath(bv).resolve("web");
@@ -1138,32 +1147,14 @@ public class PatchGenerationService {
             selectedBuilds.put(bv.getReleaseVersionId(), bv);
         }
 
-        // b. ENGINE 부분 복사 (단일 파일 또는 디렉토리 트리)
+        // b. ENGINE 복사는 accumulateBuildEngineFiles 가 범위 누적으로 처리.
+        //    여기선 메타(persistIncludedBuilds / generateBuildVersionFile / buildIncludedBuilds)용으로 ReleaseVersion 만 해석.
         if (sel.engines() != null) {
             for (PatchDto.SelectedEngine se : sel.engines()) {
                 ReleaseVersion bv = loadBuildVersion(se.buildVersionId());
-                Path src = fileSystemService.resolveBuildBasePath(bv)
-                        .resolve("engine").resolve(se.engineName());
-                Path dst = outputDir.resolve("engine").resolve(se.engineName());
-                if (Files.isRegularFile(src)) {
-                    Files.createDirectories(dst.getParent());
-                    Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
-                    // 실행 비트 보존: source 의 posix permission 을 dst 에 복사 (POSIX FS 일 때만)
-                    try {
-                        var perms = Files.getPosixFilePermissions(src);
-                        Files.setPosixFilePermissions(dst, perms);
-                    } catch (UnsupportedOperationException ignored) {
-                        // 비-POSIX FS (Windows) 는 setExecutable 폴백
-                        dst.toFile().setExecutable(true, false);
-                    }
-                } else {
-                    throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
-                            "엔진 빌드 경로가 존재하지 않습니다: " + src);
-                }
                 selectedBuilds.putIfAbsent(bv.getReleaseVersionId(), bv);
             }
         }
-
         return selectedBuilds;
     }
 
@@ -1228,53 +1219,55 @@ public class PatchGenerationService {
     }
 
     /**
-     * from→to 사이 모든 빌드의 engine/ 디렉토리에서 공유 자산(= 엔진이 아닌 파일 / 디렉토리)을
-     * 패치 출력 engine/ 으로 복사한다. 같은 이름의 공유 자산은 시간순 마지막 빌드 게 살아남는다.
+     * from~to 범위의 모든 빌드를 정렬해 engine/ 서브트리를 상대경로 단위로 패치 engine/ 에 누적 복사한다.
+     * 겹치는 상대경로는 정렬상 나중(최신) 빌드가 REPLACE_EXISTING 으로 덮어쓴다.
      *
-     * <p>"엔진" 식별은 {@link EngineNameClassifier#isEngineFile} — 엔진 파일은 picker 가 단일 파일로
-     * 처리하므로 여기서 skip 한다.
+     * <p>엔진 바이너리(고유 경로) → 최신 빌드 게만 / 기타 파일 → 경로별 누적. 단일 파일 내용은 병합하지 않는다.
+     * 정렬: buildBaseVersion(major,minor,patch) asc → buildVersion asc → buildIteration asc (오래된 것부터).
      *
-     * <p>근거: 빌드 ZIP 업로드는 ReleaseFile 인덱스를 등록하지 않음 ({@link BuildFileService} 정책).
-     * 따라서 빌드의 공유 자산은 디스크에서 직접 walk 해야 한다.
-     *
-     * @param outputDir     패치 출력 루트 디렉토리
-     * @param versions      betweenVersions (시간순 ASC — 빌드 포함 혼재)
+     * <p>package-private: 단위 테스트(accumulate_perPathLatestWins)에서 직접 호출.
      */
-    private void copyBuildSharedAssets(Path outputDir, List<ReleaseVersion> versions) throws IOException {
-        // 시간순 ASC walk → LinkedHashMap put 이 자연스럽게 마지막(최신)을 남김
-        Map<String, Path> latestAsset = new LinkedHashMap<>();
+    void accumulateBuildEngineFiles(Path outputDir, List<ReleaseVersion> rangeBuilds) throws IOException {
+        if (rangeBuilds == null || rangeBuilds.isEmpty()) return;
 
-        for (ReleaseVersion v : versions) {
-            if (!v.isBuild()) continue;
-            Path buildEngineDir = fileSystemService.resolveBuildBasePath(v).resolve("engine");
-            if (!Files.isDirectory(buildEngineDir)) continue;
-
-            try (var stream = Files.list(buildEngineDir)) {
-                stream.forEach(entry -> {
-                    String name = entry.getFileName().toString();
-                    if (EngineNameClassifier.isEngineFile(name)) return;  // 엔진 파일은 picker 가 처리
-                    latestAsset.put(name, entry);
-                });
-            }
-        }
-
-        if (latestAsset.isEmpty()) return;
+        List<ReleaseVersion> ordered = new ArrayList<>(rangeBuilds);
+        ordered.sort(Comparator
+                .comparingInt((ReleaseVersion b) -> b.getBuildBaseVersion().getMajorVersion())
+                .thenComparingInt(b -> b.getBuildBaseVersion().getMinorVersion())
+                .thenComparingInt(b -> b.getBuildBaseVersion().getPatchVersion())
+                .thenComparingInt(b -> b.getBuildVersion() != null ? b.getBuildVersion() : 0)
+                .thenComparingInt(b -> b.getBuildIteration() != null ? b.getBuildIteration() : 0));
 
         Path outEngineDir = outputDir.resolve("engine");
-        Files.createDirectories(outEngineDir);
         int copied = 0;
-        for (var e : latestAsset.entrySet()) {
-            Path src = e.getValue();
-            Path dst = outEngineDir.resolve(e.getKey());
-            if (Files.isRegularFile(src)) {
-                Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
-                copied++;
-            } else if (Files.isDirectory(src)) {
-                copyDirectoryReplaceExisting(src, dst);
-                copied++;
+        for (ReleaseVersion b : ordered) {
+            Path buildEngineDir = fileSystemService.resolveBuildBasePath(b).resolve("engine");
+            if (!Files.isDirectory(buildEngineDir)) continue;
+            try (var stream = Files.walk(buildEngineDir)) {
+                for (Path src : stream.toList()) {
+                    Path rel = buildEngineDir.relativize(src);
+                    Path dst = outEngineDir.resolve(rel.toString());
+                    if (Files.isDirectory(src)) {
+                        Files.createDirectories(dst);
+                    } else {
+                        Files.createDirectories(dst.getParent());
+                        Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
+                        preservePosixPermissions(src, dst);
+                        copied++;
+                    }
+                }
             }
         }
-        log.info("빌드 공유 자산 복사 완료: {}개 항목", copied);
+        log.info("빌드 엔진 파일 범위 누적 복사 완료: {}개 파일 ({}개 빌드)", copied, ordered.size());
+    }
+
+    /** source 의 POSIX permission(실행 비트 포함)을 dst 에 복사. 비-POSIX FS 면 실행 비트만 폴백. */
+    private void preservePosixPermissions(Path src, Path dst) throws IOException {
+        try {
+            Files.setPosixFilePermissions(dst, Files.getPosixFilePermissions(src));
+        } catch (UnsupportedOperationException ignored) {
+            dst.toFile().setExecutable(true, false);
+        }
     }
 
     /**
