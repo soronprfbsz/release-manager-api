@@ -680,8 +680,12 @@ public class PatchGenerationService {
             // findHotfixesInBaseRange 는 단 1회 호출하여 메타 저장과 응답 매핑이 공유
             progressService.update(8, TOTAL_STEPS, "DB 메타 저장 중");
             boolean isBuildOnly = isSameBaseVersion(fromVersion, toVersion);
+            // 표준 패치의 핫픽스는 customer=null(표준 핫픽스)이다. 고객사 태깅과 무관하게 표준
+            // 핫픽스를 봐야 하므로 customerId 가 아닌 null 로 조회한다.
+            // (customerId 를 넘기면 findHotfixesInBaseRange 가 표준 핫픽스를 배제하여
+            //  "범위 안의 핫픽스" 메타가 비게 됨 — 빌드 picker 와 동일한 customerMatch 함정)
             List<ReleaseVersion> hotfixVersions = releaseVersionRepository
-                    .findHotfixesInBaseRange(projectId, fromVersionId, toVersionId, customerId);
+                    .findHotfixesInBaseRange(projectId, fromVersionId, toVersionId, null);
 
             saved.setIsBuildOnly(isBuildOnly);
             saved.setIsBuildIncluded(buildSelection != null && buildSelection.enabled());
