@@ -515,7 +515,6 @@ public class PatchGenerationService {
             content.append("   - 컨테이너의 `/opt/infraeye/nms/bin/<파일명>` 위치로 직접 복사 / 내용 수정\n");
             content.append("   - 자동 덮어쓰기를 하지 않는 이유: 운영자가 수정해 둔 값이 날아가는 사고 방지\n");
             content.append("7. `InfraEye eng patch` — 엔진 바이너리 패치 (NC_*, OZ_* 자동 적용 + 재기동)\n");
-            content.append("   - `engine/NC_AGENT_SERVER/` 가 포함된 경우, 그 안의 `patch_nc_agent_server.sh` 가 InfraEye CLI 에 의해 자동 실행됨\n");
             content.append("8. `InfraEye info version` — 변경된 사이트 버전 확인 (사후)\n\n");
 
             content.append("## 주의\n");
@@ -1515,7 +1514,6 @@ public class PatchGenerationService {
             content.append("   - 컨테이너의 `/opt/infraeye/nms/bin/<파일명>` 위치로 직접 복사 / 내용 수정\n");
             content.append("   - 자동 덮어쓰기를 하지 않는 이유: 운영자가 수정해 둔 값이 날아가는 사고 방지\n");
             content.append("7. `InfraEye eng patch` — 엔진 바이너리 패치 (NC_*, OZ_* 자동 적용 + 재기동)\n");
-            content.append("   - `engine/NC_AGENT_SERVER/` 가 포함된 경우, 그 안의 `patch_nc_agent_server.sh` 가 InfraEye CLI 에 의해 자동 실행됨\n");
             content.append("8. `InfraEye info version` — 변경된 사이트 버전 확인 (사후)\n\n");
 
             content.append("## 주의\n");
