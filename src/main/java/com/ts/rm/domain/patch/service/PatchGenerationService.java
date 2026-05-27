@@ -1145,11 +1145,7 @@ public class PatchGenerationService {
                 Path src = fileSystemService.resolveBuildBasePath(bv)
                         .resolve("engine").resolve(se.engineName());
                 Path dst = outputDir.resolve("engine").resolve(se.engineName());
-                if (Files.isDirectory(src)
-                        && EngineNameClassifier.DIRECTORY_FORM_ENGINE_NAMES.contains(se.engineName())) {
-                    // 디렉토리형 엔진 (예: engine/NC_AGENT_SERVER/): 트리 그대로 복사
-                    copyDirectoryReplaceExisting(src, dst);
-                } else if (Files.isRegularFile(src)) {
+                if (Files.isRegularFile(src)) {
                     Files.createDirectories(dst.getParent());
                     Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
                     // 실행 비트 보존: source 의 posix permission 을 dst 에 복사 (POSIX FS 일 때만)

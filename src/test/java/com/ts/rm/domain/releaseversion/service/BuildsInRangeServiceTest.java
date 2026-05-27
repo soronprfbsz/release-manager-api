@@ -135,6 +135,8 @@ class BuildsInRangeServiceTest {
         Path d1 = tempDir.resolve("b1");
         // 디렉토리는 무시
         Files.createDirectories(d1.resolve("engine/NC_DIR_SHOULD_BE_IGNORED"));
+        // 화이트리스트였던 이름의 디렉토리도 이제 무시됨 (특별 처리 제거 회귀 가드)
+        Files.createDirectories(d1.resolve("engine/NC_AGENT_SERVER"));
         // 정규 파일만 엔진명으로 인식
         Files.createDirectories(d1.resolve("engine"));
         Files.writeString(d1.resolve("engine/NC_FILLED"), "engine-content");
