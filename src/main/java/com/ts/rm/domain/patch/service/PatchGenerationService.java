@@ -1,7 +1,6 @@
 package com.ts.rm.domain.patch.service;
 
 import com.ts.rm.domain.account.entity.Account;
-import com.ts.rm.global.engine.EngineNameClassifier;
 import com.ts.rm.domain.account.repository.AccountRepository;
 import com.ts.rm.domain.customer.entity.Customer;
 import com.ts.rm.domain.customer.entity.CustomerProject;
@@ -313,6 +312,7 @@ public class PatchGenerationService {
             progressService.update(7, TOTAL_STEPS, "README / 빌드 메타 생성 중");
             generateCustomReadme(fromVersion, toVersion, betweenVersions, outputPath, customer);
             generateBuildVersionFile(fromVersion, toVersion, outputPath, buildSelection, selectedBuilds);
+            generateManualSetupReadmeIfNeeded(outputPath);
 
             // 9. 생성자 Account 조회
             Account creator = accountLookupService.findByEmail(createdByEmail);
@@ -503,15 +503,15 @@ public class PatchGenerationService {
             content.append(String.format("- 포함된 버전: %s\n\n", includedStr));
 
             content.append("## 패치 방법\n");
-            content.append("> ⚠ **최초 패치 (InfraEye CLI 미설치/구버전) 시**: 먼저 압축 해제된 `etc/1.0.0/` 디렉토리에서 `sudo ./InfraEye cli patch` 로 InfraEye CLI 를 설치/갱신해야 합니다.\n");
+            content.append("> ⚠ **최초 패치 (InfraEye CLI 미설치/구버전) 시**: 먼저 압축 해제된 `manual-setup/etc/1.0.0/` 디렉토리에서 `sudo ./InfraEye cli patch` 로 InfraEye CLI 를 설치/갱신해야 합니다.\n");
             content.append("> 이 단계를 마친 뒤에야 `InfraEye db patch` / `was patch` / `eng patch` 등 CLI 패치 명령이 올바르게 동작합니다 (구버전 `/usr/bin/InfraEye` 에는 신규 패치 로직이 없습니다).\n\n");
             content.append("1. `InfraEye info version` — 사이트 버전 확인 (사전)\n");
             content.append("2. 본 패치 파일을 `/{설치경로}/infraeye/patch/` 에 복사 후 압축 해제\n");
-            content.append("3. `sudo ./InfraEye cli patch` — InfraEye CLI 자체 설치/갱신 (포함 시, 최초 1회는 `etc/1.0.0/` 에서 실행)\n");
+            content.append("3. `sudo ./InfraEye cli patch` — InfraEye CLI 자체 설치/갱신 (포함 시, 최초 1회는 `manual-setup/etc/1.0.0/` 에서 실행)\n");
             content.append("4. `InfraEye db patch` — DB 패치 (mariadb / cratedb)\n");
             content.append("5. `InfraEye was patch` — WAS 패치 (war / webobjects)\n");
-            content.append("6. `engine/` 안의 비-엔진 자산 (config / 스크립트 등) 을 운영자가 수동 적용\n");
-            content.append("   - 컨테이너의 `/opt/infraeye/nms/bin/<파일명>` 위치로 직접 복사 / 내용 수정\n");
+            content.append("6. `manual-setup/` 폴더 안 자산 (web / engine / etc) 을 운영자가 버전 폴더 순으로 수동 적용\n");
+            content.append("   - 상세 안내는 `manual-setup/README.md` 참조\n");
             content.append("   - 자동 덮어쓰기를 하지 않는 이유: 운영자가 수정해 둔 값이 날아가는 사고 방지\n");
             content.append("7. `InfraEye eng patch` — 엔진 바이너리 패치 (NC_*, OZ_* 자동 적용 + 재기동)\n");
             content.append("8. `InfraEye info version` — 변경된 사이트 버전 확인 (사후)\n\n");
@@ -656,6 +656,7 @@ public class PatchGenerationService {
             }
             generateReadme(fromVersion, toVersion, betweenVersions, outputPath, webBuildForMeta);
             generateBuildVersionFile(fromVersion, toVersion, outputPath, buildSelection, selectedBuilds);
+            generateManualSetupReadmeIfNeeded(outputPath);
 
             // 9. 생성자 Account 조회
             Account creator = accountLookupService.findByEmail(createdByEmail);
@@ -977,22 +978,20 @@ public class PatchGenerationService {
     }
 
     /**
-     * 모든 파일 복사 (버전별 디렉토리 구조 유지).
+     * 모든 파일 복사 (카테고리별 디렉토리 구조 유지).
      *
-     * <p>범위 내 모든 버전을 순회하며 각 ReleaseFile 을 누적 복사한다. 같은 상대경로 ({@link ReleaseFile#getRelativePath()})
-     * 의 파일은 {@link StandardCopyOption#REPLACE_EXISTING} 으로 latest (= 더 나중에 나온 버전) 가 자동 덮어쓴다.
-     *
-     * <p>ENGINE 분기 skip 정책:
+     * <p>범위 내 모든 버전을 순회하며 각 ReleaseFile 을 카테고리에 따라 복사한다:
      * <ul>
-     *   <li>picker 가 점유한 엔진 ({@code pickerEngineNames} 포함) → copySqlFiles 에서 skip, picker 단계가 처리</li>
-     *   <li>{@link EngineNameClassifier#isEngineFile} 통과 (= 엔진명 식별) → picker 미선택이라도 {@link #accumulateBuildEngineFiles} 가 처리하므로 누적 skip</li>
+     *   <li>DATABASE → {@code database/{db_type}/{version}/{fileName}} (자동 패치)</li>
+     *   <li>WEB / ENGINE / ETC / null → {@code manual-setup/{category}/{version}/...} (수동 패치 격리)</li>
      * </ul>
-     * <p>"마지막 버전만" 정책은 빌드 버전 사이에서만 유효하며 이는 {@link #applyBuildSelection}(WEB 통째 교체) /
-     * {@link #accumulateBuildEngineFiles}(엔진 최신 승) 가 처리한다. base 버전들 사이에서는 누적 + REPLACE_EXISTING.
+     * 자동 영역의 {@code web/} / {@code engine/} 은 빌드 picker ({@link #applyBuildSelection},
+     * {@link #accumulateBuildEngineFiles}) 가 채우며, ReleaseFile 자산은 manual-setup 으로 격리되어
+     * 자동/수동 영역이 분리된다 — 동일 파일이 양쪽에 존재해도 경로가 달라 충돌하지 않는다.
      *
      * @param versions          복사할 버전 목록 (base 및 빌드 혼재 가능)
      * @param outputPath        출력 경로
-     * @param pickerEngineNames picker 로 점유된 엔진명 목록 (대소문자 무관 비교 사용)
+     * @param pickerEngineNames picker 로 점유된 엔진명 목록 (참고용 — 현재 로직에서는 사용하지 않음, 호환성 유지)
      */
     private void copySqlFiles(List<ReleaseVersion> versions, String outputPath,
                                List<String> pickerEngineNames) {
@@ -1000,7 +999,6 @@ public class PatchGenerationService {
             Path outputDir = Paths.get(releaseBasePath, outputPath);
 
             for (ReleaseVersion version : versions) {
-                // 모든 파일 조회 (빌드 포함 — isBuild skip 제거)
                 List<ReleaseFile> files = releaseFileRepository
                         .findAllByReleaseVersion_ReleaseVersionIdOrderByExecutionOrderAsc(
                                 version.getReleaseVersionId());
@@ -1011,41 +1009,11 @@ public class PatchGenerationService {
                 }
 
                 int copiedCount = 0;
-                int skippedCount = 0;
-
                 for (ReleaseFile file : files) {
-                    // ENGINE 카테고리: 엔진 바이너리(picker/classifier 식별)는 build picker 단계가 처리하므로 누적 skip
-                    if (file.getFileCategory() == FileCategory.ENGINE) {
-                        // ENGINE 카테고리에서 sub_category 가 비어있으면 file_name 으로 fallback.
-                        // (file_name 이 확장자/prefix 를 가지므로 classifier 가 정상 분기)
-                        String subCategory = file.getSubCategory() != null
-                                ? file.getSubCategory()
-                                : file.getFileName();
-
-                        boolean isPickerEngine = pickerEngineNames.stream()
-                                .anyMatch(name -> name.equalsIgnoreCase(subCategory));
-                        boolean isEngineByClassifier = EngineNameClassifier.isEngineFile(subCategory);
-
-                        if (isPickerEngine || isEngineByClassifier) {
-                            skippedCount++;
-                            if (isPickerEngine) {
-                                log.debug("ENGINE/{} 는 picker 점유 엔진 → copySqlFiles skip", subCategory);
-                            } else {
-                                log.debug("ENGINE/{} 는 엔진명 식별 통과 → 누적 skip (build picker 단계가 처리)", subCategory);
-                            }
-                            continue;
-                        }
-                    }
                     copyFileByCategory(file, version, outputDir);
                     copiedCount++;
                 }
-
-                if (skippedCount > 0) {
-                    log.info("버전 {} 파일 복사 완료 - {}개 (skip {}개)",
-                            version.getVersion(), copiedCount, skippedCount);
-                } else {
-                    log.info("버전 {} 파일 복사 완료 - {}개", version.getVersion(), copiedCount);
-                }
+                log.info("버전 {} 파일 복사 완료 - {}개", version.getVersion(), copiedCount);
             }
 
         } catch (Exception e) {
@@ -1275,14 +1243,16 @@ public class PatchGenerationService {
      * 대상 파일 경로 결정 (카테고리 기반)
      * <p>디렉토리 구조:
      * <ul>
-     *   <li>DATABASE: database/{db_type}/{version}/{file_name} — mariadb/cratedb 스크립트가 버전별 디렉토리를 가정하므로 유지</li>
-     *   <li>WEB / ENGINE / ETC / 기타: 버전 디렉토리 안의 상대경로({@link ReleaseFile#getRelativePath()}) 그대로 — 원본 폴더 구조 보존, 같은 상대경로면 latest 가 자동 덮어쓰기</li>
+     *   <li>DATABASE: {@code database/{db_type}/{version}/{file_name}} — 자동 패치 영역, mariadb/cratedb 스크립트가 버전별 디렉토리를 가정</li>
+     *   <li>WEB / ENGINE / ETC / 기타: {@code manual-setup/{category}/{version}/{relativePath without category prefix}} — 수동 패치 격리 영역</li>
      * </ul>
+     * <p>자동 영역의 {@code web/}, {@code engine/} 은 빌드 picker 결과 ({@link #applyBuildSelection},
+     * {@link #accumulateBuildEngineFiles}) 가 채우며, ReleaseVersion 에 등록된 운영 자산은 manual-setup 으로 격리되어 충돌을 피한다.
      * <p>예시:
      * <ul>
-     *   <li>{@code versions/.../1.1.0/web/patch_context.xml} → {@code web/patch_context.xml}</li>
-     *   <li>{@code versions/.../1.0.0/etc/InfraEye} → {@code etc/InfraEye}</li>
-     *   <li>{@code versions/.../1.1.1/engine/SMS_AGENT_PATCH/patch_nc_agent_server.sh} → {@code engine/SMS_AGENT_PATCH/patch_nc_agent_server.sh}</li>
+     *   <li>{@code versions/.../1.1.0/web/patch_context.xml} → {@code manual-setup/web/1.1.0/patch_context.xml}</li>
+     *   <li>{@code versions/.../1.0.0/etc/InfraEye} → {@code manual-setup/etc/1.0.0/InfraEye}</li>
+     *   <li>{@code versions/.../1.1.1/engine/SMS_AGENT_PATCH/patch_nc_agent_server.sh} → {@code manual-setup/engine/1.1.1/SMS_AGENT_PATCH/patch_nc_agent_server.sh}</li>
      * </ul>
      */
     private Path determineTargetPath(ReleaseFile file, ReleaseVersion version, Path outputDir) {
@@ -1301,9 +1271,30 @@ public class PatchGenerationService {
             );
         }
 
-        // WEB / ENGINE / ETC / null → 버전 디렉토리 안의 상대경로 그대로 (폴더 구조 보존)
+        // WEB / ENGINE / ETC / null → manual-setup 격리 영역
+        String categoryFolder;
+        if (category == FileCategory.WEB) {
+            categoryFolder = "web";
+        } else if (category == FileCategory.ENGINE) {
+            categoryFolder = "engine";
+        } else {
+            // ETC / null / CONFIG / RESOURCE 등
+            categoryFolder = "etc";
+        }
+
         String relativePath = file.getRelativePath();
-        return outputDir.resolve(relativePath);
+        String prefixWithSlash = categoryFolder + "/";
+        // 일반적인 경우 relativePath 의 첫 segment 가 카테고리명과 일치 → 이중 prefix 방지를 위해 strip
+        String rest = relativePath.startsWith(prefixWithSlash)
+                ? relativePath.substring(prefixWithSlash.length())
+                : relativePath;
+
+        return outputDir.resolve(
+                String.format("manual-setup/%s/%s/%s",
+                        categoryFolder,
+                        version.getVersion(),
+                        rest)
+        );
     }
 
     /**
@@ -1415,15 +1406,15 @@ public class PatchGenerationService {
             content.append(String.format("- 포함된 버전: %s\n\n", includedStr));
 
             content.append("## 패치 방법\n");
-            content.append("> ⚠ **최초 패치 (InfraEye CLI 미설치/구버전) 시**: 먼저 압축 해제된 `etc/1.0.0/` 디렉토리에서 `sudo ./InfraEye cli patch` 로 InfraEye CLI 를 설치/갱신해야 합니다.\n");
+            content.append("> ⚠ **최초 패치 (InfraEye CLI 미설치/구버전) 시**: 먼저 압축 해제된 `manual-setup/etc/1.0.0/` 디렉토리에서 `sudo ./InfraEye cli patch` 로 InfraEye CLI 를 설치/갱신해야 합니다.\n");
             content.append("> 이 단계를 마친 뒤에야 `InfraEye db patch` / `was patch` / `eng patch` 등 CLI 패치 명령이 올바르게 동작합니다 (구버전 `/usr/bin/InfraEye` 에는 신규 패치 로직이 없습니다).\n\n");
             content.append("1. `InfraEye info version` — 사이트 버전 확인 (사전)\n");
             content.append("2. 본 패치 파일을 `/{설치경로}/infraeye/patch/` 에 복사 후 압축 해제\n");
-            content.append("3. `sudo ./InfraEye cli patch` — InfraEye CLI 자체 설치/갱신 (포함 시, 최초 1회는 `etc/1.0.0/` 에서 실행)\n");
+            content.append("3. `sudo ./InfraEye cli patch` — InfraEye CLI 자체 설치/갱신 (포함 시, 최초 1회는 `manual-setup/etc/1.0.0/` 에서 실행)\n");
             content.append("4. `InfraEye db patch` — DB 패치 (mariadb / cratedb)\n");
             content.append("5. `InfraEye was patch` — WAS 패치 (war / webobjects)\n");
-            content.append("6. `engine/` 안의 비-엔진 자산 (config / 스크립트 등) 을 운영자가 수동 적용\n");
-            content.append("   - 컨테이너의 `/opt/infraeye/nms/bin/<파일명>` 위치로 직접 복사 / 내용 수정\n");
+            content.append("6. `manual-setup/` 폴더 안 자산 (web / engine / etc) 을 운영자가 버전 폴더 순으로 수동 적용\n");
+            content.append("   - 상세 안내는 `manual-setup/README.md` 참조\n");
             content.append("   - 자동 덮어쓰기를 하지 않는 이유: 운영자가 수정해 둔 값이 날아가는 사고 방지\n");
             content.append("7. `InfraEye eng patch` — 엔진 바이너리 패치 (NC_*, OZ_* 자동 적용 + 재기동)\n");
             content.append("8. `InfraEye info version` — 변경된 사이트 버전 확인 (사후)\n\n");
@@ -1469,6 +1460,40 @@ public class PatchGenerationService {
 
         log.info("CustomerProject 업데이트 완료 - customerId: {}, projectId: {}, lastPatchedVersion: {}",
                 customer.getCustomerId(), project.getProjectId(), toVersion);
+    }
+
+    /**
+     * 패치 출력 디렉토리에 {@code manual-setup/} 폴더가 존재할 때만 그 안에 README.md 를 생성한다.
+     *
+     * <p>{@code manual-setup/} 안의 자산은 자동 패치 도구가 적용하지 않는 운영 자산으로,
+     * 운영자가 버전 폴더 단위로 직접 수동 적용해야 함을 안내한다.
+     */
+    private void generateManualSetupReadmeIfNeeded(String outputPath) {
+        Path manualSetupDir = Paths.get(releaseBasePath, outputPath, "manual-setup");
+        if (!Files.isDirectory(manualSetupDir)) {
+            return;
+        }
+        Path readmePath = manualSetupDir.resolve("README.md");
+        StringBuilder content = new StringBuilder();
+        content.append("# 수동 패치 안내 (manual-setup)\n\n");
+        content.append("이 폴더 안의 자산은 자동 패치 도구 (`InfraEye db patch` / `was patch` / `eng patch`) 가 적용하지 않습니다.\n");
+        content.append("**운영자가 버전 폴더 단위로 직접 수동 적용**해야 합니다.\n\n");
+        content.append("## 구조\n\n");
+        content.append("- `web/{version}/...` — WEB 운영 자산 (예: `patch_context.xml`)\n");
+        content.append("- `engine/{version}/...` — 엔진 운영 자산 (config / 스크립트 등)\n");
+        content.append("- `etc/{version}/...` — 기타 운영 자산 (예: `1.0.0/InfraEye` CLI)\n\n");
+        content.append("## 적용 순서\n\n");
+        content.append("각 카테고리 안의 **버전 폴더를 버전 번호 오름차순으로** 순차 적용해야 합니다.\n");
+        content.append("예) `1.0.0/` → `1.1.0/` → `1.1.1/`\n\n");
+        content.append("같은 파일이 여러 버전 폴더에 존재할 수 있으며, 버전 순서대로 모두 적용해야 합니다.\n");
+        content.append("(자동 패치 영역 `database/` / `web/` / `engine/` 과 분리된 격리 영역입니다.)\n");
+        try {
+            Files.writeString(readmePath, content.toString());
+            log.info("manual-setup README.md 생성 완료: {}", readmePath);
+        } catch (IOException e) {
+            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                    "manual-setup README 생성 실패: " + e.getMessage());
+        }
     }
 
     /**
