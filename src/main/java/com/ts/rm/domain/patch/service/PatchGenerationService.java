@@ -34,7 +34,6 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -980,13 +979,16 @@ public class PatchGenerationService {
     /**
      * 모든 파일 복사 (버전별 디렉토리 구조 유지).
      *
-     * <p>빌드 버전의 ReleaseFile 도 누적 walk 에 포함된다. 단 ENGINE 분기 정책은 다음과 같다:
+     * <p>범위 내 모든 버전을 순회하며 각 ReleaseFile 을 누적 복사한다. 같은 상대경로 ({@link ReleaseFile#getRelativePath()})
+     * 의 파일은 {@link StandardCopyOption#REPLACE_EXISTING} 으로 latest (= 더 나중에 나온 버전) 가 자동 덮어쓴다.
+     *
+     * <p>ENGINE 분기 skip 정책:
      * <ul>
      *   <li>picker 가 점유한 엔진 ({@code pickerEngineNames} 포함) → copySqlFiles 에서 skip, picker 단계가 처리</li>
-     *   <li>{@link EngineNameClassifier#isEngineFile} 통과 (= 엔진명 식별) → picker 미선택이라도 누적 skip</li>
-     *   <li>위 두 조건 모두 해당 없음 → 공유 자산: sub_category 별 마지막 버전만 포함</li>
+     *   <li>{@link EngineNameClassifier#isEngineFile} 통과 (= 엔진명 식별) → picker 미선택이라도 {@link #accumulateBuildEngineFiles} 가 처리하므로 누적 skip</li>
      * </ul>
-     * <p>⚠️ WEB 카테고리는 해당 파일이 있는 마지막 버전만 포함됩니다.
+     * <p>"마지막 버전만" 정책은 빌드 버전 사이에서만 유효하며 이는 {@link #applyBuildSelection}(WEB 통째 교체) /
+     * {@link #accumulateBuildEngineFiles}(엔진 최신 승) 가 처리한다. base 버전들 사이에서는 누적 + REPLACE_EXISTING.
      *
      * @param versions          복사할 버전 목록 (base 및 빌드 혼재 가능)
      * @param outputPath        출력 경로
@@ -996,46 +998,6 @@ public class PatchGenerationService {
                                List<String> pickerEngineNames) {
         try {
             Path outputDir = Paths.get(releaseBasePath, outputPath);
-
-            // 공유 자산(확장자 있는 ENGINE 파일)의 sub_category 별 마지막 버전 ID 사전 결정
-            // (역순 탐색 — 가장 나중에 나온 버전이 "최신")
-            Long lastVersionIdForWeb = null;
-            Map<String, Long> lastVersionIdByEngineSubCategory = new HashMap<>();
-
-            if (!versions.isEmpty()) {
-                for (int i = versions.size() - 1; i >= 0; i--) {
-                    ReleaseVersion v = versions.get(i);
-
-                    List<ReleaseFile> files = releaseFileRepository
-                            .findAllByReleaseVersion_ReleaseVersionIdOrderByExecutionOrderAsc(v.getReleaseVersionId());
-
-                    for (ReleaseFile file : files) {
-                        if (file.getFileCategory() == null) continue;
-
-                        // WEB: 아직 찾지 못했으면 이 버전이 마지막
-                        if (lastVersionIdForWeb == null && file.getFileCategory() == FileCategory.WEB) {
-                            lastVersionIdForWeb = v.getReleaseVersionId();
-                            log.info("WEB 카테고리는 버전 {}의 파일만 포함됩니다.", v.getVersion());
-                        }
-
-                        // ENGINE 공유 자산: EngineNameClassifier 통과 실패 = 공유 자산
-                        if (file.getFileCategory() == FileCategory.ENGINE) {
-                            // ENGINE 카테고리에서 sub_category 가 비어있으면 file_name 으로 fallback.
-                            // (이전 fallback "ETC" 는 SubCategoryValidator 의 ENGINE 화이트리스트에
-                            //  포함되어 있어 isEngineFile=true 가 되고, 누적 skip 되는 부작용이 있었음.
-                            //  file_name 으로 두면 isEngineFile 검사가 정상적으로 확장자/prefix 따라 분기)
-                            String subCategory = file.getSubCategory() != null
-                                    ? file.getSubCategory()
-                                    : file.getFileName();
-                            boolean isEngine = EngineNameClassifier.isEngineFile(subCategory);
-                            if (!isEngine && !lastVersionIdByEngineSubCategory.containsKey(subCategory)) {
-                                lastVersionIdByEngineSubCategory.put(subCategory, v.getReleaseVersionId());
-                                log.info("ENGINE 공유 자산/{} 는 버전 {}의 파일만 포함됩니다.", subCategory, v.getVersion());
-                            }
-                        }
-                    }
-                }
-            }
 
             for (ReleaseVersion version : versions) {
                 // 모든 파일 조회 (빌드 포함 — isBuild skip 제거)
@@ -1052,53 +1014,25 @@ public class PatchGenerationService {
                 int skippedCount = 0;
 
                 for (ReleaseFile file : files) {
-                    if (file.getFileCategory() != null) {
-                        boolean shouldSkip = false;
+                    // ENGINE 카테고리: 엔진 바이너리(picker/classifier 식별)는 build picker 단계가 처리하므로 누적 skip
+                    if (file.getFileCategory() == FileCategory.ENGINE) {
+                        // ENGINE 카테고리에서 sub_category 가 비어있으면 file_name 으로 fallback.
+                        // (file_name 이 확장자/prefix 를 가지므로 classifier 가 정상 분기)
+                        String subCategory = file.getSubCategory() != null
+                                ? file.getSubCategory()
+                                : file.getFileName();
 
-                        // WEB: 마지막 버전이 아니면 건너뛰기
-                        if (file.getFileCategory() == FileCategory.WEB) {
-                            if (lastVersionIdForWeb == null
-                                    || !version.getReleaseVersionId().equals(lastVersionIdForWeb)) {
-                                shouldSkip = true;
-                            }
-                        }
+                        boolean isPickerEngine = pickerEngineNames.stream()
+                                .anyMatch(name -> name.equalsIgnoreCase(subCategory));
+                        boolean isEngineByClassifier = EngineNameClassifier.isEngineFile(subCategory);
 
-                        // ENGINE: picker 점유 엔진 또는 EngineNameClassifier 통과 엔진 → skip
-                        //         공유 자산은 sub_category 별 마지막 버전만 포함
-                        if (file.getFileCategory() == FileCategory.ENGINE) {
-                            // ENGINE 카테고리에서 sub_category 가 비어있으면 file_name 으로 fallback.
-                            // (이전 fallback "ETC" 는 SubCategoryValidator 의 ENGINE 화이트리스트에
-                            //  포함되어 있어 isEngineFile=true 가 되고, 누적 skip 되는 부작용이 있었음.
-                            //  file_name 으로 두면 isEngineFile 검사가 정상적으로 확장자/prefix 따라 분기)
-                            String subCategory = file.getSubCategory() != null
-                                    ? file.getSubCategory()
-                                    : file.getFileName();
-
-                            // (1) picker 가 점유한 엔진 → picker 단계가 처리
-                            boolean isPickerEngine = pickerEngineNames.stream()
-                                    .anyMatch(name -> name.equalsIgnoreCase(subCategory));
-                            // (2) 엔진명 식별 통과 (= 엔진 바이너리) → picker 미선택이라도 누적 skip
-                            boolean isEngineByClassifier = EngineNameClassifier.isEngineFile(subCategory);
-
-                            if (isPickerEngine || isEngineByClassifier) {
-                                shouldSkip = true;
-                                if (isPickerEngine) {
-                                    log.debug("ENGINE/{} 는 picker 점유 엔진 → copySqlFiles skip", subCategory);
-                                } else {
-                                    log.debug("ENGINE/{} 는 엔진명 식별 통과 + picker 미선택 → 누적 skip", subCategory);
-                                }
-                            } else {
-                                // 공유 자산: sub_category 별 마지막 버전이 아니면 skip
-                                Long lastVersionId = lastVersionIdByEngineSubCategory.get(subCategory);
-                                if (lastVersionId == null
-                                        || !version.getReleaseVersionId().equals(lastVersionId)) {
-                                    shouldSkip = true;
-                                }
-                            }
-                        }
-
-                        if (shouldSkip) {
+                        if (isPickerEngine || isEngineByClassifier) {
                             skippedCount++;
+                            if (isPickerEngine) {
+                                log.debug("ENGINE/{} 는 picker 점유 엔진 → copySqlFiles skip", subCategory);
+                            } else {
+                                log.debug("ENGINE/{} 는 엔진명 식별 통과 → 누적 skip (build picker 단계가 처리)", subCategory);
+                            }
                             continue;
                         }
                     }
@@ -1341,57 +1275,35 @@ public class PatchGenerationService {
      * 대상 파일 경로 결정 (카테고리 기반)
      * <p>디렉토리 구조:
      * <ul>
-     *   <li>DATABASE: database/{db_type}/{version}/{file_name}</li>
-     *   <li>WEB: web/{version}/{file_name}</li>
-     *   <li>ENGINE: engine/{sub_category} (단일 파일, sub_category 가 엔진명)</li>
-     *   <li>그 외 (ETC / CONFIG / RESOURCE / null): etc/{version}/{file_name}</li>
+     *   <li>DATABASE: database/{db_type}/{version}/{file_name} — mariadb/cratedb 스크립트가 버전별 디렉토리를 가정하므로 유지</li>
+     *   <li>WEB / ENGINE / ETC / 기타: 버전 디렉토리 안의 상대경로({@link ReleaseFile#getRelativePath()}) 그대로 — 원본 폴더 구조 보존, 같은 상대경로면 latest 가 자동 덮어쓰기</li>
      * </ul>
-     * etc 도 DATABASE 와 동일하게 버전별 디렉토리 구조를 가져 모든 포함 버전의 파일이 보존된다.
+     * <p>예시:
+     * <ul>
+     *   <li>{@code versions/.../1.1.0/web/patch_context.xml} → {@code web/patch_context.xml}</li>
+     *   <li>{@code versions/.../1.0.0/etc/InfraEye} → {@code etc/InfraEye}</li>
+     *   <li>{@code versions/.../1.1.1/engine/SMS_AGENT_PATCH/patch_nc_agent_server.sh} → {@code engine/SMS_AGENT_PATCH/patch_nc_agent_server.sh}</li>
+     * </ul>
      */
     private Path determineTargetPath(ReleaseFile file, ReleaseVersion version, Path outputDir) {
         FileCategory category = file.getFileCategory();
 
-        if (category == null) {
+        if (category == FileCategory.DATABASE) {
+            // sub_category를 소문자로 변환
+            String subCategory = file.getSubCategory() != null
+                    ? file.getSubCategory().toLowerCase()
+                    : "database";
             return outputDir.resolve(
-                    String.format("etc/%s/%s",
+                    String.format("database/%s/%s/%s",
+                            subCategory,
                             version.getVersion(),
                             file.getFileName())
             );
         }
 
-        switch (category) {
-            case DATABASE:
-                // sub_category를 소문자로 변환
-                String subCategory = file.getSubCategory() != null
-                        ? file.getSubCategory().toLowerCase()
-                        : "database";
-                return outputDir.resolve(
-                        String.format("database/%s/%s/%s",
-                                subCategory,
-                                version.getVersion(),
-                                file.getFileName())
-                );
-
-            case WEB:
-                return outputDir.resolve(
-                        String.format("web/%s/%s",
-                                version.getVersion(),
-                                file.getFileName())
-                );
-
-            case ENGINE:
-                // fileName 원본 기준 출력 → sub_category 대소문자 정규화와 무관하게 원본명 보존
-                // 예: nc_conf.conf → engine/nc_conf.conf, NC_CONF → engine/NC_CONF
-                return outputDir.resolve("engine").resolve(file.getFileName());
-
-            default:
-                // ETC / CONFIG / RESOURCE 등 — 버전별 디렉토리로 보존
-                return outputDir.resolve(
-                        String.format("etc/%s/%s",
-                                version.getVersion(),
-                                file.getFileName())
-                );
-        }
+        // WEB / ENGINE / ETC / null → 버전 디렉토리 안의 상대경로 그대로 (폴더 구조 보존)
+        String relativePath = file.getRelativePath();
+        return outputDir.resolve(relativePath);
     }
 
     /**
