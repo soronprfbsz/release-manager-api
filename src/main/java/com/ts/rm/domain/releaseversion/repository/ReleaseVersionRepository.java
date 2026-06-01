@@ -273,4 +273,23 @@ public interface ReleaseVersionRepository extends JpaRepository<ReleaseVersion, 
      */
     Optional<ReleaseVersion> findByProject_ProjectIdAndReleaseTypeAndVersionAndHotfixVersionAndBuildVersion(
             String projectId, String releaseType, String version, Integer hotfixVersion, Integer buildVersion);
+
+    /**
+     * 프로젝트 내 (version, hotfix, build) 모두 일치하는 row 존재 여부.
+     *
+     * <p>base 업로드 중복 검사용 — base 는 (version, 0, 0) 으로 검사해
+     * 같은 version 의 빌드/핫픽스 자식이 있어도 base 재등록을 막지 않는다.
+     */
+    boolean existsByProject_ProjectIdAndVersionAndHotfixVersionAndBuildVersion(
+            String projectId, String version, Integer hotfixVersion, Integer buildVersion);
+
+    // ========================================
+    // Custom base 자식 조회 (deleteVersion cascade 거부 검사용)
+    // ========================================
+
+    /**
+     * 주어진 표준 버전을 {@code custom_base_version_id} 로 가진 커스텀 버전 목록.
+     * <p>base 삭제 시 종속 커스텀 자식 존재 여부 검사에 사용.
+     */
+    List<ReleaseVersion> findAllByCustomBaseVersion_ReleaseVersionIdOrderByCreatedAtDesc(Long customBaseVersionId);
 }

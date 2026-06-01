@@ -173,6 +173,14 @@ public class ReleaseVersionService {
         ReleaseVersion version = findVersionById(versionId);
         String versionNumber = version.getVersion();
 
+        // 1-1. base 행 (= 빌드/핫픽스 아닌 표준/커스텀 base) 인 경우 종속 자식 존재 검사
+        //      자식이 남으면 FK ON DELETE SET NULL 로 고아 row 가 생기고
+        //      같은 version 문자열 검사가 재등록을 차단한다 (#48 회귀).
+        //      운영자가 자식을 먼저 정리하도록 거부한다.
+        if (!version.isBuild() && !version.isHotfix()) {
+            rejectIfDependentChildrenExist(version);
+        }
+
         try {
             // 2. 파일 시스템 삭제 (DB 작업 이전에 수행)
             //    - 영속성 컨텍스트가 살아 있는 동안 lazy 관계(buildBaseVersion 등) 안전하게 접근 가능
@@ -213,6 +221,48 @@ public class ReleaseVersionService {
         }
     }
 
+    /**
+     * base 행 삭제 전 종속 자식 (빌드 / 핫픽스 / 커스텀 자식) 존재 여부 검증.
+     *
+     * <p>FK 가 모두 {@code ON DELETE SET NULL} 이라 자식 row 가 그대로 남아 고아가 되고,
+     * 같은 {@code version} 문자열을 가진 자식이 남아있으면 {@code (project, version)}
+     * 중복 검사가 base 재등록을 차단한다. 그래서 base 삭제는 자식을 먼저 정리한 뒤에만
+     * 허용한다.
+     */
+    private void rejectIfDependentChildrenExist(ReleaseVersion base) {
+        Long baseId = base.getReleaseVersionId();
+        List<ReleaseVersion> builds = releaseVersionRepository
+                .findAllByBuildBaseVersion_ReleaseVersionIdOrderByBuildVersionDesc(baseId);
+        List<ReleaseVersion> hotfixes = releaseVersionRepository
+                .findAllByHotfixBaseVersion_ReleaseVersionIdOrderByHotfixVersionAsc(baseId);
+        List<ReleaseVersion> customChildren = releaseVersionRepository
+                .findAllByCustomBaseVersion_ReleaseVersionIdOrderByCreatedAtDesc(baseId);
+
+        if (builds.isEmpty() && hotfixes.isEmpty() && customChildren.isEmpty()) {
+            return;
+        }
+
+        StringBuilder msg = new StringBuilder();
+        msg.append("종속된 자식 버전이 존재해 삭제할 수 없습니다. 자식을 먼저 삭제하세요.");
+        if (!builds.isEmpty()) {
+            msg.append(" 빌드: ").append(joinFullVersions(builds)).append(".");
+        }
+        if (!hotfixes.isEmpty()) {
+            msg.append(" 핫픽스: ").append(joinFullVersions(hotfixes)).append(".");
+        }
+        if (!customChildren.isEmpty()) {
+            msg.append(" 커스텀 자식: ").append(joinFullVersions(customChildren)).append(".");
+        }
+        throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE, msg.toString());
+    }
+
+    private String joinFullVersions(List<ReleaseVersion> versions) {
+        return versions.stream()
+                .map(ReleaseVersion::getFullVersion)
+                .reduce((a, b) -> a + ", " + b)
+                .orElse("");
+    }
+
     // === Private Helper Methods ===
 
     /**
@@ -236,8 +286,9 @@ public class ReleaseVersionService {
         // 버전 파싱
         VersionInfo versionInfo = VersionParser.parse(request.version());
 
-        // 중복 검증 (프로젝트 내에서 동일 버전 확인)
-        if (releaseVersionRepository.existsByProject_ProjectIdAndVersion(request.projectId(), request.version())) {
+        // 중복 검증 (base 행 한정 — 같은 version 문자열의 빌드/핫픽스는 허용)
+        if (releaseVersionRepository.existsByProject_ProjectIdAndVersionAndHotfixVersionAndBuildVersion(
+                request.projectId(), request.version(), 0, 0)) {
             throw new BusinessException(ErrorCode.RELEASE_VERSION_CONFLICT);
         }
 

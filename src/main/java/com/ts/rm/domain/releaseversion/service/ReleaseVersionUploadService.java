@@ -1043,12 +1043,15 @@ public class ReleaseVersionUploadService {
 
     /**
      * 새 버전 검증 (중복 확인)
+     *
+     * <p>base 행만 충돌 검사한다 — 같은 {@code version} 문자열을 가진 빌드/핫픽스 row 는
+     * {@code (hotfix_version, build_version)} 으로 구분되므로 base 재등록을 막지 않는다.
      */
     public void validateNewVersion(String projectId, String releaseType, VersionInfo versionInfo) {
         String version = versionInfo.getMajorVersion() + "." + versionInfo.getMinorVersion() + "." + versionInfo.getPatchVersion();
 
-        // 중복 버전 확인 (프로젝트 내에서)
-        boolean exists = releaseVersionRepository.existsByProject_ProjectIdAndVersion(projectId, version);
+        boolean exists = releaseVersionRepository
+                .existsByProject_ProjectIdAndVersionAndHotfixVersionAndBuildVersion(projectId, version, 0, 0);
         if (exists) {
             throw new BusinessException(ErrorCode.RELEASE_VERSION_CONFLICT,
                     "이미 존재하는 버전입니다: " + version);

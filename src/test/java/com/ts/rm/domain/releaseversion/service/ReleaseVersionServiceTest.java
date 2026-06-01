@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
@@ -136,7 +137,8 @@ class ReleaseVersionServiceTest {
         // given
         given(projectRepository.findById(PROJECT_ID)).willReturn(Optional.of(testProject));
         given(accountLookupService.findByEmail(anyString())).willReturn(testAccount);
-        given(releaseVersionRepository.existsByProject_ProjectIdAndVersion(anyString(), anyString()))
+        given(releaseVersionRepository.existsByProject_ProjectIdAndVersionAndHotfixVersionAndBuildVersion(
+                anyString(), anyString(), eq(0), eq(0)))
                 .willReturn(false);
         given(releaseVersionRepository.save(any(ReleaseVersion.class))).willReturn(testVersion);
         given(mapper.toDetailResponse(any(ReleaseVersion.class))).willReturn(detailResponse);
@@ -162,7 +164,8 @@ class ReleaseVersionServiceTest {
         // given
         given(projectRepository.findById(PROJECT_ID)).willReturn(Optional.of(testProject));
         given(accountLookupService.findByEmail(anyString())).willReturn(testAccount);
-        given(releaseVersionRepository.existsByProject_ProjectIdAndVersion(anyString(), anyString()))
+        given(releaseVersionRepository.existsByProject_ProjectIdAndVersionAndHotfixVersionAndBuildVersion(
+                anyString(), anyString(), eq(0), eq(0)))
                 .willReturn(true);
 
         // when & then
@@ -226,7 +229,8 @@ class ReleaseVersionServiceTest {
         given(customerRepository.findById(anyLong())).willReturn(Optional.of(testCustomer));
         given(projectRepository.findById(PROJECT_ID)).willReturn(Optional.of(testProject));
         given(accountLookupService.findByEmail(anyString())).willReturn(testAccount);
-        given(releaseVersionRepository.existsByProject_ProjectIdAndVersion(anyString(), anyString()))
+        given(releaseVersionRepository.existsByProject_ProjectIdAndVersionAndHotfixVersionAndBuildVersion(
+                anyString(), anyString(), eq(0), eq(0)))
                 .willReturn(false);
         given(releaseVersionRepository.save(any(ReleaseVersion.class))).willReturn(customVersion);
         given(mapper.toDetailResponse(any(ReleaseVersion.class))).willReturn(detailResponse);
