@@ -123,7 +123,7 @@ public class BuildsInRangeService {
 
     /**
      * 입력 후보 리스트의 첫 항목에 isLatest=true 를 부여한 새 리스트를 반환.
-     * 입력은 build_version DESC 정렬되어 있다고 가정한다 (Repository 가 보장).
+     * 입력은 build_version DESC + build_iteration DESC 정렬되어 있다고 가정한다 (Repository 가 보장).
      */
     private List<ReleaseVersionDto.BuildCandidate> markLatestFirst(List<ReleaseVersionDto.BuildCandidate> input) {
         if (input.isEmpty()) {

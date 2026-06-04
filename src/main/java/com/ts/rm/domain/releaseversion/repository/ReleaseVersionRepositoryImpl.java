@@ -356,7 +356,10 @@ public class ReleaseVersionRepositoryImpl implements ReleaseVersionRepositoryCus
         return queryFactory
                 .selectFrom(rv)
                 .where(projectMatch, isBuild, baseRange, customerMatch)
-                .orderBy(rv.buildVersion.desc())
+                // build_version DESC + 같은 날짜 내에서는 build_iteration DESC.
+                // (iteration 정렬이 빠지면 같은 build_version 의 -1/-2 순서가 PK 자연 순서로 결정되어
+                //  picker UI 가 -1 을 latest 로 잘못 표시한다)
+                .orderBy(rv.buildVersion.desc(), rv.buildIteration.desc())
                 .fetch();
     }
 
