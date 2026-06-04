@@ -250,7 +250,9 @@ public class PatchGenerationService {
                 }
             }
 
-            if (betweenVersions.isEmpty()) {
+            // 빌드 전용 패치: from==to 일 때 betweenVersions 가 비어도 buildSelection 이 있으면 진행
+            boolean hasBuildSelection = buildSelection != null && buildSelection.enabled();
+            if (betweenVersions.isEmpty() && !hasBuildSelection) {
                 throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
                         String.format("From %s와 To %s 사이에 패치할 커스텀 버전이 없습니다.",
                                 fromVersion.getFullVersion(), toVersion.getFullVersion()));
@@ -378,10 +380,10 @@ public class PatchGenerationService {
 
         } else {
             // 커스텀 버전에서 시작하는 경우:
-            // 버전 비교: fromCustomVersion < toCustomVersion
-            if (compareCustomVersions(fromVersion, toVersion) >= 0) {
+            // from == to 는 허용 (빌드 전용 패치). from > to 만 거부.
+            if (compareCustomVersions(fromVersion, toVersion) > 0) {
                 throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
-                        String.format("From 버전은 To 버전보다 작아야 합니다. (From: %s, To: %s)",
+                        String.format("From 버전은 To 버전보다 높을 수 없습니다. (From: %s, To: %s)",
                                 fromVersion.getVersion(), toVersion.getVersion()));
             }
 
@@ -582,7 +584,9 @@ public class PatchGenerationService {
             List<ReleaseVersion> betweenVersions = collectBetweenVersionsWithBuild(
                     projectId, fromVersion, toVersion);
 
-            if (betweenVersions.isEmpty()) {
+            // 빌드 전용 패치: from==to 일 때 betweenVersions 가 비어도 buildSelection 이 있으면 진행
+            boolean hasBuildSelection = buildSelection != null && buildSelection.enabled();
+            if (betweenVersions.isEmpty() && !hasBuildSelection) {
                 throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
                         String.format("From %s와 To %s 사이에 패치할 버전이 없습니다.",
                                 fromVersion.getFullVersion(), toVersion.getFullVersion()));
@@ -787,12 +791,14 @@ public class PatchGenerationService {
 
     /**
      * 버전 범위 검증
+     *
+     * <p>from == to 는 허용한다 (빌드 전용 패치 시나리오: 같은 base 안에서 buildSelection 으로만 빌드 산출물을 갱신).
+     * from > to 만 거부.
      */
     private void validateVersionRange(ReleaseVersion fromVersion, ReleaseVersion toVersion) {
-        // 버전 비교: fromVersion < toVersion
-        if (compareVersions(fromVersion, toVersion) >= 0) {
+        if (compareVersions(fromVersion, toVersion) > 0) {
             throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
-                    String.format("From 버전은 To 버전보다 작아야 합니다. (From: %s, To: %s)",
+                    String.format("From 버전은 To 버전보다 높을 수 없습니다. (From: %s, To: %s)",
                             fromVersion.getVersion(), toVersion.getVersion()));
         }
 
