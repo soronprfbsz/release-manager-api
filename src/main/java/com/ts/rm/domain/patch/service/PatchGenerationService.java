@@ -1229,8 +1229,10 @@ public class PatchGenerationService {
             // 대상 디렉토리 생성
             Files.createDirectories(targetPath.getParent());
 
-            // 파일 복사
+            // 파일 복사 + 실행 비트 등 POSIX permission 보존
+            // (manual-setup/etc/1.0.0/InfraEye 처럼 운영자가 직접 실행하는 스크립트의 +x 보존 필수)
             Files.copy(sourcePath, targetPath, StandardCopyOption.REPLACE_EXISTING);
+            preservePosixPermissions(sourcePath, targetPath);
 
             log.debug("파일 복사: {} -> {}", sourcePath.getFileName(), targetPath);
 
