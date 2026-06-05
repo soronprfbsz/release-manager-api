@@ -12,6 +12,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
+import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -186,22 +188,55 @@ public class ReleaseVersionFileSystemService {
         if (!Files.exists(directory)) {
             return;
         }
+        // CIFS 마운트에서 일시적 락/race 로 한 항목 삭제가 실패하면 walkFileTree 가
+        // 그 자리에서 중단되어 디렉토리가 부분 상태로 남는다. 운영자가 재시도해도
+        // 매번 다른 항목에서 fail 할 수 있다 → best-effort 로 끝까지 순회 후
+        // 실패 항목을 모아 한 번에 보고한다.
+        List<Path> failedItems = new ArrayList<>();
         Files.walkFileTree(directory, new SimpleFileVisitor<>() {
             @Override
-            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                Files.delete(file);
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                try {
+                    Files.delete(file);
+                } catch (IOException e) {
+                    log.warn("파일 삭제 실패 (계속 진행): {} - {}", file, e.toString());
+                    failedItems.add(file);
+                }
                 return FileVisitResult.CONTINUE;
             }
 
             @Override
-            public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+            public FileVisitResult visitFileFailed(Path file, IOException exc) {
+                log.warn("파일 방문 실패 (계속 진행): {} - {}", file, exc.toString());
+                failedItems.add(file);
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult postVisitDirectory(Path dir, IOException exc) {
                 if (exc != null) {
-                    throw exc;
+                    log.warn("하위 순회 중 오류 (계속 진행): {} - {}", dir, exc.toString());
                 }
-                Files.delete(dir);
+                try {
+                    Files.delete(dir);
+                } catch (IOException e) {
+                    log.warn("디렉토리 삭제 실패 (계속 진행): {} - {}", dir, e.toString());
+                    failedItems.add(dir);
+                }
                 return FileVisitResult.CONTINUE;
             }
         });
+        if (!failedItems.isEmpty()) {
+            String preview = failedItems.stream()
+                    .limit(5)
+                    .map(Path::toString)
+                    .reduce((a, b) -> a + ", " + b)
+                    .orElse("");
+            throw new IOException(String.format(
+                    "일부 항목 삭제 실패 (%d개). 예: %s%s",
+                    failedItems.size(), preview,
+                    failedItems.size() > 5 ? " ..." : ""));
+        }
         log.info("디렉토리 삭제 완료: {}", directory);
     }
 
