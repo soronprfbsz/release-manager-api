@@ -61,7 +61,6 @@ sourceSets {
 			exclude '**/domain/job/repository/BackupFileRepositoryTest.java'         // ApplicationContext 로딩 실패 (통합 환경 문제). entity createdBy → createdByEmail 코드 fix 는 작업 트리에 미완 보존
 
 			// --- 엔티티 빌더/메서드 부재 ---
-			exclude '**/domain/patch/service/PatchServiceTest.java'                  // PatchBuilder.createdBy(String) 부재 (creator/createdByEmail 로 분리됨)
 			exclude '**/domain/service/ServicePasswordEncryptionTest.java'           // ServiceComponent.getPassword/getSshPassword/builder.password()/isActive()/accountId() 부재
 			exclude '**/domain/filesync/service/FileSyncServiceTest.java'            // FileSyncService 생성자 시그니처 변경
 

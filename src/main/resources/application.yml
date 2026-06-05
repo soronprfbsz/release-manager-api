@@ -132,3 +132,9 @@ app:
     expiration: ${JWT_EXPIRATION:900000}  # Access Token 만료 15분 (밀리초)
     refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000}  # Refresh Token 만료 7일 (밀리초)
     issuer: ${JWT_ISSUER:release-manager} # 발급자 식별자
+
+# Patch Configuration
+patch:
+  cleanup:
+    # 생성 후 이 일수가 지난 패치 파일을 자동 정리 (스케줄러 patch-cleanup 의 기본 보관 기간)
+    retention-days: 30

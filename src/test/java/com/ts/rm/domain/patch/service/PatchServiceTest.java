@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.ts.rm.domain.customer.repository.CustomerRepository;
@@ -13,12 +14,15 @@ import com.ts.rm.domain.patch.repository.PatchRepository;
 import com.ts.rm.domain.patch.util.ScriptGenerator;
 import com.ts.rm.domain.releasefile.repository.ReleaseFileRepository;
 import com.ts.rm.domain.releaseversion.repository.ReleaseVersionRepository;
+import com.ts.rm.domain.releaseversion.service.ReleaseVersionFileSystemService;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,6 +45,9 @@ class PatchServiceTest {
 
     @Mock
     private ReleaseVersionRepository releaseVersionRepository;
+
+    @Mock
+    private ReleaseVersionFileSystemService releaseVersionFileSystemService;
 
     @Mock
     private ReleaseFileRepository releaseFileRepository;
@@ -93,7 +100,7 @@ class PatchServiceTest {
                 .releaseType("STANDARD")
                 .fromVersion("1.0.0")
                 .toVersion("1.1.0")
-                .createdBy("tester")
+                .createdByEmail("tester")
                 .build();
 
         // 실제 파일 디렉토리 생성
@@ -130,7 +137,7 @@ class PatchServiceTest {
                 .releaseType("STANDARD")
                 .fromVersion("1.0.0")
                 .toVersion("1.1.0")
-                .createdBy("tester")
+                .createdByEmail("tester")
                 .build();
 
         when(patchRepository.findById(patchId)).thenReturn(Optional.of(patch));
@@ -173,7 +180,7 @@ class PatchServiceTest {
                 .releaseType("STANDARD")
                 .fromVersion("1.0.0")
                 .toVersion("1.2.0")
-                .createdBy("tester")
+                .createdByEmail("tester")
                 .build();
 
         // 중첩된 디렉토리 구조 생성
@@ -198,6 +205,58 @@ class PatchServiceTest {
 
         // 모든 중첩된 디렉토리와 파일이 삭제되었는지 확인
         assertThat(Files.exists(testPatchDir)).isFalse();
+    }
+
+    @Test
+    @DisplayName("오래된 패치 정리 - cutoff 이전 패치의 디렉토리 + row 일괄 삭제")
+    void deleteOldPatches_Success() {
+        // Given
+        int retentionDays = 30;
+        Patch p1 = Patch.builder()
+                .patchId(10L)
+                .patchName("old1")
+                .outputPath("patches/old1")
+                .releaseType("STANDARD")
+                .fromVersion("1.0.0")
+                .toVersion("1.1.0")
+                .createdByEmail("tester")
+                .build();
+        Patch p2 = Patch.builder()
+                .patchId(11L)
+                .patchName("old2")
+                .outputPath("patches/old2")
+                .releaseType("STANDARD")
+                .fromVersion("1.0.0")
+                .toVersion("1.2.0")
+                .createdByEmail("tester")
+                .build();
+        when(patchRepository.findByCreatedAtBefore(any(LocalDateTime.class)))
+                .thenReturn(List.of(p1, p2));
+
+        // When
+        long deletedCount = patchService.deleteOldPatches(retentionDays);
+
+        // Then
+        assertThat(deletedCount).isEqualTo(2);
+        verify(releaseVersionFileSystemService).deleteDirectory(Paths.get(testBasePath, "patches/old1"));
+        verify(releaseVersionFileSystemService).deleteDirectory(Paths.get(testBasePath, "patches/old2"));
+        verify(patchRepository).deleteAll(List.of(p1, p2));
+    }
+
+    @Test
+    @DisplayName("오래된 패치 정리 - 대상 없음 (0건 반환, 디렉토리 삭제 미호출)")
+    void deleteOldPatches_NoTargets() {
+        // Given
+        when(patchRepository.findByCreatedAtBefore(any(LocalDateTime.class)))
+                .thenReturn(List.of());
+
+        // When
+        long deletedCount = patchService.deleteOldPatches(30);
+
+        // Then
+        assertThat(deletedCount).isEqualTo(0);
+        verify(patchRepository).deleteAll(List.of());
+        verifyNoInteractions(releaseVersionFileSystemService);
     }
 
     /**

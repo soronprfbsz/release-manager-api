@@ -14,6 +14,7 @@ import com.ts.rm.domain.patch.repository.PatchRepository;
 import com.ts.rm.domain.project.entity.Project;
 import com.ts.rm.domain.releaseversion.entity.ReleaseVersion;
 import com.ts.rm.domain.releaseversion.repository.ReleaseVersionRepository;
+import com.ts.rm.domain.releaseversion.service.ReleaseVersionFileSystemService;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
 import com.ts.rm.global.pagination.PageRowNumberUtil;
@@ -61,6 +62,7 @@ public class PatchService {
     private final PatchHistoryService patchHistoryService;
     private final CustomerSiteVersionService customerSiteVersionService;
     private final ReleaseVersionRepository releaseVersionRepository;
+    private final ReleaseVersionFileSystemService releaseVersionFileSystemService;
     private final CustomerRepository customerRepository;
     private final CustomerProjectRepository customerProjectRepository;
 
@@ -604,6 +606,43 @@ public class PatchService {
         log.info("패치 일괄 삭제 완료 - {}", message);
 
         return new PatchDto.BatchDeleteResponse(patches.size(), message);
+    }
+
+    /**
+     * 보관 기간이 지난 패치 일괄 정리 (스케줄러 patch-cleanup 호출).
+     *
+     * <p>{@code created_at < now() - retentionDays} 인 patch_file 행과 대응 디렉토리를
+     * 일괄 삭제한다. 완료 여부와 무관하게 운영 정책상 일괄 정리한다.
+     *
+     * <ul>
+     *   <li>디렉토리 삭제는 best-effort — NAS 부분 실패 시 로그만 남기고 진행한다
+     *       ({@link ReleaseVersionFileSystemService#deleteDirectory}).</li>
+     *   <li>patch_file row 삭제 시 patch_included_build / patch_hotfix_in_range 메타 행은
+     *       FK ON DELETE CASCADE 로 동반 삭제된다 (V6 migration 참조).</li>
+     * </ul>
+     *
+     * @param retentionDays 보관 기간 (일)
+     * @return 삭제된 패치 수
+     */
+    @Transactional
+    public long deleteOldPatches(int retentionDays) {
+        LocalDateTime cutoff = LocalDateTime.now().minusDays(retentionDays);
+        List<Patch> oldPatches = patchRepository.findByCreatedAtBefore(cutoff);
+        log.info("오래된 패치 정리 시작 - retentionDays: {}, cutoff: {}, 대상: {}건",
+                retentionDays, cutoff, oldPatches.size());
+
+        // 1. 각 패치 디렉토리 best-effort 삭제 (NAS 부분 실패는 로그만 남기고 진행)
+        for (Patch patch : oldPatches) {
+            Path patchDir = Paths.get(releaseBasePath, patch.getOutputPath());
+            releaseVersionFileSystemService.deleteDirectory(patchDir);
+        }
+
+        // 2. patch_file row 일괄 삭제 (메타 행은 cascade 로 동반 삭제)
+        patchRepository.deleteAll(oldPatches);
+
+        log.info("오래된 패치 정리 완료 - retentionDays: {}, deletedCount: {}",
+                retentionDays, oldPatches.size());
+        return oldPatches.size();
     }
 
     /**

@@ -1,6 +1,7 @@
 package com.ts.rm.domain.patch.repository;
 
 import com.ts.rm.domain.patch.entity.Patch;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -84,4 +85,12 @@ public interface PatchRepository extends JpaRepository<Patch, Long>, PatchReposi
      * 패치명 중복 여부 — 자동 패치명 생성 시 suffix increment 판단에 사용
      */
     boolean existsByPatchName(String patchName);
+
+    /**
+     * 생성 시점이 기준 시각 이전인 패치 조회 — 오래된 패치 일괄 정리(cleanup)에 사용
+     *
+     * @param cutoff 기준 시각 (이 시각 이전 생성분이 대상)
+     * @return 정리 대상 패치 목록
+     */
+    List<Patch> findByCreatedAtBefore(LocalDateTime cutoff);
 }

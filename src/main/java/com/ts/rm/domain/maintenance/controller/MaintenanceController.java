@@ -2,6 +2,7 @@ package com.ts.rm.domain.maintenance.controller;
 
 import com.ts.rm.domain.maintenance.dto.MaintenanceResultDto;
 import com.ts.rm.domain.maintenance.service.BoardImageCleanupService;
+import com.ts.rm.domain.patch.service.PatchService;
 import com.ts.rm.domain.scheduler.service.ScheduleJobHistoryService;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
@@ -32,6 +33,7 @@ public class MaintenanceController implements MaintenanceControllerDocs {
     private final BoardImageCleanupService boardImageCleanupService;
     private final ScheduleJobHistoryService scheduleJobHistoryService;
     private final ApiLogService apiLogService;
+    private final PatchService patchService;
 
     private static final String SCHEDULER_HEADER = "X-Schedule-Job";
 
@@ -99,6 +101,31 @@ public class MaintenanceController implements MaintenanceControllerDocs {
                 "api-log-cleanup",
                 (int) deletedCount,
                 String.format("%d일 이상 지난 API 로그 %d건 삭제 완료", retentionDays, deletedCount));
+
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    /**
+     * 오래된 패치 파일 정리
+     *
+     * <p>생성 후 일정 기간이 지난 패치 파일(디렉토리 + patch_file row)을 삭제
+     *
+     * @param retentionDays 보관 기간 (기본값: patch.cleanup.retention-days, 미설정 시 30일)
+     */
+    @Override
+    @DeleteMapping("/patches")
+    public ResponseEntity<ApiResponse<MaintenanceResultDto.CleanupResult>> cleanupPatches(
+            @RequestParam(defaultValue = "${patch.cleanup.retention-days:30}") int retentionDays,
+            HttpServletRequest request) {
+        validateMaintenanceAccess(request);
+        log.info("오래된 패치 정리 API 호출 - retentionDays: {}", retentionDays);
+
+        long deletedCount = patchService.deleteOldPatches(retentionDays);
+
+        MaintenanceResultDto.CleanupResult result = MaintenanceResultDto.CleanupResult.of(
+                "patch-cleanup",
+                (int) deletedCount,
+                String.format("%d일 이상 지난 패치 %d건 삭제 완료", retentionDays, deletedCount));
 
         return ResponseEntity.ok(ApiResponse.success(result));
     }
