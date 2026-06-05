@@ -11,6 +11,11 @@ import com.ts.rm.domain.patch.repository.PatchHistoryRepository;
 import com.ts.rm.domain.patch.repository.PatchRepository;
 import com.ts.rm.domain.releaseversion.entity.ReleaseVersion;
 import com.ts.rm.domain.releaseversion.repository.ReleaseVersionRepository;
+import com.ts.rm.domain.releaseversion.service.ReleaseVersionFileSystemService;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -31,6 +36,7 @@ public class DashboardService {
     private final ReleaseVersionRepository releaseVersionRepository;
     private final PatchHistoryRepository patchHistoryRepository;
     private final PatchRepository patchRepository;
+    private final ReleaseVersionFileSystemService fileSystemService;
 
     private static final String RELEASE_TYPE_STANDARD = "STANDARD";
 
@@ -145,12 +151,10 @@ public class DashboardService {
      * <p>version 필드는 getFullVersion() 으로 빌드 라벨까지 포함 (예: "1.1.0.260501-1").
      */
     private RecentBuildVersion toRecentBuildVersion(ReleaseVersion rv) {
-        List<String> fileCategories = rv.getReleaseFiles().stream()
-                .filter(rf -> rf.getFileCategory() != null)
-                .map(rf -> rf.getFileCategory().name())
-                .distinct()
-                .sorted()
-                .toList();
+        // 빌드는 ZIP 업로드 시 ReleaseFile row 를 저장하지 않으므로 (BuildFileService 참조)
+        // releaseFiles 기반으로 카테고리를 구하면 항상 빈 리스트가 된다.
+        // 빌드 디렉토리(.../builds/{ver-iter}/web | engine) 의 실제 존재 여부로 카테고리를 채운다.
+        List<String> fileCategories = resolveBuildFileCategories(rv);
 
         Customer customer = rv.getCustomer();
         Long customerId = customer != null ? customer.getCustomerId() : null;
@@ -211,5 +215,52 @@ public class DashboardService {
                 createdByAvatarStyle,
                 createdByAvatarSeed
         );
+    }
+
+    /**
+     * 빌드 ReleaseVersion 의 디렉토리(web/ engine/) 존재 여부를 확인해 fileCategories 를 만든다.
+     *
+     * <p>빌드는 ZIP 업로드 시 ReleaseFile 행을 저장하지 않으므로 (BuildFileService) DB 가 아닌
+     * 빌드 디렉토리의 실제 자산을 진실의 원천으로 사용한다.
+     *
+     * <p>빌드가 아닌 경우 (잘못 들어온 row) 빈 리스트 반환.
+     *
+     * @return ["WEB"], ["ENGINE"], ["ENGINE","WEB"] 중 하나 (sorted), 또는 빈 리스트
+     */
+    private List<String> resolveBuildFileCategories(ReleaseVersion rv) {
+        if (rv == null || !rv.isBuild() || rv.getBuildBaseVersion() == null) {
+            return List.of();
+        }
+        Path base;
+        try {
+            base = fileSystemService.resolveBuildBasePath(rv);
+        } catch (Exception e) {
+            log.warn("빌드 경로 계산 실패 - releaseVersionId: {}, reason: {}",
+                    rv.getReleaseVersionId(), e.toString());
+            return List.of();
+        }
+        List<String> categories = new ArrayList<>();
+        if (hasAnyRegularFile(base.resolve("engine"))) {
+            categories.add("ENGINE");
+        }
+        if (hasAnyRegularFile(base.resolve("web"))) {
+            categories.add("WEB");
+        }
+        return categories;
+    }
+
+    /**
+     * 디렉토리 안에 정규 파일이 1개 이상 있는지 검사. 디렉토리 자체가 없으면 false.
+     */
+    private boolean hasAnyRegularFile(Path dir) {
+        if (!Files.isDirectory(dir)) {
+            return false;
+        }
+        try (var stream = Files.walk(dir)) {
+            return stream.anyMatch(Files::isRegularFile);
+        } catch (IOException e) {
+            log.warn("빌드 디렉토리 walk 실패 - {}: {}", dir, e.toString());
+            return false;
+        }
     }
 }
