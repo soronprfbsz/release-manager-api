@@ -16,6 +16,7 @@ import com.ts.rm.global.exception.ErrorCode;
 import com.ts.rm.global.exception.GlobalExceptionHandler;
 import com.ts.rm.global.filter.JwtAuthenticationFilter;
 import com.ts.rm.global.logging.service.ApiLogService;
+import com.ts.rm.global.progress.ServerProgressService;
 import com.ts.rm.global.security.jwt.JwtTokenProvider;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -43,6 +44,10 @@ class PatchControllerTest {
 
     @MockitoBean
     private PatchDtoMapper patchDtoMapper;
+
+    // PatchController 가 의존하는 진행도 추적 서비스 (commit 9d329bf 에서 추가됨)
+    @MockitoBean
+    private ServerProgressService progressService;
 
     // Security 관련 MockBean 추가
     @MockitoBean
