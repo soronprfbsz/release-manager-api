@@ -53,6 +53,10 @@ public final class CustomerSiteVersionDto {
                     allowableValues = {"BASE", "WEB", "ENGINE"})
             String component,
 
+            @Schema(description = "엔진명 (component=ENGINE 일 때만; BASE/WEB 은 null)",
+                    example = "NC_AGENT_SERVER", nullable = true)
+            String engineName,
+
             @Schema(description = "현재 버전 (BASE: 1.1.0 / WEB·ENGINE: 1.1.0.260511-1)",
                     example = "1.1.0.260511-1")
             String currentVersion,

@@ -61,6 +61,13 @@ public class CustomerSiteVersion {
     private String component;
 
     /**
+     * 엔진명 (component=ENGINE 일 때 채움). BASE/WEB 은 NULL.
+     * 예: NC_AGENT_SERVER, NC_GATEWAY, NC_SMS …
+     */
+    @Column(name = "engine_name", length = 50)
+    private String engineName;
+
+    /**
      * 현재 버전.
      * BASE 는 "1.1.0" 형태, WEB/ENGINE 은 fullVersion "1.1.0.260511-1" 형태.
      */
@@ -104,11 +111,12 @@ public class CustomerSiteVersion {
      * @return 새 CustomerSiteVersion 엔티티
      */
     public static CustomerSiteVersion create(Customer customer, Project project,
-            String component, String version, String updatedBy, LocalDateTime updatedAt) {
+            String component, String engineName, String version, String updatedBy, LocalDateTime updatedAt) {
         return CustomerSiteVersion.builder()
                 .customer(customer)
                 .project(project)
                 .component(component)
+                .engineName(engineName)
                 .currentVersion(version)
                 .updatedBy(updatedBy)
                 .updatedAt(updatedAt)

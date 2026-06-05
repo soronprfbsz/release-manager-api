@@ -15,6 +15,7 @@ import com.ts.rm.global.exception.ErrorCode;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
@@ -46,48 +47,52 @@ public class CustomerSiteVersionService {
     /**
      * 사이트 컴포넌트 버전 upsert.
      *
-     * <p>UNIQUE KEY (customer_id, project_id, component) 기준으로
-     * row 가 없으면 INSERT, 있으면 currentVersion / updatedBy / updatedAt UPDATE.
+     * <p>UNIQUE KEY (customer_id, project_id, component, engine_name) 기준 upsert.
+     * BASE/WEB 는 engineName=null. ENGINE 은 엔진명을 전달.
      *
      * @param customerId 고객사 ID
      * @param projectId  프로젝트 ID
      * @param component  컴포넌트 구분 (BASE/WEB/ENGINE)
+     * @param engineName 엔진명 (ENGINE 일 때만; BASE/WEB 은 null)
      * @param version    갱신할 버전 문자열
      * @param updatedBy  갱신자 이메일
      * @param updatedAt  갱신 일시
      */
     @Transactional
-    public void upsert(Long customerId, String projectId, String component,
+    public void upsert(Long customerId, String projectId, String component, String engineName,
             String version, String updatedBy, LocalDateTime updatedAt) {
 
-        siteVersionRepository
-                .findByCustomer_CustomerIdAndProject_ProjectIdAndComponent(
-                        customerId, projectId, component)
-                .ifPresentOrElse(
-                        existing -> {
-                            // 기존 row 업데이트
-                            existing.updateVersion(version, updatedBy, updatedAt);
-                            siteVersionRepository.save(existing);
-                            log.info("사이트 버전 갱신 - customerId: {}, projectId: {}, component: {}, version: {}",
-                                    customerId, projectId, component, version);
-                        },
-                        () -> {
-                            // 신규 row 생성
-                            Customer customer = customerRepository.findById(customerId)
-                                    .orElseThrow(() -> new BusinessException(
-                                            ErrorCode.CUSTOMER_NOT_FOUND,
-                                            "고객사를 찾을 수 없습니다: " + customerId));
-                            Project project = projectRepository.findById(projectId)
-                                    .orElseThrow(() -> new BusinessException(
-                                            ErrorCode.PROJECT_NOT_FOUND,
-                                            "프로젝트를 찾을 수 없습니다: " + projectId));
-                            CustomerSiteVersion newEntry = CustomerSiteVersion.create(
-                                    customer, project, component, version, updatedBy, updatedAt);
-                            siteVersionRepository.save(newEntry);
-                            log.info("사이트 버전 신규 등록 - customerId: {}, projectId: {}, component: {}, version: {}",
-                                    customerId, projectId, component, version);
-                        }
-                );
+        Optional<CustomerSiteVersion> existing = (engineName == null)
+                ? siteVersionRepository
+                        .findByCustomer_CustomerIdAndProject_ProjectIdAndComponentAndEngineNameIsNull(
+                                customerId, projectId, component)
+                : siteVersionRepository
+                        .findByCustomer_CustomerIdAndProject_ProjectIdAndComponentAndEngineName(
+                                customerId, projectId, component, engineName);
+
+        existing.ifPresentOrElse(
+                row -> {
+                    row.updateVersion(version, updatedBy, updatedAt);
+                    siteVersionRepository.save(row);
+                    log.info("사이트 버전 갱신 - customerId: {}, projectId: {}, component: {}/{}, version: {}",
+                            customerId, projectId, component, engineName, version);
+                },
+                () -> {
+                    Customer customer = customerRepository.findById(customerId)
+                            .orElseThrow(() -> new BusinessException(
+                                    ErrorCode.CUSTOMER_NOT_FOUND,
+                                    "고객사를 찾을 수 없습니다: " + customerId));
+                    Project project = projectRepository.findById(projectId)
+                            .orElseThrow(() -> new BusinessException(
+                                    ErrorCode.PROJECT_NOT_FOUND,
+                                    "프로젝트를 찾을 수 없습니다: " + projectId));
+                    CustomerSiteVersion newEntry = CustomerSiteVersion.create(
+                            customer, project, component, engineName, version, updatedBy, updatedAt);
+                    siteVersionRepository.save(newEntry);
+                    log.info("사이트 버전 신규 등록 - customerId: {}, projectId: {}, component: {}/{}, version: {}",
+                            customerId, projectId, component, engineName, version);
+                }
+        );
     }
 
     /**
@@ -107,6 +112,7 @@ public class CustomerSiteVersionService {
         return rows.stream()
                 .map(r -> new CustomerSiteVersionDto.SiteVersionResponse(
                         r.getComponent(),
+                        r.getEngineName(),
                         r.getCurrentVersion(),
                         r.getUpdatedAt(),
                         r.getUpdatedBy()))

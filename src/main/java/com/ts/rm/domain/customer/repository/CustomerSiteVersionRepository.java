@@ -13,14 +13,24 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface CustomerSiteVersionRepository extends JpaRepository<CustomerSiteVersion, Long> {
 
     /**
-     * 고객사 + 프로젝트 + 컴포넌트로 단건 조회 (upsert 용).
+     * 고객사 + 프로젝트 + 컴포넌트 (+ engineName) 로 단건 조회 (upsert 용).
+     *
+     * <p>BASE/WEB 은 engineName=null 로 호출. ENGINE 은 엔진명을 전달.
+     * Spring Data JPA 의 ...IsNull/...Equals 분기는 메서드 별도 정의로 표현한다.
      *
      * @param customerId 고객사 ID
      * @param projectId  프로젝트 ID
      * @param component  컴포넌트 (BASE/WEB/ENGINE)
+     * @param engineName 엔진명 (ENGINE 일 때만)
      * @return 존재하면 Optional 에 포함
      */
-    Optional<CustomerSiteVersion> findByCustomer_CustomerIdAndProject_ProjectIdAndComponent(
+    Optional<CustomerSiteVersion> findByCustomer_CustomerIdAndProject_ProjectIdAndComponentAndEngineName(
+            Long customerId, String projectId, String component, String engineName);
+
+    /**
+     * engineName = NULL 단건 조회 (BASE/WEB 용).
+     */
+    Optional<CustomerSiteVersion> findByCustomer_CustomerIdAndProject_ProjectIdAndComponentAndEngineNameIsNull(
             Long customerId, String projectId, String component);
 
     /**

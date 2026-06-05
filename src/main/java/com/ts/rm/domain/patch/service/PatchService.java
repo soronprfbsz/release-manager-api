@@ -26,7 +26,6 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -344,9 +343,10 @@ public class PatchService {
      * <ul>
      *   <li>BASE — to_version 에서 major.minor.patch 추출하여 항상 갱신</li>
      *   <li>WEB  — 빌드 포함 패치인 경우 patch_included_build 의 WEB fullVersion 으로 갱신</li>
-     *   <li>ENGINE — 빌드 포함 패치인 경우 ENGINE fullVersion 중 사전식 최댓값으로 갱신</li>
+     *   <li>ENGINE — 빌드 포함 패치인 경우 엔진명(engine_name) 별로 fullVersion 갱신.
+     *                같은 엔진이 여러 행이면 patch 적재 순서상 마지막 값으로 덮어쓴다.</li>
      * </ul>
-     * 빌드 미포함 패치는 BASE 만 갱신, WEB/ENGINE 은 이전 값 유지 (사용자 의도).
+     * 빌드 미포함 패치는 BASE 만 갱신, WEB/ENGINE 은 이전 값 유지.
      *
      * @param patch     완료 처리된 패치
      * @param updatedBy 갱신자 이메일
@@ -358,7 +358,7 @@ public class PatchService {
 
         // 1) BASE — to_version 에서 major.minor.patch 추출하여 항상 갱신
         String baseVersion = extractBaseVersion(patch.getToVersion());
-        customerSiteVersionService.upsert(customerId, projectId, "BASE", baseVersion, updatedBy, now);
+        customerSiteVersionService.upsert(customerId, projectId, "BASE", null, baseVersion, updatedBy, now);
 
         // 2) 빌드 포함 패치인 경우 WEB / ENGINE 갱신
         if (Boolean.TRUE.equals(patch.getIsBuildIncluded())) {
@@ -366,21 +366,21 @@ public class PatchService {
                     patchIncludedBuildRepository.findAllByPatch_PatchIdOrderByPatchIncludedBuildIdAsc(
                             patch.getPatchId());
 
-            // WEB: 통상 1개. 있으면 그 fullVersion 으로 갱신
+            // WEB: 통상 1개. 있으면 그 fullVersion 으로 갱신 (engineName=null)
             builds.stream()
                     .filter(b -> "WEB".equals(b.getKind()))
                     .map(PatchIncludedBuild::getFullVersion)
                     .findFirst()
                     .ifPresent(v -> customerSiteVersionService.upsert(
-                            customerId, projectId, "WEB", v, updatedBy, now));
+                            customerId, projectId, "WEB", null, v, updatedBy, now));
 
-            // ENGINE: N개일 수 있음. fullVersion 사전식 최댓값으로 갱신
+            // ENGINE: 엔진명 별로 별도 upsert. 같은 엔진이 여러 행이면 마지막 값으로 덮어쓴다.
             builds.stream()
                     .filter(b -> "ENGINE".equals(b.getKind()))
-                    .map(PatchIncludedBuild::getFullVersion)
-                    .max(Comparator.naturalOrder())
-                    .ifPresent(v -> customerSiteVersionService.upsert(
-                            customerId, projectId, "ENGINE", v, updatedBy, now));
+                    .filter(b -> b.getEngineName() != null)
+                    .forEach(b -> customerSiteVersionService.upsert(
+                            customerId, projectId, "ENGINE", b.getEngineName(),
+                            b.getFullVersion(), updatedBy, now));
         }
     }
 
