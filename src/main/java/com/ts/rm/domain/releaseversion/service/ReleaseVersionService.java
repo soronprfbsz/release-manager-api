@@ -184,7 +184,8 @@ public class ReleaseVersionService {
         try {
             // 2. 파일 시스템 삭제 (DB 작업 이전에 수행)
             //    - 영속성 컨텍스트가 살아 있는 동안 lazy 관계(buildBaseVersion 등) 안전하게 접근 가능
-            //    - 파일 삭제 실패 시 BusinessException → 트랜잭션 롤백 → DB 행 보존 (사용자에게 명시적 에러)
+            //    - base/hotfix: 파일 삭제 실패 시 BusinessException → 트랜잭션 롤백 → DB 행 보존 (명시적 에러)
+            //    - build: CIFS 부분 삭제 실패가 잦아 best-effort (잔파일은 무해한 orphan, DB 삭제는 진행)
             if (version.isHotfix()) {
                 fileSystemService.deleteHotfixDirectory(version);
             } else if (version.isBuild()) {

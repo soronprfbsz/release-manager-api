@@ -444,8 +444,12 @@ public class ReleaseVersionFileSystemService {
         log.info("빌드 디렉토리 삭제 시도: {} (exists: {})", buildPath, Files.exists(buildPath));
 
         if (Files.exists(buildPath)) {
-            deleteDirectoryStrict(buildPath);
-            log.info("빌드 디렉토리 삭제 완료: {}", buildPath);
+            // CIFS 마운트(/app/resources)에서는 빌드 잔파일·빈 디렉토리 삭제가 간헐 실패한다.
+            // strict 로 두면 부분 실패가 BusinessException → 트랜잭션 롤백을 유발해, 빌드가
+            // 끝내 삭제되지 않고 부분 삭제 상태로 남는다 (#CIFS 재발). 빌드 잔파일은 참조 FK 가
+            // 없는 무해한 orphan 이므로 best-effort 로 지우고 DB 행 삭제는 계속 진행시킨다.
+            deleteDirectory(buildPath);
+            log.info("빌드 디렉토리 삭제(best-effort) 완료: {}", buildPath);
 
             // 빈 builds 디렉토리도 정리
             try {
