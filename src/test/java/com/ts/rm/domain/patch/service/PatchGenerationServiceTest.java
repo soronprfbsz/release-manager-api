@@ -824,13 +824,13 @@ class PatchGenerationServiceTest {
 
         // THEN: patchRepository.save 는 2회 호출 (최초 저장 + 메타 cascade 저장)
         //       두 번째 save 의 Patch 에 includedBuilds 크기 = 2 (WEB + NC_SMS),
-        //       isBuildIncluded = true, isBuildOnly = true (isSameBaseVersion)
+        //       isBuildIncluded = true. (빌드 전용 개념 폐지 — isBuildOnly 는 항상 false)
         ArgumentCaptor<Patch> patchCaptor = ArgumentCaptor.forClass(Patch.class);
         verify(patchRepository, times(2)).save(patchCaptor.capture());
         Patch savedPatch = patchCaptor.getAllValues().get(1);
 
         assertThat(savedPatch.getIsBuildIncluded()).isTrue();
-        assertThat(savedPatch.getIsBuildOnly()).isTrue();
+        assertThat(savedPatch.getIsBuildOnly()).isFalse();
         assertThat(savedPatch.getIncludedBuilds()).hasSize(2);
 
         List<PatchIncludedBuild> builds = savedPatch.getIncludedBuilds();
@@ -987,6 +987,71 @@ class PatchGenerationServiceTest {
         assertThat(savedPatch.getIsBuildOnly()).isFalse();
         assertThat(savedPatch.getIncludedBuilds()).isEmpty();
         assertThat(savedPatch.getHotfixesInRange()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("회귀: from==to (단일 버전) 패치도 해당 버전의 DB 스크립트를 포함한다 (빌드 전용 collapse 폐지)")
+    void sameBaseVersion_includesBaseDbScripts(@TempDir Path tempDir) throws IOException {
+        // GIVEN: 사이트가 1.1.1 → 1.1.2 로 1버전 올리는 케이스. next-patch-range 제안이
+        //        from==to==1.1.2 가 되는데, 과거에는 build-only 로 collapse 되어 1.1.2 의 DB 가
+        //        누락됐다. 이제는 [1.1.2, 1.1.2] inclusive 로 1.1.2 의 DB 스크립트가 포함되어야 한다.
+        ReflectionTestUtils.setField(patchGenerationService, "releaseBasePath", tempDir.toString());
+
+        String projectId = "infraeye2";
+        String createdBy = "test@tscientific";
+
+        Project project = Project.builder()
+                .projectId(projectId)
+                .projectName("InfraEye 2.0")
+                .build();
+
+        ReleaseVersion v112 = ReleaseVersion.builder()
+                .releaseVersionId(1L)
+                .project(project)
+                .releaseType("STANDARD")
+                .version("1.1.2")
+                .majorVersion(1).minorVersion(1).patchVersion(2)
+                .buildVersion(0)
+                .isApproved(true)
+                .build();
+
+        when(projectRepository.findById(projectId)).thenReturn(Optional.of(project));
+        when(releaseVersionRepository.findById(1L)).thenReturn(Optional.of(v112));
+        when(releaseVersionRepository.findUnapprovedVersionsBetween(
+                anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(List.of());
+        // [1.1.2, 1.1.2] inclusive → 단일 버전이라도 포함
+        when(releaseVersionRepository.findVersionsBetween(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(List.of(v112));
+        when(releaseVersionRepository.findHotfixesInBaseRange(anyString(), any(), any(), any()))
+                .thenReturn(List.of());
+        when(releaseFileRepository.findAllByReleaseVersion_ReleaseVersionIdOrderByExecutionOrderAsc(1L))
+                .thenReturn(List.of());
+        when(releaseFileRepository.findReleaseFilesBetweenVersionsBySubCategory(
+                anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(List.of());
+        Account creator = Account.builder()
+                .accountId(1L)
+                .email(createdBy)
+                .accountName("테스트 계정")
+                .password("pw")
+                .build();
+        when(accountLookupService.findByEmail(createdBy)).thenReturn(creator);
+        when(patchRepository.save(any(Patch.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(patchHistoryRepository.save(any(PatchHistory.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // WHEN: from==to==1L (1.1.2), 빌드 미선택 (DB only)
+        PatchGenerationService.GenerateResult result = patchGenerationService.generatePatch(
+                projectId, 1L, 1L, null, createdBy, null, null, "same-base-db-patch", null);
+
+        // THEN:
+        //  1) 1.1.2 가 betweenVersions 에 포함되어 copySqlFiles 가 1.1.2 의 DB 파일을 조회한다.
+        //     (과거엔 from==to 가 build-only 로 collapse 되어 betweenVersions 가 비었고,
+        //      따라서 이 조회 자체가 일어나지 않았다 — 이 verify 가 회귀를 정확히 잡는다)
+        verify(releaseFileRepository)
+                .findAllByReleaseVersion_ReleaseVersionIdOrderByExecutionOrderAsc(1L);
+        //  2) 빌드 전용 개념 폐지 — isBuildOnly=false
+        assertThat(result.isBuildOnly()).isFalse();
     }
 
     // ==================================================================================

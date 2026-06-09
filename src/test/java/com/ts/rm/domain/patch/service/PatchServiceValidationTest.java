@@ -16,57 +16,39 @@ class PatchServiceValidationTest {
     @DisplayName("toggle ON 인데 web/engines 모두 비어있으면 INVALID_INPUT_VALUE")
     void enabledButEmpty_throws() {
         PatchDto.BuildSelection selection = new PatchDto.BuildSelection(true, null, List.of());
-        assertThatThrownBy(() -> PatchService.validateBuildSelection(selection, /*sameBase*/ false))
+        assertThatThrownBy(() -> PatchService.validateBuildSelection(selection))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_INPUT_VALUE);
     }
 
     @Test
-    @DisplayName("from == to 인데 toggle OFF 면 INVALID_INPUT_VALUE")
-    void sameBaseAndDisabled_throws() {
+    @DisplayName("정상: toggle OFF (DB only) — from==to 라도 빌드 없이 허용 (빌드 전용 강제 폐지)")
+    void disabledSelection_passes() {
         PatchDto.BuildSelection selection = new PatchDto.BuildSelection(false, null, List.of());
-        assertThatThrownBy(() -> PatchService.validateBuildSelection(selection, /*sameBase*/ true))
-                .isInstanceOf(BusinessException.class)
-                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_INPUT_VALUE);
+        PatchService.validateBuildSelection(selection);  // no exception
     }
 
     @Test
-    @DisplayName("from == to + toggle ON + picker 비어있으면 INVALID_INPUT_VALUE")
-    void sameBaseEnabledButEmpty_throws() {
-        PatchDto.BuildSelection selection = new PatchDto.BuildSelection(true, null, List.of());
-        assertThatThrownBy(() -> PatchService.validateBuildSelection(selection, true))
-                .isInstanceOf(BusinessException.class)
-                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_INPUT_VALUE);
+    @DisplayName("정상: null buildSelection")
+    void nullSelection_passes() {
+        PatchService.validateBuildSelection(null);  // no exception
     }
 
     @Test
-    @DisplayName("정상: from != to + toggle OFF (DB only)")
-    void disabledRangePatch_passes() {
-        PatchDto.BuildSelection selection = new PatchDto.BuildSelection(false, null, List.of());
-        PatchService.validateBuildSelection(selection, false);  // no exception
-    }
-
-    @Test
-    @DisplayName("정상: null buildSelection + range patch")
-    void nullSelectionRangePatch_passes() {
-        PatchService.validateBuildSelection(null, false);
-    }
-
-    @Test
-    @DisplayName("정상: from == to + toggle ON + picker 1개 이상")
-    void sameBaseWithPicker_passes() {
+    @DisplayName("정상: toggle ON + web 빌드 1개")
+    void webOnly_passes() {
         PatchDto.BuildSelection selection = new PatchDto.BuildSelection(
                 true, new PatchDto.SelectedWeb(42L), List.of());
-        PatchService.validateBuildSelection(selection, true);
+        PatchService.validateBuildSelection(selection);  // no exception
     }
 
     @Test
-    @DisplayName("정상: from != to + toggle ON + engines 만 1개 (web 없음)")
-    void enginesOnlyRangePatch_passes() {
+    @DisplayName("정상: toggle ON + engines 만 1개 (web 없음)")
+    void enginesOnly_passes() {
         PatchDto.BuildSelection selection = new PatchDto.BuildSelection(
                 true,
                 null,
-                java.util.List.of(new PatchDto.SelectedEngine("NC_SMS", 42L)));
-        PatchService.validateBuildSelection(selection, false);  // no exception
+                List.of(new PatchDto.SelectedEngine("NC_SMS", 42L)));
+        PatchService.validateBuildSelection(selection);  // no exception
     }
 }

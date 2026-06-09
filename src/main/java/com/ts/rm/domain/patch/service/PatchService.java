@@ -79,8 +79,7 @@ public class PatchService {
     public PatchGenerationService.GenerateResult generatePatchByVersion(String projectId, String releaseType,
             Long customerId, String fromVersion, String toVersion, String createdByEmail, String description,
             Long engineerId, String patchName, PatchDto.BuildSelection buildSelection) {
-        boolean sameBase = fromVersion.equals(toVersion);
-        validateBuildSelection(buildSelection, sameBase);
+        validateBuildSelection(buildSelection);
         return patchGenerationService.generatePatchByVersion(
                 projectId, releaseType, customerId, fromVersion, toVersion,
                 createdByEmail, description, engineerId, patchName, buildSelection);
@@ -93,8 +92,7 @@ public class PatchService {
     public PatchGenerationService.GenerateResult generatePatch(String projectId, Long fromVersionId,
             Long toVersionId, Long customerId, String createdByEmail, String description, Long engineerId,
             String patchName, PatchDto.BuildSelection buildSelection) {
-        boolean sameBase = fromVersionId.equals(toVersionId);
-        validateBuildSelection(buildSelection, sameBase);
+        validateBuildSelection(buildSelection);
         return patchGenerationService.generatePatch(
                 projectId, fromVersionId, toVersionId, customerId,
                 createdByEmail, description, engineerId, patchName, buildSelection);
@@ -104,10 +102,9 @@ public class PatchService {
      * buildSelection 의 spec §4.3 검증 룰을 검사한다.
      *
      * @param selection  요청에서 받은 buildSelection (null 가능)
-     * @param sameBase   from.id == to.id 여부 (Build-only 케이스)
      * @throws BusinessException INVALID_INPUT_VALUE 룰에 위배되면
      */
-    public static void validateBuildSelection(PatchDto.BuildSelection selection, boolean sameBase) {
+    public static void validateBuildSelection(PatchDto.BuildSelection selection) {
         boolean enabled = selection != null && selection.enabled();
         boolean pickerEmpty = selection == null
                 || (selection.web() == null && (selection.engines() == null || selection.engines().isEmpty()));
@@ -115,10 +112,6 @@ public class PatchService {
         if (enabled && pickerEmpty) {
             throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
                     "빌드 미포함이면 토글을 OFF 로 두십시오");
-        }
-        if (sameBase && (!enabled || pickerEmpty)) {
-            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
-                    "동일 버전 패치는 최소 1개 이상의 빌드 선택이 필요합니다");
         }
     }
 
@@ -544,8 +537,7 @@ public class PatchService {
     public Patch generateCustomPatchByVersion(String projectId, Long customerId,
             String fromVersion, String toVersion, String createdByEmail, String description,
             Long engineerId, String patchName, PatchDto.BuildSelection buildSelection) {
-        boolean sameBase = fromVersion.equals(toVersion);
-        validateBuildSelection(buildSelection, sameBase);
+        validateBuildSelection(buildSelection);
         return patchGenerationService.generateCustomPatchByVersion(
                 projectId, customerId, fromVersion, toVersion,
                 createdByEmail, description, engineerId, patchName, buildSelection);

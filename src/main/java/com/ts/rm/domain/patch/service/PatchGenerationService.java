@@ -691,7 +691,8 @@ public class PatchGenerationService {
             // 12. 메타 영구 저장 + 캐시 boolean 갱신 (spec §5.1)
             // findHotfixesInBaseRange 는 단 1회 호출하여 메타 저장과 응답 매핑이 공유
             progressService.update(8, TOTAL_STEPS, "DB 메타 저장 중");
-            boolean isBuildOnly = isSameBaseVersion(fromVersion, toVersion);
+            // 빌드 전용 패치 개념 폐지 — from==to 도 해당 버전의 DB 를 포함하는 정식 패치로 생성된다.
+            boolean isBuildOnly = false;
             // 표준 패치의 핫픽스는 customer=null(표준 핫픽스)이다. 고객사 태깅과 무관하게 표준
             // 핫픽스를 봐야 하므로 customerId 가 아닌 null 로 조회한다.
             // (customerId 를 넘기면 findHotfixesInBaseRange 가 표준 핫픽스를 배제하여
@@ -852,11 +853,11 @@ public class PatchGenerationService {
      */
     private List<ReleaseVersion> collectBetweenVersionsWithBuild(
             String projectId, ReleaseVersion fromVersion, ReleaseVersion toVersion) {
-        if (isSameBaseVersion(fromVersion, toVersion)) {
-            // 빌드-only: to 빌드만 (둘 다 base/같은 build 는 validateVersionRange 에서 거름)
-            return toVersion.isBuild() ? List.of(toVersion) : List.of();
-        }
-
+        // from == to (같은 base) 도 inclusive 로 수집한다.
+        // 과거에는 build-only 로 collapse 하여 해당 버전의 base DB 를 누락시켰으나, 사이트가 아직
+        // 적용하지 않은 버전을 from==to 로 패치할 때(예: 사이트 1.1.1 → 1.1.2) 1.1.2 의 DB 가
+        // 빠지는 버그가 있었다. findVersionsBetween 은 [from, to] inclusive 이므로 단일 버전도
+        // 그대로 포함시켜 해당 버전의 모든 내용(DB 포함)을 보장한다.
         List<ReleaseVersion> baseVersions = releaseVersionRepository.findVersionsBetween(
                 projectId,
                 fromVersion.getReleaseType(),
@@ -1311,13 +1312,6 @@ public class PatchGenerationService {
     private void generatePatchScripts(ReleaseVersion fromVersion, ReleaseVersion toVersion,
             List<ReleaseVersion> versions, String outputPath, String patchedBy) {
         try {
-            // 빌드-only 패치 (같은 base): DB 변경이 없으므로 mariadb/cratedb 스크립트 생성 생략
-            if (isSameBaseVersion(fromVersion, toVersion)) {
-                log.info("같은 base 버전 ({}) 내 빌드 패치이므로 DB 스크립트 생성 생략",
-                        fromVersion.getBaseVersionString());
-                return;
-            }
-
             // SQL 실행은 base 버전 단위로 한 번만 수행해야 한다.
             // betweenVersions 에는 빌드 행이 enriched 로 포함될 수 있고, 빌드는 base 와 같은
             // version 문자열을 가지므로 그대로 두면 동일 SQL 디렉토리가 여러 번 cd/execute 된다.
