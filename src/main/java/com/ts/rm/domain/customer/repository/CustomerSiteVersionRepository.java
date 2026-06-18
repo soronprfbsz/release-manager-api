@@ -57,4 +57,12 @@ public interface CustomerSiteVersionRepository extends JpaRepository<CustomerSit
      * @param customerId 고객사 ID
      */
     void deleteAllByCustomer_CustomerId(Long customerId);
+
+    /**
+     * 고객사 + 프로젝트의 모든 사이트 버전 삭제 (이력 삭제 후 재계산용).
+     *
+     * @param customerId 고객사 ID
+     * @param projectId  프로젝트 ID
+     */
+    void deleteAllByCustomer_CustomerIdAndProject_ProjectId(Long customerId, String projectId);
 }

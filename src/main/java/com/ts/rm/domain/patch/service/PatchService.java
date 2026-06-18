@@ -32,8 +32,6 @@ import java.util.Map;
 import java.util.Objects;
 
 import com.ts.rm.global.security.SecurityUtil;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.util.StringUtils;
@@ -65,9 +63,6 @@ public class PatchService {
     private final ReleaseVersionFileSystemService releaseVersionFileSystemService;
     private final CustomerRepository customerRepository;
     private final CustomerProjectRepository customerProjectRepository;
-
-    /** BASE 버전 추출 정규식 (major.minor.patch) */
-    private static final Pattern BASE_VERSION_PATTERN = Pattern.compile("^(\\d+\\.\\d+\\.\\d+)");
 
     @Value("${app.release.base-path:data/release-manager}")
     private String releaseBasePath;
@@ -351,48 +346,19 @@ public class PatchService {
         Long customerId = patch.getCustomer().getCustomerId();
         String projectId = patch.getProject().getProjectId();
 
-        // 1) BASE — to_version 에서 major.minor.patch 추출하여 항상 갱신
-        String baseVersion = extractBaseVersion(patch.getToVersion());
-        customerSiteVersionService.upsert(customerId, projectId, "BASE", null, baseVersion, updatedBy, now);
+        String baseVersion = customerSiteVersionService.extractBaseVersion(patch.getToVersion());
 
-        // 2) 빌드 포함 패치인 경우 WEB / ENGINE 갱신
+        List<CustomerSiteVersionService.BuildSnapshot> builds = List.of();
         if (Boolean.TRUE.equals(patch.getIsBuildIncluded())) {
-            List<PatchIncludedBuild> builds =
-                    patchIncludedBuildRepository.findAllByPatch_PatchIdOrderByPatchIncludedBuildIdAsc(
-                            patch.getPatchId());
-
-            // WEB: 통상 1개. 있으면 그 fullVersion 으로 갱신 (engineName=null)
-            builds.stream()
-                    .filter(b -> "WEB".equals(b.getKind()))
-                    .map(PatchIncludedBuild::getFullVersion)
-                    .findFirst()
-                    .ifPresent(v -> customerSiteVersionService.upsert(
-                            customerId, projectId, "WEB", null, v, updatedBy, now));
-
-            // ENGINE: 엔진명 별로 별도 upsert. 같은 엔진이 여러 행이면 마지막 값으로 덮어쓴다.
-            builds.stream()
-                    .filter(b -> "ENGINE".equals(b.getKind()))
-                    .filter(b -> b.getEngineName() != null)
-                    .forEach(b -> customerSiteVersionService.upsert(
-                            customerId, projectId, "ENGINE", b.getEngineName(),
-                            b.getFullVersion(), updatedBy, now));
+            builds = patchIncludedBuildRepository
+                    .findAllByPatch_PatchIdOrderByPatchIncludedBuildIdAsc(patch.getPatchId())
+                    .stream()
+                    .map(b -> new CustomerSiteVersionService.BuildSnapshot(
+                            b.getKind(), b.getEngineName(), b.getFullVersion()))
+                    .toList();
         }
-    }
-
-    /**
-     * 버전 문자열에서 BASE 버전(major.minor.patch)만 추출.
-     *
-     * <p>예: "1.1.0.260511-1" → "1.1.0", "1.1.0" → "1.1.0"
-     *
-     * @param toVersion 패치 to_version 문자열
-     * @return major.minor.patch 형태 문자열 (파싱 실패 시 원본 반환)
-     */
-    private String extractBaseVersion(String toVersion) {
-        if (toVersion == null) {
-            return null;
-        }
-        Matcher m = BASE_VERSION_PATTERN.matcher(toVersion);
-        return m.find() ? m.group(1) : toVersion;
+        customerSiteVersionService.applyComponentVersions(
+                customerId, projectId, baseVersion, builds, updatedBy, now);
     }
 
     /**

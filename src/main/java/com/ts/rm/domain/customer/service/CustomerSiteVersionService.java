@@ -45,6 +45,12 @@ public class CustomerSiteVersionService {
     private static final Pattern BASE_VERSION_PATTERN = Pattern.compile("^(\\d+\\.\\d+\\.\\d+)");
 
     /**
+     * 컴포넌트 버전 적용용 빌드 스냅샷 표현.
+     * patch_included_build / patch_history_build 양쪽의 공통 입력 형태.
+     */
+    public record BuildSnapshot(String kind, String engineName, String fullVersion) {}
+
+    /**
      * 사이트 컴포넌트 버전 upsert.
      *
      * <p>UNIQUE KEY (customer_id, project_id, component, engine_name) 기준 upsert.
@@ -93,6 +99,56 @@ public class CustomerSiteVersionService {
                             customerId, projectId, component, engineName, version);
                 }
         );
+    }
+
+    /**
+     * 버전 문자열에서 BASE(major.minor.patch) 추출. 미일치 시 원본, null→null.
+     * <p>사이트 BASE 버전 기록용. (다음 패치 범위 추천용 {@code extractBase} 는 미일치 시 null 로 의미가 다르다.)
+     */
+    public String extractBaseVersion(String version) {
+        if (version == null) {
+            return null;
+        }
+        Matcher m = BASE_VERSION_PATTERN.matcher(version);
+        return m.find() ? m.group(1) : version;
+    }
+
+    /**
+     * BASE/WEB/ENGINE 컴포넌트 버전을 일괄 upsert.
+     *
+     * <p>패치 완료(완료 시 patch_included_build) 와 이력 삭제 재계산(patch_history_build)
+     * 양쪽에서 재사용되는 공통 로직. BASE 는 항상 갱신, WEB 은 첫 WEB 빌드, ENGINE 은 엔진명별.
+     * builds 가 비면 BASE 만 갱신하고 WEB/ENGINE 은 손대지 않는다(이전 값 유지).
+     */
+    @Transactional
+    public void applyComponentVersions(Long customerId, String projectId, String baseVersion,
+            List<BuildSnapshot> builds, String updatedBy, LocalDateTime updatedAt) {
+        // BASE — 항상 갱신
+        upsert(customerId, projectId, "BASE", null, baseVersion, updatedBy, updatedAt);
+
+        if (builds == null || builds.isEmpty()) {
+            return;
+        }
+        // WEB — 첫 WEB 빌드
+        builds.stream()
+                .filter(b -> "WEB".equals(b.kind()))
+                .map(BuildSnapshot::fullVersion)
+                .findFirst()
+                .ifPresent(v -> upsert(customerId, projectId, "WEB", null, v, updatedBy, updatedAt));
+        // ENGINE — 엔진명별
+        builds.stream()
+                .filter(b -> "ENGINE".equals(b.kind()))
+                .filter(b -> b.engineName() != null)
+                .forEach(b -> upsert(customerId, projectId, "ENGINE", b.engineName(),
+                        b.fullVersion(), updatedBy, updatedAt));
+    }
+
+    /**
+     * 고객사 + 프로젝트의 사이트 버전 전부 삭제 (재계산 전 초기화용).
+     */
+    @Transactional
+    public void clearByCustomerAndProject(Long customerId, String projectId) {
+        siteVersionRepository.deleteAllByCustomer_CustomerIdAndProject_ProjectId(customerId, projectId);
     }
 
     /**
