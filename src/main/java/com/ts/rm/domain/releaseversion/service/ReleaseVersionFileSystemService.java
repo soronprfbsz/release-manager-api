@@ -123,18 +123,7 @@ public class ReleaseVersionFileSystemService {
      */
     public void deleteVersionDirectory(ReleaseVersion version) {
         String projectId = version.getProject() != null ? version.getProject().getProjectId() : "infraeye2";
-        Path versionPath;
-
-        if ("STANDARD".equals(version.getReleaseType())) {
-            versionPath = Paths.get(baseReleasePath, "versions", projectId, "standard",
-                    version.getMajorMinor(), version.getVersion());
-        } else {
-            String customerCode = version.getCustomer() != null
-                    ? version.getCustomer().getCustomerCode()
-                    : "unknown";
-            versionPath = Paths.get(baseReleasePath, "versions", projectId, "custom",
-                    customerCode, version.getMajorMinor(), version.getVersion());
-        }
+        Path versionPath = resolveExistingVersionDirectory(version, projectId);
 
         log.info("버전 디렉토리 삭제 시도: {} (exists: {})", versionPath, Files.exists(versionPath));
         if (Files.exists(versionPath)) {
@@ -151,7 +140,51 @@ public class ReleaseVersionFileSystemService {
             } catch (IOException e) {
                 log.warn("major.minor 디렉토리 삭제 실패: {}", versionPath.getParent(), e);
             }
+        } else {
+            // 경로를 못 찾으면 조용히 넘어가지 말고 흔적을 남긴다 — 과거 커스텀 경로 mismatch 로
+            // DB 만 삭제되고 파일이 NAS 에 orphan 으로 남던 회귀(#커스텀삭제)의 재발 감지용.
+            log.warn("삭제할 버전 디렉토리를 찾지 못했습니다 (이미 삭제되었거나 경로 mismatch): {}", versionPath);
         }
+    }
+
+    /**
+     * 삭제 대상 버전 디렉토리 경로를 해석한다.
+     *
+     * <p>STANDARD 는 base majorMinor 경로 하나뿐이다. CUSTOM 은 생성 경로에 따라 두 갈래로 나뉜다:
+     * ZIP 생성({@link #createCustomVersionDirectory})은 <b>custom</b> majorMinor("1.0.x")를,
+     * 레거시 비-ZIP 생성({@link #createDirectoryStructure})은 <b>base</b> majorMinor("1.1.x")를
+     * 쓴다. 과거 삭제는 base majorMinor 만 보고 ZIP 레이아웃의 디렉토리를 놓쳐, DB 만 삭제되고
+     * NAS 파일이 orphan 으로 남았다(#커스텀삭제). 두 후보 중 실제 존재하는 쪽을 반환해 어느
+     * 경로로 생성됐든 삭제가 누락되지 않게 한다.
+     */
+    private Path resolveExistingVersionDirectory(ReleaseVersion version, String projectId) {
+        if ("STANDARD".equals(version.getReleaseType())) {
+            return Paths.get(baseReleasePath, "versions", projectId, "standard",
+                    version.getMajorMinor(), version.getVersion());
+        }
+
+        String customerCode = version.getCustomer() != null
+                ? version.getCustomer().getCustomerCode()
+                : "unknown";
+
+        // 운영 ZIP 생성 레이아웃 (custom majorMinor) — getCustomMajorMinor 는 커스텀 버전 숫자가
+        // 모두 있을 때만 값을 주므로 null 가드.
+        Path customLayout = version.getCustomMajorMinor() != null
+                ? Paths.get(baseReleasePath, "versions", projectId, "custom",
+                        customerCode, version.getCustomMajorMinor(), version.getVersion())
+                : null;
+        // 레거시 비-ZIP 생성 레이아웃 (base majorMinor)
+        Path legacyLayout = Paths.get(baseReleasePath, "versions", projectId, "custom",
+                customerCode, version.getMajorMinor(), version.getVersion());
+
+        if (customLayout != null && Files.exists(customLayout)) {
+            return customLayout;
+        }
+        if (Files.exists(legacyLayout)) {
+            return legacyLayout;
+        }
+        // 둘 다 없으면 정식(custom) 레이아웃을 대표 경로로 반환 → 존재하지 않으므로 no-op + WARN
+        return customLayout != null ? customLayout : legacyLayout;
     }
 
     /**
@@ -372,6 +405,9 @@ public class ReleaseVersionFileSystemService {
             } catch (IOException e) {
                 log.warn("hotfix 디렉토리 삭제 실패: {}", hotfixPath.getParent(), e);
             }
+        } else {
+            // deleteVersionDirectory / deleteBuildDirectory 와 동일하게 silent-skip 을 흔적으로 남긴다.
+            log.warn("삭제할 핫픽스 디렉토리를 찾지 못했습니다 (이미 삭제되었거나 경로 mismatch): {}", hotfixPath);
         }
     }
 

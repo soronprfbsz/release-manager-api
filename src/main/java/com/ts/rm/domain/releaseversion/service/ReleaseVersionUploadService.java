@@ -23,6 +23,7 @@ import com.ts.rm.domain.account.entity.Account;
 import com.ts.rm.global.account.AccountLookupService;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
+import com.ts.rm.global.file.FileChecksumUtil;
 import com.ts.rm.global.progress.ServerProgressService;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -944,10 +945,12 @@ public class ReleaseVersionUploadService {
                                   FileCategory fileCategory, String subCategory,
                                   Path sourceBaseDir, int executionOrder) throws IOException {
 
-        // 파일 크기 및 체크섬 계산
-        byte[] fileContent = Files.readAllBytes(sourceFile);
-        long fileSize = fileContent.length;
-        String checksum = calculateChecksum(fileContent);
+        // 파일 크기 및 체크섬 계산 (스트리밍 — 대용량 아티팩트를 메모리에 통째로 올리지 않는다)
+        //  - readAllBytes 는 파일 전체를 힙 byte[] + 채널 읽기용 임시 direct buffer 로 적재해,
+        //    수백 MB 빌드 산출물(web .tar/.war)에서 OOM(direct buffer / heap)을 유발했다.
+        //  - FileChecksumUtil 은 8KB 버퍼로 스트리밍하며 기존과 동일한 소문자 SHA-256 hex 를 만든다.
+        long fileSize = Files.size(sourceFile);
+        String checksum = FileChecksumUtil.calculateChecksum(sourceFile);
 
         // 물리 경로 계산 (baseReleasePath 기준)
         Path basePath = Paths.get(baseReleasePath);
@@ -1514,10 +1517,9 @@ public class ReleaseVersionUploadService {
                 return;
             }
 
-            // 파일 크기 및 체크섬 계산
-            byte[] fileContent = Files.readAllBytes(scriptPath);
-            long fileSize = fileContent.length;
-            String checksum = calculateChecksum(fileContent);
+            // 파일 크기 및 체크섬 계산 (스트리밍 — saveReleaseFile 과 동일 정책, 메모리 적재 회피)
+            long fileSize = Files.size(scriptPath);
+            String checksum = FileChecksumUtil.calculateChecksum(scriptPath);
 
             // 물리 경로 (baseReleasePath 기준 상대 경로)
             String physicalPath = outputDirPath + "/" + scriptFileName;
