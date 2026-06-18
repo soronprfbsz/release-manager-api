@@ -3,11 +3,16 @@ package com.ts.rm.domain.patch.service;
 import com.ts.rm.domain.patch.dto.PatchHistoryDto;
 import com.ts.rm.domain.patch.entity.Patch;
 import com.ts.rm.domain.patch.entity.PatchHistory;
+import com.ts.rm.domain.patch.entity.PatchHistoryBuild;
+import com.ts.rm.domain.patch.entity.PatchIncludedBuild;
+import com.ts.rm.domain.patch.repository.PatchHistoryBuildRepository;
 import com.ts.rm.domain.patch.repository.PatchHistoryRepository;
+import com.ts.rm.domain.patch.repository.PatchIncludedBuildRepository;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
 import com.ts.rm.global.pagination.PageRowNumberUtil;
 import java.time.LocalDateTime;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -26,6 +31,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class PatchHistoryService {
 
     private final PatchHistoryRepository patchHistoryRepository;
+    private final PatchIncludedBuildRepository patchIncludedBuildRepository;
+    private final PatchHistoryBuildRepository patchHistoryBuildRepository;
 
     /**
      * 패치 완료 시점 이력 저장 (영구 보존)
@@ -42,8 +49,24 @@ public class PatchHistoryService {
     public PatchHistory saveFromPatch(Patch patch, String completedBy, LocalDateTime completedAt) {
         PatchHistory history = PatchHistory.fromPatch(patch, completedBy, completedAt);
         PatchHistory savedHistory = patchHistoryRepository.save(history);
-        log.info("패치 이력 저장 완료 - historyId: {}, patchName: {}, completedBy: {}",
-                savedHistory.getHistoryId(), savedHistory.getPatchName(), completedBy);
+
+        // 빌드 포함 패치면 WEB/ENGINE 빌드 스냅샷을 이력 쪽에 복사 보존
+        // (patch_included_build 는 패치 완료 시 CASCADE 삭제되므로 재계산 근거가 사라짐)
+        if (Boolean.TRUE.equals(patch.getIsBuildIncluded())) {
+            List<PatchHistoryBuild> snapshots = patchIncludedBuildRepository
+                    .findAllByPatch_PatchIdOrderByPatchIncludedBuildIdAsc(patch.getPatchId())
+                    .stream()
+                    .map(b -> PatchHistoryBuild.of(savedHistory, b.getKind(), b.getEngineName(),
+                            b.getFullVersion(), completedAt))
+                    .toList();
+            if (!snapshots.isEmpty()) {
+                patchHistoryBuildRepository.saveAll(snapshots);
+            }
+        }
+
+        log.info("패치 이력 저장 완료 - historyId: {}, patchName: {}, completedBy: {}, 빌드스냅샷: {}건",
+                savedHistory.getHistoryId(), savedHistory.getPatchName(), completedBy,
+                Boolean.TRUE.equals(patch.getIsBuildIncluded()) ? "포함" : 0);
         return savedHistory;
     }
 
