@@ -145,6 +145,10 @@ public class CustomerSiteVersionService {
 
     /**
      * 고객사 + 프로젝트의 사이트 버전 전부 삭제 (재계산 전 초기화용).
+     *
+     * <p><b>주의:</b> 이 삭제는 영속성 컨텍스트를 경유하는 파생 delete 여야 한다 —
+     * 직후 재계산(replay)의 upsert auto-flush 가 DELETE→INSERT 순서를 보장하므로,
+     * 성능 목적이라도 {@code @Modifying} 벌크 delete 로 바꾸지 말 것(UNIQUE 충돌/순서 불일치 위험).
      */
     @Transactional
     public void clearByCustomerAndProject(Long customerId, String projectId) {

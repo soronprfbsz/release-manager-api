@@ -58,6 +58,7 @@ public class PatchHistoryService {
 
         // 빌드 포함 패치면 WEB/ENGINE 빌드 스냅샷을 이력 쪽에 복사 보존
         // (patch_included_build 는 패치 완료 시 CASCADE 삭제되므로 재계산 근거가 사라짐)
+        int savedBuildCount = 0;
         if (Boolean.TRUE.equals(patch.getIsBuildIncluded())) {
             List<PatchHistoryBuild> snapshots = patchIncludedBuildRepository
                     .findAllByPatch_PatchIdOrderByPatchIncludedBuildIdAsc(patch.getPatchId())
@@ -68,11 +69,12 @@ public class PatchHistoryService {
             if (!snapshots.isEmpty()) {
                 patchHistoryBuildRepository.saveAll(snapshots);
             }
+            savedBuildCount = snapshots.size();
         }
 
         log.info("패치 이력 저장 완료 - historyId: {}, patchName: {}, completedBy: {}, 빌드스냅샷: {}건",
                 savedHistory.getHistoryId(), savedHistory.getPatchName(), completedBy,
-                Boolean.TRUE.equals(patch.getIsBuildIncluded()) ? "포함" : 0);
+                savedBuildCount);
         return savedHistory;
     }
 
