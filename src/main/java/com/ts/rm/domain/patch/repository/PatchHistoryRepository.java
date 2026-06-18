@@ -31,4 +31,14 @@ public interface PatchHistoryRepository extends JpaRepository<PatchHistory, Long
      */
     void deleteAllByCustomer_CustomerId(Long customerId);
 
+    /**
+     * 고객사 + 프로젝트의 모든 패치 이력을 완료순으로 조회 (재계산 재생용).
+     *
+     * @param customerId 고객사 ID
+     * @param projectId  프로젝트 ID
+     * @return 완료 일시 오름차순(동률 시 생성 일시 오름차순) 이력 목록
+     */
+    java.util.List<PatchHistory> findAllByCustomer_CustomerIdAndProject_ProjectIdOrderByCompletedAtAscCreatedAtAsc(
+            Long customerId, String projectId);
+
 }

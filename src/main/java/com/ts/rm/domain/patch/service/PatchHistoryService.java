@@ -1,5 +1,9 @@
 package com.ts.rm.domain.patch.service;
 
+import com.ts.rm.domain.customer.entity.Customer;
+import com.ts.rm.domain.customer.entity.CustomerProject;
+import com.ts.rm.domain.customer.repository.CustomerProjectRepository;
+import com.ts.rm.domain.customer.service.CustomerSiteVersionService;
 import com.ts.rm.domain.patch.dto.PatchHistoryDto;
 import com.ts.rm.domain.patch.entity.Patch;
 import com.ts.rm.domain.patch.entity.PatchHistory;
@@ -33,6 +37,8 @@ public class PatchHistoryService {
     private final PatchHistoryRepository patchHistoryRepository;
     private final PatchIncludedBuildRepository patchIncludedBuildRepository;
     private final PatchHistoryBuildRepository patchHistoryBuildRepository;
+    private final CustomerSiteVersionService customerSiteVersionService;
+    private final CustomerProjectRepository customerProjectRepository;
 
     /**
      * 패치 완료 시점 이력 저장 (영구 보존)
@@ -73,6 +79,8 @@ public class PatchHistoryService {
     /**
      * 패치 이력 삭제
      *
+     * <p>고객사 지정 이력이면, 삭제 후 남은 이력을 완료순으로 재생하여 고객사 버전 정보를 재계산한다.
+     *
      * @param historyId 이력 ID
      */
     @Transactional
@@ -81,9 +89,68 @@ public class PatchHistoryService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND,
                         "패치 이력을 찾을 수 없습니다. ID: " + historyId));
 
+        Customer customer = history.getCustomer();
+
+        // 빌드 스냅샷 먼저 제거 후 이력 삭제 (ORM 레벨에서 명시 삭제)
+        patchHistoryBuildRepository.deleteAllByHistory_HistoryId(historyId);
         patchHistoryRepository.delete(history);
         log.info("패치 이력 삭제 완료 - historyId: {}, patchName: {}",
                 historyId, history.getPatchName());
+
+        // 고객사 지정 이력이면, 남은 이력 기준으로 버전 정보 재계산
+        if (customer != null) {
+            String projectId = history.getProject().getProjectId();
+            recomputeCustomerVersions(customer.getCustomerId(), projectId);
+        }
+    }
+
+    /**
+     * 남은 이력을 완료순으로 재생하여 고객사 버전 정보를 재구성한다.
+     *
+     * <p>사이트 버전을 모두 비운 뒤 남은 이력을 완료순으로 재생하므로,
+     * 삭제한 패치에서만 등장한 엔진 행은 자연 소멸한다. 남은 이력이 없으면
+     * last_patched 정보를 비워 "패치 미적용" 상태로 만든다.
+     */
+    private void recomputeCustomerVersions(Long customerId, String projectId) {
+        customerSiteVersionService.clearByCustomerAndProject(customerId, projectId);
+
+        List<PatchHistory> remaining = patchHistoryRepository
+                .findAllByCustomer_CustomerIdAndProject_ProjectIdOrderByCompletedAtAscCreatedAtAsc(
+                        customerId, projectId);
+
+        if (remaining.isEmpty()) {
+            customerProjectRepository
+                    .findByCustomer_CustomerIdAndProject_ProjectId(customerId, projectId)
+                    .ifPresent(cp -> {
+                        cp.updateLastPatchInfo(null, null);
+                        customerProjectRepository.save(cp);
+                    });
+            log.info("패치 이력 재계산 - 남은 이력 없음, 버전 초기화. customerId: {}, projectId: {}",
+                    customerId, projectId);
+            return;
+        }
+
+        for (PatchHistory h : remaining) {
+            String baseVersion = customerSiteVersionService.extractBaseVersion(h.getToVersion());
+            List<CustomerSiteVersionService.BuildSnapshot> builds = patchHistoryBuildRepository
+                    .findAllByHistory_HistoryIdOrderByPatchHistoryBuildIdAsc(h.getHistoryId())
+                    .stream()
+                    .map(b -> new CustomerSiteVersionService.BuildSnapshot(
+                            b.getKind(), b.getEngineName(), b.getFullVersion()))
+                    .toList();
+            customerSiteVersionService.applyComponentVersions(
+                    customerId, projectId, baseVersion, builds, h.getCompletedBy(), h.getCompletedAt());
+        }
+
+        PatchHistory last = remaining.get(remaining.size() - 1);
+        CustomerProject cp = customerProjectRepository
+                .findByCustomer_CustomerIdAndProject_ProjectId(customerId, projectId)
+                .orElseGet(() -> CustomerProject.create(last.getCustomer(), last.getProject()));
+        cp.updateLastPatchInfo(last.getToVersion(), last.getCompletedAt());
+        customerProjectRepository.save(cp);
+
+        log.info("패치 이력 재계산 완료 - customerId: {}, projectId: {}, lastPatchedVersion: {}",
+                customerId, projectId, last.getToVersion());
     }
 
     /**
