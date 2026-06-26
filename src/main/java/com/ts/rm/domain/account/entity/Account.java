@@ -76,6 +76,13 @@ public class Account extends BaseEntity {
     @Column(name = "locked_until")
     private LocalDateTime lockedUntil;
 
+    @Column(name = "must_change_password", nullable = false)
+    @Builder.Default
+    private boolean mustChangePassword = false;
+
+    @Column(name = "last_password_changed_at")
+    private LocalDateTime lastPasswordChangedAt;
+
     /**
      * 부서 변경
      */
@@ -88,5 +95,33 @@ public class Account extends BaseEntity {
      */
     public void changePosition(String position) {
         this.position = position;
+    }
+
+    /**
+     * 비밀번호 변경 (본인 자가 변경)
+     *
+     * <p>강제 변경 플래그를 해제하고 변경 시각을 기록한다.
+     *
+     * @param encodedPassword BCrypt 등으로 이미 인코딩된 비밀번호
+     */
+    public void changePassword(String encodedPassword) {
+        this.password = encodedPassword;
+        this.mustChangePassword = false;
+        this.lastPasswordChangedAt = LocalDateTime.now();
+    }
+
+    /**
+     * 비밀번호 초기화 (관리자가 임시 비밀번호로 덮어쓰기)
+     *
+     * <p>강제 변경 플래그를 켜고, 로그인 잠금 상태를 해제하며, 변경 시각을 기록한다.
+     *
+     * @param encodedTemporaryPassword BCrypt 등으로 이미 인코딩된 임시 비밀번호
+     */
+    public void resetPassword(String encodedTemporaryPassword) {
+        this.password = encodedTemporaryPassword;
+        this.mustChangePassword = true;
+        this.loginAttemptCount = 0;
+        this.lockedUntil = null;
+        this.lastPasswordChangedAt = LocalDateTime.now();
     }
 }

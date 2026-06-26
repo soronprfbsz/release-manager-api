@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -56,6 +57,32 @@ public class AccountController implements AccountControllerDocs {
         AccountDto.DetailResponse response = accountService.updateMyAccount(request);
 
         log.info("My account updated successfully - accountId: {}", response.accountId());
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @Override
+    @PostMapping("/me/password")
+    public ResponseEntity<ApiResponse<Void>> changeMyPassword(
+            @Valid @RequestBody AccountDto.ChangePasswordRequest request) {
+        // 비밀번호 평문은 로깅하지 않는다
+        log.info("POST /api/accounts/me/password");
+
+        accountService.changeMyPassword(request);
+
+        log.info("My password changed successfully");
+        return ResponseEntity.ok(ApiResponse.success(null));
+    }
+
+    @Override
+    @PostMapping("/{id}/reset-password")
+    public ResponseEntity<ApiResponse<AccountDto.ResetPasswordResponse>> resetPassword(
+            @PathVariable Long id) {
+        log.info("POST /api/accounts/{}/reset-password", id);
+
+        // 응답에 평문 임시 비밀번호가 포함되므로 response 객체를 로깅하지 않는다
+        AccountDto.ResetPasswordResponse response = accountService.resetPassword(id);
+
+        log.info("Password reset successfully - accountId: {}", id);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 

@@ -83,6 +83,9 @@ public final class AccountDto {
 
     /**
      * 계정 수정 요청 (본인 정보 수정용)
+     *
+     * <p>비밀번호는 별도 엔드포인트({@code POST /api/accounts/me/password})로 분리됨.
+     * 현재 비밀번호 검증 없는 변경 경로를 폐쇄하기 위해 password 필드를 제거했다.
      */
     @Builder
     @Schema(description = "계정 수정 요청")
@@ -90,10 +93,6 @@ public final class AccountDto {
             @Schema(description = "이름 (2~50자)", example = "홍길동")
             @Size(min = 2, max = 50, message = "이름은 2자 이상 50자 이하여야 합니다")
             String accountName,
-
-            @Schema(description = "비밀번호 (8~100자)", example = "password1234")
-            @Size(min = 8, max = 100, message = "비밀번호는 8자 이상 100자 이하여야 합니다")
-            String password,
 
             @Schema(description = "연락처", example = "010-1234-5678")
             @Size(max = 20, message = "연락처는 20자 이하여야 합니다")
@@ -169,6 +168,26 @@ public final class AccountDto {
     ) {
     }
 
+    /**
+     * 비밀번호 변경 요청 (본인 자가 변경 / 강제 변경 게이트 공용)
+     *
+     * <p>현재 비밀번호를 입력해 본인이 알고 있음을 증명한 뒤에만 변경된다.
+     * 비밀번호 정책(8~64자)은 서버에서도 검증한다(프론트 검증 우회 방지).
+     */
+    @Builder
+    @Schema(description = "비밀번호 변경 요청")
+    public record ChangePasswordRequest(
+            @Schema(description = "현재 비밀번호", example = "currentPw123")
+            @NotBlank(message = "현재 비밀번호는 필수입니다")
+            String currentPassword,
+
+            @Schema(description = "새 비밀번호 (8~64자)", example = "newPassword123")
+            @NotBlank(message = "새 비밀번호는 필수입니다")
+            @Size(min = 8, max = 64, message = "비밀번호는 8자 이상 64자 이하여야 합니다")
+            String newPassword
+    ) {
+    }
+
     // ========================================
     // Response DTOs
     // ========================================
@@ -214,6 +233,9 @@ public final class AccountDto {
             @Schema(description = "상태", example = "ACTIVE")
             String status,
 
+            @Schema(description = "강제 비밀번호 변경 필요 여부 (임시 비밀번호로 로그인한 상태)", example = "false")
+            boolean mustChangePassword,
+
             @Schema(description = "생성일시")
             LocalDateTime createdAt,
 
@@ -238,6 +260,19 @@ public final class AccountDto {
 
             @Schema(description = "메시지", example = "3개 계정이 개발1팀으로 이동되었습니다.")
             String message
+    ) {
+    }
+
+    /**
+     * 비밀번호 초기화 응답 (임시 비밀번호 1회 노출)
+     *
+     * <p>평문 임시 비밀번호는 이 응답에서만 1회 노출되며 어디에도 저장되지 않는다.
+     * 응답 본문이 로그에 남지 않도록 주의한다.
+     */
+    @Schema(description = "비밀번호 초기화 응답")
+    public record ResetPasswordResponse(
+            @Schema(description = "임시 비밀번호 (1회성, 재조회 불가)", example = "Kp7@xQ9mR3$z")
+            String temporaryPassword
     ) {
     }
 

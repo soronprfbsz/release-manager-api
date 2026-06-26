@@ -81,5 +81,8 @@ public class TokenResponse {
 
         @Schema(description = "아바타 시드", example = "default-seed")
         private String avatarSeed;
+
+        @Schema(description = "강제 비밀번호 변경 필요 여부 (임시 비밀번호로 로그인한 상태)", example = "false")
+        private boolean mustChangePassword;
     }
 }

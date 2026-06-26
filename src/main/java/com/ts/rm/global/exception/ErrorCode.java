@@ -27,6 +27,10 @@ public enum ErrorCode {
   ACCOUNT_NOT_FOUND(HttpStatus.NOT_FOUND, "A001", "error.account.not_found"),
   ACCOUNT_EMAIL_CONFLICT(HttpStatus.CONFLICT, "A002", "error.account.email_conflict"),
   LAST_ADMIN_CANNOT_DELETE(HttpStatus.BAD_REQUEST, "A003", "error.account.last_admin_cannot_delete"),
+  INVALID_CURRENT_PASSWORD(HttpStatus.BAD_REQUEST, "A004", "error.account.invalid_current_password"),
+  PASSWORD_SAME_AS_CURRENT(HttpStatus.BAD_REQUEST, "A005", "error.account.password_same_as_current"),
+  PASSWORD_POLICY_VIOLATION(HttpStatus.BAD_REQUEST, "A006", "error.account.password_policy_violation"),
+  CANNOT_RESET_SELF(HttpStatus.BAD_REQUEST, "A007", "error.account.cannot_reset_self"),
 
   // Auth - 인증
   INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "AU001", "error.auth.invalid_credentials"),

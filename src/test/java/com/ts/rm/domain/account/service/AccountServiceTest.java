@@ -23,6 +23,7 @@ import com.ts.rm.domain.department.repository.DepartmentRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
+import com.ts.rm.global.security.SecurityUtil;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -35,7 +36,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import org.mockito.MockedStatic;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
@@ -73,7 +76,6 @@ class AccountServiceTest {
 
     private Account testAccount;
     private AccountDto.CreateRequest createRequest;
-    private AccountDto.DetailResponse detailResponse;
 
     @BeforeEach
     void setUp() {
@@ -93,18 +95,6 @@ class AccountServiceTest {
                 .role("USER")
                 .status("ACTIVE")
                 .build();
-
-        detailResponse = new AccountDto.DetailResponse(
-                1L,
-                "test@example.com",
-                "테스트계정",
-                null, null, null, null, null,
-                null, null,
-                "USER",
-                "ACTIVE",
-                LocalDateTime.now(),
-                LocalDateTime.now()
-        );
     }
 
     @Test
@@ -114,7 +104,6 @@ class AccountServiceTest {
         given(accountRepository.existsByEmail(anyString())).willReturn(false);
         given(mapper.toEntity(any(AccountDto.CreateRequest.class))).willReturn(testAccount);
         given(accountRepository.save(any(Account.class))).willReturn(testAccount);
-        given(mapper.toDetailResponse(any(Account.class))).willReturn(detailResponse);
 
         // when
         AccountDto.DetailResponse result = accountService.createAccount(createRequest);
@@ -147,7 +136,6 @@ class AccountServiceTest {
     void getAccountByAccountId_Success() {
         // given
         given(accountRepository.findByAccountId(anyLong())).willReturn(Optional.of(testAccount));
-        given(mapper.toDetailResponse(any(Account.class))).willReturn(detailResponse);
 
         // when
         AccountDto.DetailResponse result = accountService.getAccountByAccountId(1L);
@@ -181,14 +169,17 @@ class AccountServiceTest {
         List<Account> accounts = List.of(testAccount);
         Page<Account> accountPage = new PageImpl<>(accounts, pageable, 1);
 
-        given(accountRepository.findAll(any(Pageable.class))).willReturn(accountPage);
+        given(accountRepository.findAllWithFilters(
+                isNull(), isNull(), isNull(), isNull(), eq(false), isNull(), any(Pageable.class)))
+                .willReturn(accountPage);
 
         // when
         Page<AccountDto.ListResponse> result = accountService.getAccounts(null, null, null, null, false, null, pageable);
 
         // then
         assertThat(result.getContent()).hasSize(1);
-        then(accountRepository).should(times(1)).findAll(pageable);
+        then(accountRepository).should(times(1))
+                .findAllWithFilters(isNull(), isNull(), isNull(), isNull(), eq(false), isNull(), eq(pageable));
     }
 
     @Test
@@ -199,7 +190,9 @@ class AccountServiceTest {
         List<Account> accounts = List.of(testAccount);
         Page<Account> accountPage = new PageImpl<>(accounts, pageable, 1);
 
-        given(accountRepository.findAllByStatus(anyString(), any(Pageable.class))).willReturn(accountPage);
+        given(accountRepository.findAllWithFilters(
+                eq("ACTIVE"), isNull(), isNull(), isNull(), eq(false), isNull(), any(Pageable.class)))
+                .willReturn(accountPage);
 
         // when
         Page<AccountDto.ListResponse> result = accountService.getAccounts(
@@ -207,7 +200,8 @@ class AccountServiceTest {
 
         // then
         assertThat(result.getContent()).hasSize(1);
-        then(accountRepository).should(times(1)).findAllByStatus("ACTIVE", pageable);
+        then(accountRepository).should(times(1))
+                .findAllWithFilters(eq("ACTIVE"), isNull(), isNull(), isNull(), eq(false), isNull(), eq(pageable));
     }
 
     @Test
@@ -216,7 +210,6 @@ class AccountServiceTest {
         // given
         AccountDto.UpdateRequest updateRequest = AccountDto.UpdateRequest.builder()
                 .accountName("새이름")
-                .password("newPassword")
                 .build();
 
         Account updatedAccount = Account.builder()
@@ -229,28 +222,29 @@ class AccountServiceTest {
                 .build();
 
         given(accountRepository.findByAccountId(anyLong())).willReturn(Optional.of(testAccount));
-        given(mapper.toDetailResponse(any(Account.class))).willReturn(detailResponse);
 
         // when
         AccountDto.DetailResponse result = accountService.updateAccount(1L, updateRequest);
 
-        // then
+        // then - 서비스가 직접 DetailResponse 를 조립(toDetailResponseWithPositionName)
         assertThat(result).isNotNull();
+        assertThat(result.accountName()).isEqualTo("새이름");
         // JPA Dirty Checking 사용 - 엔티티 조회만 검증
         then(accountRepository).should(times(1)).findByAccountId(1L);
-        then(mapper).should(times(1)).toDetailResponse(any(Account.class));
     }
 
     @Test
     @DisplayName("계정 삭제 - 성공")
     void deleteAccount_Success() {
-        // given - JpaRepository의 deleteById 사용
+        // given - USER 계정 조회 후 delete (ADMIN 최소 1명 보호 로직 미적용 경로)
+        given(accountRepository.findByAccountId(1L)).willReturn(Optional.of(testAccount));
 
         // when
         accountService.deleteAccount(1L);
 
         // then
-        then(accountRepository).should(times(1)).deleteById(1L);
+        then(accountRepository).should(times(1)).findByAccountId(1L);
+        then(accountRepository).should(times(1)).delete(testAccount);
     }
 
     @Test
@@ -289,14 +283,17 @@ class AccountServiceTest {
         List<Account> accounts = List.of(testAccount);
         Page<Account> accountPage = new PageImpl<>(accounts, pageable, 1);
 
-        given(accountRepository.findByAccountNameContaining(anyString(), any(Pageable.class))).willReturn(accountPage);
+        given(accountRepository.findAllWithFilters(
+                isNull(), isNull(), isNull(), isNull(), eq(false), eq("테스트"), any(Pageable.class)))
+                .willReturn(accountPage);
 
         // when
         Page<AccountDto.ListResponse> result = accountService.getAccounts(null, null, null, null, false, "테스트", pageable);
 
         // then
         assertThat(result.getContent()).hasSize(1);
-        then(accountRepository).should(times(1)).findByAccountNameContaining("테스트", pageable);
+        then(accountRepository).should(times(1))
+                .findAllWithFilters(isNull(), isNull(), isNull(), isNull(), eq(false), eq("테스트"), eq(pageable));
     }
 
     // ========================================
@@ -311,46 +308,40 @@ class AccountServiceTest {
                 .accountName("새로운이름")
                 .build();
 
-        AccountDto.DetailResponse expectedResponse = new AccountDto.DetailResponse(
-                1L, "test@example.com", "테스트계정", null, null, null, null, null, null, null, "USER", "ACTIVE",
-                LocalDateTime.now(), LocalDateTime.now()
-        );
-
         given(accountRepository.findByAccountId(anyLong())).willReturn(Optional.of(testAccount));
-        given(mapper.toDetailResponse(any(Account.class))).willReturn(expectedResponse);
 
         // when
         AccountDto.DetailResponse result = accountService.adminUpdateAccount(1L, request);
 
-        // then
+        // then - 서비스가 직접 DetailResponse 조립(dirty checking 반영)
         assertThat(result).isNotNull();
         assertThat(result.accountId()).isEqualTo(1L);
+        assertThat(result.accountName()).isEqualTo("새로운이름");
         then(accountRepository).should(times(1)).findByAccountId(1L);
     }
 
     @Test
-    @DisplayName("관리자 계정 수정 - role만 수정")
+    @DisplayName("관리자 계정 수정 - role만 수정 (ADMIN 부여는 ADMIN 호출자만)")
     void adminUpdateAccount_UpdateRoleOnly_Success() {
         // given
         AccountDto.AdminUpdateRequest request = AccountDto.AdminUpdateRequest.builder()
                 .role("ADMIN")
                 .build();
 
-        AccountDto.DetailResponse expectedResponse = new AccountDto.DetailResponse(
-                1L, "test@example.com", "테스트계정", null, null, null, null, null, null, null, "ADMIN", "ACTIVE",
-                LocalDateTime.now(), LocalDateTime.now()
-        );
-
         given(accountRepository.findByAccountId(anyLong())).willReturn(Optional.of(testAccount));
-        given(mapper.toDetailResponse(any(Account.class))).willReturn(expectedResponse);
 
-        // when
-        AccountDto.DetailResponse result = accountService.adminUpdateAccount(1L, request);
+        try (MockedStatic<SecurityUtil> securityUtil = Mockito.mockStatic(SecurityUtil.class)) {
+            // ADMIN 권한 부여는 ADMIN 호출자만 가능
+            securityUtil.when(SecurityUtil::getCurrentRole).thenReturn("ADMIN");
 
-        // then
-        assertThat(result).isNotNull();
-        assertThat(result.role()).isEqualTo("ADMIN");
-        then(accountRepository).should(times(1)).findByAccountId(1L);
+            // when
+            AccountDto.DetailResponse result = accountService.adminUpdateAccount(1L, request);
+
+            // then
+            assertThat(result).isNotNull();
+            assertThat(result.role()).isEqualTo("ADMIN");
+            then(accountRepository).should(times(1)).findByAccountId(1L);
+        }
     }
 
     @Test
@@ -361,13 +352,7 @@ class AccountServiceTest {
                 .status("INACTIVE")
                 .build();
 
-        AccountDto.DetailResponse expectedResponse = new AccountDto.DetailResponse(
-                1L, "test@example.com", "테스트계정", null, null, null, null, null, null, null, "USER", "INACTIVE",
-                LocalDateTime.now(), LocalDateTime.now()
-        );
-
         given(accountRepository.findByAccountId(anyLong())).willReturn(Optional.of(testAccount));
-        given(mapper.toDetailResponse(any(Account.class))).willReturn(expectedResponse);
 
         // when
         AccountDto.DetailResponse result = accountService.adminUpdateAccount(1L, request);
@@ -388,22 +373,21 @@ class AccountServiceTest {
                 .status("INACTIVE")
                 .build();
 
-        AccountDto.DetailResponse expectedResponse = new AccountDto.DetailResponse(
-                1L, "test@example.com", "테스트계정", null, null, null, null, null, null, null, "ADMIN", "INACTIVE",
-                LocalDateTime.now(), LocalDateTime.now()
-        );
-
         given(accountRepository.findByAccountId(anyLong())).willReturn(Optional.of(testAccount));
-        given(mapper.toDetailResponse(any(Account.class))).willReturn(expectedResponse);
 
-        // when
-        AccountDto.DetailResponse result = accountService.adminUpdateAccount(1L, request);
+        try (MockedStatic<SecurityUtil> securityUtil = Mockito.mockStatic(SecurityUtil.class)) {
+            // ADMIN 권한 부여는 ADMIN 호출자만 가능
+            securityUtil.when(SecurityUtil::getCurrentRole).thenReturn("ADMIN");
 
-        // then
-        assertThat(result).isNotNull();
-        assertThat(result.role()).isEqualTo("ADMIN");
-        assertThat(result.status()).isEqualTo("INACTIVE");
-        then(accountRepository).should(times(1)).findByAccountId(1L);
+            // when
+            AccountDto.DetailResponse result = accountService.adminUpdateAccount(1L, request);
+
+            // then
+            assertThat(result).isNotNull();
+            assertThat(result.role()).isEqualTo("ADMIN");
+            assertThat(result.status()).isEqualTo("INACTIVE");
+            then(accountRepository).should(times(1)).findByAccountId(1L);
+        }
     }
 
     @Test
@@ -452,5 +436,271 @@ class AccountServiceTest {
         assertThatThrownBy(() -> accountService.adminUpdateAccount(999L, request))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ErrorCode.ACCOUNT_NOT_FOUND);
+    }
+
+    // ========================================
+    // resetPassword 테스트 (PRD-001 §5.2, §7)
+    //
+    // SecurityUtil 의 정적 메서드(getCurrentAccountId/getCurrentRole)는
+    // Mockito.mockStatic 으로 호출 단위에서만 스텁한다.
+    // ========================================
+
+    private Account buildAccount(Long accountId, String role) {
+        return Account.builder()
+                .accountId(accountId)
+                .email(accountId + "@example.com")
+                .password("encodedOriginalPassword")
+                .accountName("계정" + accountId)
+                .role(role)
+                .status("ACTIVE")
+                .loginAttemptCount(5)
+                .lockedUntil(LocalDateTime.now().plusMinutes(30))
+                .mustChangePassword(false)
+                .build();
+    }
+
+    @Test
+    @DisplayName("비밀번호 초기화 - ADMIN이 USER 초기화 성공 (부수효과 검증)")
+    void resetPassword_AdminResetsUser_Success() {
+        // given
+        Long callerId = 1L;
+        Long targetId = 2L;
+        Account target = buildAccount(targetId, "USER");
+
+        try (MockedStatic<SecurityUtil> securityUtil = Mockito.mockStatic(SecurityUtil.class)) {
+            securityUtil.when(SecurityUtil::getCurrentAccountId).thenReturn(callerId);
+            securityUtil.when(SecurityUtil::getCurrentRole).thenReturn("ADMIN");
+
+            given(accountRepository.findByAccountId(targetId)).willReturn(Optional.of(target));
+            given(passwordEncoder.encode(anyString())).willReturn("encodedTemporaryPassword");
+
+            // when
+            AccountDto.ResetPasswordResponse result = accountService.resetPassword(targetId);
+
+            // then
+            assertThat(result).isNotNull();
+            assertThat(result.temporaryPassword()).isNotBlank();
+
+            // 부수효과(§5.2): 임시비번 encode 저장, 강제변경 ON, 잠금 해제
+            assertThat(target.getPassword()).isEqualTo("encodedTemporaryPassword");
+            assertThat(target.isMustChangePassword()).isTrue();
+            assertThat(target.getLoginAttemptCount()).isZero();
+            assertThat(target.getLockedUntil()).isNull();
+            assertThat(target.getLastPasswordChangedAt()).isNotNull();
+
+            then(passwordEncoder).should(times(1)).encode(result.temporaryPassword());
+        }
+    }
+
+    @Test
+    @DisplayName("비밀번호 초기화 - OPERATOR가 USER 초기화 성공")
+    void resetPassword_OperatorResetsUser_Success() {
+        // given
+        Long callerId = 1L;
+        Long targetId = 2L;
+        Account target = buildAccount(targetId, "USER");
+
+        try (MockedStatic<SecurityUtil> securityUtil = Mockito.mockStatic(SecurityUtil.class)) {
+            securityUtil.when(SecurityUtil::getCurrentAccountId).thenReturn(callerId);
+            securityUtil.when(SecurityUtil::getCurrentRole).thenReturn("OPERATOR");
+
+            given(accountRepository.findByAccountId(targetId)).willReturn(Optional.of(target));
+            given(passwordEncoder.encode(anyString())).willReturn("encodedTemporaryPassword");
+
+            // when
+            AccountDto.ResetPasswordResponse result = accountService.resetPassword(targetId);
+
+            // then
+            assertThat(result.temporaryPassword()).isNotBlank();
+            assertThat(target.isMustChangePassword()).isTrue();
+        }
+    }
+
+    @Test
+    @DisplayName("비밀번호 초기화 - OPERATOR가 ADMIN 초기화 시 FORBIDDEN")
+    void resetPassword_OperatorResetsAdmin_Forbidden() {
+        // given
+        Long callerId = 1L;
+        Long targetId = 2L;
+        Account target = buildAccount(targetId, "ADMIN");
+
+        try (MockedStatic<SecurityUtil> securityUtil = Mockito.mockStatic(SecurityUtil.class)) {
+            securityUtil.when(SecurityUtil::getCurrentAccountId).thenReturn(callerId);
+            securityUtil.when(SecurityUtil::getCurrentRole).thenReturn("OPERATOR");
+
+            given(accountRepository.findByAccountId(targetId)).willReturn(Optional.of(target));
+
+            // when & then
+            assertThatThrownBy(() -> accountService.resetPassword(targetId))
+                    .isInstanceOf(BusinessException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.FORBIDDEN);
+
+            then(passwordEncoder).should(never()).encode(anyString());
+        }
+    }
+
+    @Test
+    @DisplayName("비밀번호 초기화 - 권한 없는 역할(USER)은 FORBIDDEN")
+    void resetPassword_UserRole_Forbidden() {
+        // given
+        Long callerId = 1L;
+        Long targetId = 2L;
+
+        try (MockedStatic<SecurityUtil> securityUtil = Mockito.mockStatic(SecurityUtil.class)) {
+            securityUtil.when(SecurityUtil::getCurrentAccountId).thenReturn(callerId);
+            securityUtil.when(SecurityUtil::getCurrentRole).thenReturn("USER");
+
+            // when & then
+            assertThatThrownBy(() -> accountService.resetPassword(targetId))
+                    .isInstanceOf(BusinessException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.FORBIDDEN);
+
+            then(accountRepository).should(never()).findByAccountId(anyLong());
+        }
+    }
+
+    @Test
+    @DisplayName("비밀번호 초기화 - 권한 없는 역할(DEVELOPER)은 FORBIDDEN")
+    void resetPassword_DeveloperRole_Forbidden() {
+        // given
+        Long callerId = 1L;
+        Long targetId = 2L;
+
+        try (MockedStatic<SecurityUtil> securityUtil = Mockito.mockStatic(SecurityUtil.class)) {
+            securityUtil.when(SecurityUtil::getCurrentAccountId).thenReturn(callerId);
+            securityUtil.when(SecurityUtil::getCurrentRole).thenReturn("DEVELOPER");
+
+            // when & then
+            assertThatThrownBy(() -> accountService.resetPassword(targetId))
+                    .isInstanceOf(BusinessException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.FORBIDDEN);
+        }
+    }
+
+    @Test
+    @DisplayName("비밀번호 초기화 - 본인 계정 초기화 시 CANNOT_RESET_SELF")
+    void resetPassword_Self_CannotResetSelf() {
+        // given
+        Long accountId = 1L;
+
+        try (MockedStatic<SecurityUtil> securityUtil = Mockito.mockStatic(SecurityUtil.class)) {
+            securityUtil.when(SecurityUtil::getCurrentAccountId).thenReturn(accountId);
+            securityUtil.when(SecurityUtil::getCurrentRole).thenReturn("ADMIN");
+
+            // when & then
+            assertThatThrownBy(() -> accountService.resetPassword(accountId))
+                    .isInstanceOf(BusinessException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.CANNOT_RESET_SELF);
+
+            then(accountRepository).should(never()).findByAccountId(anyLong());
+        }
+    }
+
+    @Test
+    @DisplayName("비밀번호 초기화 - 대상 계정 없음 ACCOUNT_NOT_FOUND")
+    void resetPassword_TargetNotFound() {
+        // given
+        Long callerId = 1L;
+        Long targetId = 999L;
+
+        try (MockedStatic<SecurityUtil> securityUtil = Mockito.mockStatic(SecurityUtil.class)) {
+            securityUtil.when(SecurityUtil::getCurrentAccountId).thenReturn(callerId);
+            securityUtil.when(SecurityUtil::getCurrentRole).thenReturn("ADMIN");
+
+            given(accountRepository.findByAccountId(targetId)).willReturn(Optional.empty());
+
+            // when & then
+            assertThatThrownBy(() -> accountService.resetPassword(targetId))
+                    .isInstanceOf(BusinessException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.ACCOUNT_NOT_FOUND);
+        }
+    }
+
+    // ========================================
+    // changeMyPassword 테스트 (PRD-001 §5.1, §6.1)
+    // ========================================
+
+    @Test
+    @DisplayName("비밀번호 변경 - 현재 비밀번호 불일치 INVALID_CURRENT_PASSWORD")
+    void changeMyPassword_InvalidCurrentPassword() {
+        // given
+        Long accountId = 1L;
+        Account account = buildAccount(accountId, "USER");
+        AccountDto.ChangePasswordRequest request = AccountDto.ChangePasswordRequest.builder()
+                .currentPassword("wrongPassword")
+                .newPassword("newPassword123")
+                .build();
+
+        try (MockedStatic<SecurityUtil> securityUtil = Mockito.mockStatic(SecurityUtil.class)) {
+            securityUtil.when(SecurityUtil::getCurrentAccountId).thenReturn(accountId);
+
+            given(accountRepository.findByAccountId(accountId)).willReturn(Optional.of(account));
+            given(passwordEncoder.matches("wrongPassword", account.getPassword())).willReturn(false);
+
+            // when & then
+            assertThatThrownBy(() -> accountService.changeMyPassword(request))
+                    .isInstanceOf(BusinessException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_CURRENT_PASSWORD);
+
+            then(passwordEncoder).should(never()).encode(anyString());
+        }
+    }
+
+    @Test
+    @DisplayName("비밀번호 변경 - 새 비밀번호가 현재와 동일 PASSWORD_SAME_AS_CURRENT")
+    void changeMyPassword_SameAsCurrent() {
+        // given
+        Long accountId = 1L;
+        Account account = buildAccount(accountId, "USER");
+        AccountDto.ChangePasswordRequest request = AccountDto.ChangePasswordRequest.builder()
+                .currentPassword("currentPassword")
+                .newPassword("currentPassword")
+                .build();
+
+        try (MockedStatic<SecurityUtil> securityUtil = Mockito.mockStatic(SecurityUtil.class)) {
+            securityUtil.when(SecurityUtil::getCurrentAccountId).thenReturn(accountId);
+
+            given(accountRepository.findByAccountId(accountId)).willReturn(Optional.of(account));
+            given(passwordEncoder.matches("currentPassword", account.getPassword())).willReturn(true);
+
+            // when & then
+            assertThatThrownBy(() -> accountService.changeMyPassword(request))
+                    .isInstanceOf(BusinessException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.PASSWORD_SAME_AS_CURRENT);
+
+            then(passwordEncoder).should(never()).encode(anyString());
+        }
+    }
+
+    @Test
+    @DisplayName("비밀번호 변경 - 정상 변경 (encode, 강제변경 해제, 변경시각 기록)")
+    void changeMyPassword_Success() {
+        // given
+        Long accountId = 1L;
+        Account account = buildAccount(accountId, "USER");
+        account.setMustChangePassword(true); // 강제 변경 게이트 시나리오
+        AccountDto.ChangePasswordRequest request = AccountDto.ChangePasswordRequest.builder()
+                .currentPassword("currentPassword")
+                .newPassword("newPassword123")
+                .build();
+
+        try (MockedStatic<SecurityUtil> securityUtil = Mockito.mockStatic(SecurityUtil.class)) {
+            securityUtil.when(SecurityUtil::getCurrentAccountId).thenReturn(accountId);
+
+            given(accountRepository.findByAccountId(accountId)).willReturn(Optional.of(account));
+            given(passwordEncoder.matches("currentPassword", "encodedOriginalPassword")).willReturn(true);
+            given(passwordEncoder.matches("newPassword123", "encodedOriginalPassword")).willReturn(false);
+            given(passwordEncoder.encode("newPassword123")).willReturn("encodedNewPassword");
+
+            // when
+            accountService.changeMyPassword(request);
+
+            // then
+            assertThat(account.getPassword()).isEqualTo("encodedNewPassword");
+            assertThat(account.isMustChangePassword()).isFalse();
+            assertThat(account.getLastPasswordChangedAt()).isNotNull();
+
+            then(passwordEncoder).should(times(1)).encode("newPassword123");
+        }
     }
 }

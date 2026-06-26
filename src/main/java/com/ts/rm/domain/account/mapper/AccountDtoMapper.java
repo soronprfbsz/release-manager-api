@@ -18,6 +18,8 @@ public interface AccountDtoMapper {
     @Mapping(target = "lastLoginAt", ignore = true)
     @Mapping(target = "loginAttemptCount", constant = "0")
     @Mapping(target = "lockedUntil", ignore = true)
+    @Mapping(target = "mustChangePassword", ignore = true) // 엔티티 기본값(false)
+    @Mapping(target = "lastPasswordChangedAt", ignore = true) // 생성 시 미설정
     @Mapping(target = "department", ignore = true) // Service에서 설정
     Account toEntity(AccountDto.CreateRequest request);
 

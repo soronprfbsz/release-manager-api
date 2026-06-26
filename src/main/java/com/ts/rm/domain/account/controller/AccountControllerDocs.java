@@ -40,7 +40,7 @@ public interface AccountControllerDocs {
 
     @Operation(
             summary = "내 정보 수정",
-            description = "현재 로그인한 사용자의 이름, 비밀번호를 수정합니다. JWT 토큰 기반으로 본인만 수정 가능합니다.",
+            description = "현재 로그인한 사용자의 이름/직급/아바타를 수정합니다. JWT 토큰 기반으로 본인만 수정 가능합니다. (비밀번호 변경은 POST /me/password 로 분리)",
             responses = @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "200",
                     description = "성공",
@@ -52,6 +52,77 @@ public interface AccountControllerDocs {
     )
     ResponseEntity<ApiResponse<AccountDto.DetailResponse>> updateMyAccount(
             @RequestBody AccountDto.UpdateRequest request
+    );
+
+    @Operation(
+            summary = "비밀번호 변경 (본인)",
+            description = """
+                    현재 로그인한 사용자가 본인의 비밀번호를 변경합니다.
+                    강제 변경 게이트(임시 비밀번호로 로그인한 상태)에서도 동일한 엔드포인트를 사용합니다.
+
+                    - 현재 비밀번호를 검증한 뒤에만 변경됩니다.
+                    - 새 비밀번호는 8~64자, 현재 비밀번호와 동일할 수 없습니다.
+                    - 성공 시 강제 변경 플래그가 해제됩니다.
+                    """,
+            responses = {
+                    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                            responseCode = "200",
+                            description = "변경 성공",
+                            content = @Content(
+                                    mediaType = "application/json",
+                                    schema = @Schema(example = "{\"status\": \"success\", \"data\": null}")
+                            )
+                    ),
+                    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                            responseCode = "400",
+                            description = "현재 비밀번호 불일치(INVALID_CURRENT_PASSWORD) / 새 비밀번호가 현재와 동일(PASSWORD_SAME_AS_CURRENT) / 정책 위반(PASSWORD_POLICY_VIOLATION)"
+                    )
+            }
+    )
+    ResponseEntity<ApiResponse<Void>> changeMyPassword(
+            @RequestBody AccountDto.ChangePasswordRequest request
+    );
+
+    @Operation(
+            summary = "비밀번호 초기화 (ADMIN/OPERATOR)",
+            description = """
+                    다른 계정의 비밀번호를 시스템 생성 임시 비밀번호로 덮어씁니다. 본문은 없습니다.
+
+                    **권한 매트릭스 (서버 강제):**
+                    - ADMIN: 본인 제외 전 계정 초기화 가능
+                    - OPERATOR: ADMIN 대상 금지 + 본인 제외
+                    - 그 외 역할: 전부 금지(403 FORBIDDEN)
+
+                    **부수효과:** 강제 변경 플래그 ON, 로그인 잠금 해제(login_attempt_count=0, locked_until=null).
+
+                    **임시 비밀번호는 응답으로 1회만 노출되며 재조회할 수 없습니다.**
+                    """,
+            responses = {
+                    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                            responseCode = "200",
+                            description = "초기화 성공 (임시 비밀번호 1회 반환)",
+                            content = @Content(
+                                    mediaType = "application/json",
+                                    schema = @Schema(implementation = ResetPasswordApiResponse.class)
+                            )
+                    ),
+                    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                            responseCode = "400",
+                            description = "본인 계정 초기화(CANNOT_RESET_SELF)"
+                    ),
+                    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                            responseCode = "403",
+                            description = "권한 없음 (비권한자 / OPERATOR가 ADMIN 대상)"
+                    ),
+                    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                            responseCode = "404",
+                            description = "대상 계정을 찾을 수 없음"
+                    )
+            }
+    )
+    ResponseEntity<ApiResponse<AccountDto.ResetPasswordResponse>> resetPassword(
+            @Parameter(description = "초기화 대상 계정 ID", example = "1")
+            @PathVariable Long id
     );
 
     @Operation(
@@ -225,5 +296,17 @@ public interface AccountControllerDocs {
 
         @Schema(description = "일괄 부서 이동 결과")
         public AccountDto.BatchTransferDepartmentResponse data;
+    }
+
+    /**
+     * Swagger 스키마용 wrapper 클래스 - 비밀번호 초기화 결과
+     */
+    @Schema(description = "비밀번호 초기화 API 응답")
+    class ResetPasswordApiResponse {
+        @Schema(description = "응답 상태", example = "success")
+        public String status;
+
+        @Schema(description = "임시 비밀번호 (1회성)")
+        public AccountDto.ResetPasswordResponse data;
     }
 }

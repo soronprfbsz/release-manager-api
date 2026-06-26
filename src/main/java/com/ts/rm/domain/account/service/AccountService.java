@@ -23,6 +23,7 @@ import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
 import com.ts.rm.global.pagination.PageRowNumberUtil;
 import com.ts.rm.global.security.SecurityUtil;
+import com.ts.rm.global.util.PasswordGenerator;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -149,10 +150,6 @@ public class AccountService {
 
         if (request.accountName() != null) {
             account.setAccountName(request.accountName());
-        }
-
-        if (request.password() != null) {
-            account.setPassword(request.password());
         }
 
         log.info("Account updated successfully with accountId: {}", accountId);
@@ -293,12 +290,6 @@ public class AccountService {
             log.debug("Account name updated to {} for email: {}", request.accountName(), email);
         }
 
-        // 비밀번호 수정 (암호화 처리)
-        if (request.password() != null && !request.password().isBlank()) {
-            account.setPassword(passwordEncoder.encode(request.password()));
-            log.debug("Password updated for email: {}", email);
-        }
-
         // 연락처 수정
         if (request.phone() != null) {
             account.setPhone(request.phone());
@@ -347,6 +338,7 @@ public class AccountService {
                 account.getAvatarSeed(),
                 account.getRole(),
                 account.getStatus(),
+                account.isMustChangePassword(),
                 account.getCreatedAt(),
                 account.getUpdatedAt()
         );
@@ -392,6 +384,94 @@ public class AccountService {
     private Department findDepartmentById(Long departmentId) {
         return departmentRepository.findById(departmentId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DEPARTMENT_NOT_FOUND));
+    }
+
+    /**
+     * 비밀번호 변경 (본인 자가 변경 / 강제 변경 게이트 공용)
+     *
+     * <p>현재 비밀번호를 검증한 뒤에만 변경한다. 새 비밀번호가 현재와 동일하면 거부한다.
+     * 성공 시 강제 변경 플래그를 해제하고 변경 시각을 기록한다.
+     *
+     * @param request 현재 비밀번호 + 새 비밀번호
+     */
+    @Transactional
+    public void changeMyPassword(AccountDto.ChangePasswordRequest request) {
+        Long accountId = SecurityUtil.getCurrentAccountId();
+        log.info("Changing my password - accountId: {}", accountId);
+
+        Account account = findAccountByAccountId(accountId);
+
+        // 1. 현재 비밀번호 검증
+        if (!passwordEncoder.matches(request.currentPassword(), account.getPassword())) {
+            log.warn("Invalid current password on change - accountId: {}", accountId);
+            throw new BusinessException(ErrorCode.INVALID_CURRENT_PASSWORD);
+        }
+
+        // 2. 새 비밀번호가 현재와 동일한지 검증
+        if (passwordEncoder.matches(request.newPassword(), account.getPassword())) {
+            log.warn("New password same as current - accountId: {}", accountId);
+            throw new BusinessException(ErrorCode.PASSWORD_SAME_AS_CURRENT);
+        }
+
+        // 3. 변경 (인코딩 + 강제 변경 플래그 해제 + 변경 시각 기록)
+        account.changePassword(passwordEncoder.encode(request.newPassword()));
+
+        log.info("Password changed successfully - accountId: {}", accountId);
+    }
+
+    /**
+     * 비밀번호 초기화 (ADMIN/OPERATOR가 다른 계정을 임시 비밀번호로 덮어쓰기)
+     *
+     * <p>권한 매트릭스(PRD-001 §7)를 서버에서 강제한다.
+     * <ul>
+     *   <li>ADMIN: 본인 제외 전 계정 초기화 가능</li>
+     *   <li>OPERATOR: ADMIN 대상 금지 + 본인 제외</li>
+     *   <li>그 외 역할: 전부 금지(FORBIDDEN)</li>
+     * </ul>
+     * <p>처리: 임시 비밀번호 생성 → 해시 저장, 강제 변경 플래그 ON, 로그인 잠금 해제.
+     * 평문 임시 비밀번호는 응답으로만 1회 반환하며 어디에도 저장하지 않는다.
+     *
+     * @param targetAccountId 초기화 대상 계정 ID
+     * @return 평문 임시 비밀번호 (1회성)
+     */
+    @Transactional
+    public AccountDto.ResetPasswordResponse resetPassword(Long targetAccountId) {
+        Long callerId = SecurityUtil.getCurrentAccountId();
+        String callerRole = SecurityUtil.getCurrentRole();
+        log.info("Reset password requested - callerId: {}, callerRole: {}, targetId: {}",
+                callerId, callerRole, targetAccountId);
+
+        // 1. 본인 초기화 금지 (변경 사용)
+        if (callerId.equals(targetAccountId)) {
+            log.warn("Self reset rejected - accountId: {}", callerId);
+            throw new BusinessException(ErrorCode.CANNOT_RESET_SELF);
+        }
+
+        // 2. 호출자 권한 검증 (ADMIN / OPERATOR 만 허용)
+        if (!AccountRole.ADMIN.getCodeId().equals(callerRole)
+                && !AccountRole.OPERATOR.getCodeId().equals(callerRole)) {
+            log.warn("Forbidden reset attempt - callerRole: {}, targetId: {}", callerRole, targetAccountId);
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+
+        // 3. 대상 계정 조회
+        Account target = findAccountByAccountId(targetAccountId);
+
+        // 4. OPERATOR 는 ADMIN 대상 초기화 금지 (권한 상승 방지)
+        if (AccountRole.OPERATOR.getCodeId().equals(callerRole)
+                && AccountRole.ADMIN.getCodeId().equals(target.getRole())) {
+            log.warn("OPERATOR attempted to reset ADMIN - callerId: {}, targetId: {}", callerId, targetAccountId);
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+
+        // 5. 임시 비밀번호 생성 → 해시 저장 (강제 변경 플래그 ON, 잠금 해제)
+        String temporaryPassword = PasswordGenerator.generate();
+        target.resetPassword(passwordEncoder.encode(temporaryPassword));
+
+        // 평문은 로그에 남기지 않는다 (대상 ID만 기록)
+        log.info("Password reset completed - targetId: {}", targetAccountId);
+
+        return new AccountDto.ResetPasswordResponse(temporaryPassword);
     }
 
     /**

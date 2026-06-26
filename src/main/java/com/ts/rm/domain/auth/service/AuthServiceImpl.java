@@ -150,6 +150,7 @@ public class AuthServiceImpl implements AuthService {
                         .positionName(getPositionName(account.getPosition()))
                         .avatarStyle(account.getAvatarStyle())
                         .avatarSeed(account.getAvatarSeed())
+                        .mustChangePassword(account.isMustChangePassword())
                         .build())
                 .build();
     }

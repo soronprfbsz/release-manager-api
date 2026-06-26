@@ -100,6 +100,7 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
                         .positionName(getPositionName(account.getPosition()))
                         .avatarStyle(account.getAvatarStyle())
                         .avatarSeed(account.getAvatarSeed())
+                        .mustChangePassword(account.isMustChangePassword())
                         .build())
                 .build();
     }
