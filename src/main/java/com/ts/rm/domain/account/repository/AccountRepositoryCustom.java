@@ -28,4 +28,14 @@ public interface AccountRepositoryCustom {
      */
     Page<Account> findAllWithFilters(String status, List<Long> departmentIds, Long primaryDepartmentId,
                                      String departmentType, boolean unassigned, String keyword, Pageable pageable);
+
+    /**
+     * 활성 관리자/운영자 연락처 목록 조회
+     *
+     * <p>role IN ('ADMIN','OPERATOR') AND status = 'ACTIVE' 조건으로 조회하며,
+     * ADMIN 우선 → 이름 오름차순으로 정렬한다.
+     *
+     * @return 활성 ADMIN/OPERATOR 계정 목록
+     */
+    List<Account> findActiveAdminContacts();
 }

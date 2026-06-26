@@ -703,4 +703,64 @@ class AccountServiceTest {
             then(passwordEncoder).should(times(1)).encode("newPassword123");
         }
     }
+
+    // ========================================
+    // getAdminContacts 테스트
+    // ========================================
+
+    @Test
+    @DisplayName("관리자 연락처 조회 - ADMIN+OPERATOR ACTIVE 계정만 반환")
+    void getAdminContacts_ReturnsOnlyActiveAdminAndOperator() {
+        // given
+        Account admin = buildAccount(10L, "ADMIN");
+        admin.setEmail("admin@example.com");
+        admin.setAccountName("관리자");
+
+        Account operator = buildAccount(11L, "OPERATOR");
+        operator.setEmail("operator@example.com");
+        operator.setAccountName("운영자");
+
+        given(accountRepository.findActiveAdminContacts()).willReturn(List.of(admin, operator));
+
+        // when
+        List<AccountDto.AdminContactResponse> result = accountService.getAdminContacts();
+
+        // then
+        assertThat(result).hasSize(2);
+        assertThat(result).extracting(AccountDto.AdminContactResponse::role)
+                .containsExactly("ADMIN", "OPERATOR");
+        // 민감 필드 미노출: AdminContactResponse 자체가 4개 필드만 가짐
+        assertThat(result.get(0).email()).isEqualTo("admin@example.com");
+        assertThat(result.get(1).email()).isEqualTo("operator@example.com");
+    }
+
+    @Test
+    @DisplayName("관리자 연락처 조회 - 부서 없으면 '부서 없음' 반환")
+    void getAdminContacts_NoDepartment_ReturnsDepartmentNone() {
+        // given
+        Account admin = buildAccount(10L, "ADMIN");
+        admin.setDepartment(null);
+
+        given(accountRepository.findActiveAdminContacts()).willReturn(List.of(admin));
+
+        // when
+        List<AccountDto.AdminContactResponse> result = accountService.getAdminContacts();
+
+        // then
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).departmentName()).isEqualTo("부서 없음");
+    }
+
+    @Test
+    @DisplayName("관리자 연락처 조회 - 활성 관리자 없으면 빈 리스트 반환")
+    void getAdminContacts_NoActiveAdmins_ReturnsEmpty() {
+        // given
+        given(accountRepository.findActiveAdminContacts()).willReturn(List.of());
+
+        // when
+        List<AccountDto.AdminContactResponse> result = accountService.getAdminContacts();
+
+        // then
+        assertThat(result).isEmpty();
+    }
 }

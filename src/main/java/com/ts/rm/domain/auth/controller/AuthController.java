@@ -1,5 +1,7 @@
 package com.ts.rm.domain.auth.controller;
 
+import com.ts.rm.domain.account.dto.AccountDto;
+import com.ts.rm.domain.account.service.AccountService;
 import com.ts.rm.domain.auth.dto.AccessTokenResponse;
 import com.ts.rm.domain.auth.dto.SignInRequest;
 import com.ts.rm.domain.auth.dto.SignUpRequest;
@@ -11,6 +13,7 @@ import com.ts.rm.global.response.ApiResponse;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,6 +21,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CookieValue;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -36,6 +40,7 @@ public class AuthController implements AuthControllerDocs {
 
     private final AuthService authService;
     private final RefreshTokenService refreshTokenService;
+    private final AccountService accountService;
 
     @Value("${app.jwt.refresh-token-expiration-ms:604800000}")
     private long refreshTokenExpirationMs;
@@ -136,6 +141,22 @@ public class AuthController implements AuthControllerDocs {
         deleteRefreshTokenCookie(response);
 
         return ResponseEntity.ok(ApiResponse.success(Map.of("message", "로그아웃되었습니다.")));
+    }
+
+    /**
+     * 비밀번호 재설정 안내용 관리자 연락처 조회 API
+     *
+     * <p>비인증 공개 엔드포인트 — /api/auth/** 는 SecurityConfig에서 이미 permitAll 처리됨.
+     */
+    @Override
+    @GetMapping("/admins")
+    public ResponseEntity<ApiResponse<List<AccountDto.AdminContactResponse>>> getAdminContacts() {
+        log.info("GET /api/auth/admins");
+
+        List<AccountDto.AdminContactResponse> response = accountService.getAdminContacts();
+
+        log.info("관리자 연락처 조회 완료 - count: {}", response.size());
+        return ResponseEntity.ok(ApiResponse.success(response));
     }
 
     /**

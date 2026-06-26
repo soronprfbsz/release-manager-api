@@ -475,6 +475,34 @@ public class AccountService {
     }
 
     /**
+     * 비밀번호 재설정 안내용 활성 관리자/운영자 연락처 목록 조회 (비인증 공개 API)
+     *
+     * <p>role IN ('ADMIN','OPERATOR') AND status = 'ACTIVE' 계정을 조회하며,
+     * ADMIN 우선 → 이름 오름차순 정렬. 민감 필드는 응답에서 제외한다.
+     *
+     * @return 관리자/운영자 연락처 목록
+     */
+    public List<AccountDto.AdminContactResponse> getAdminContacts() {
+        log.info("관리자 연락처 목록 조회");
+
+        List<Account> accounts = accountRepository.findActiveAdminContacts();
+
+        List<AccountDto.AdminContactResponse> result = accounts.stream()
+                .map(account -> new AccountDto.AdminContactResponse(
+                        account.getDepartment() != null
+                                ? account.getDepartment().getDepartmentName()
+                                : "부서 없음",
+                        account.getAccountName(),
+                        account.getEmail(),
+                        account.getRole()
+                ))
+                .toList();
+
+        log.info("관리자 연락처 조회 완료 - count: {}", result.size());
+        return result;
+    }
+
+    /**
      * 계정 일괄 부서 이동 (ADMIN 전용)
      *
      * @param request 일괄 부서 이동 요청 (계정 ID 목록, 대상 부서 ID)

@@ -2,6 +2,7 @@ package com.ts.rm.domain.auth.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
@@ -9,7 +10,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ts.rm.domain.account.dto.AccountDto;
 import com.ts.rm.domain.account.repository.AccountRepository;
+import com.ts.rm.domain.account.service.AccountService;
 import com.ts.rm.domain.auth.dto.SignInRequest;
 import com.ts.rm.domain.auth.dto.TokenResponse;
 import com.ts.rm.domain.auth.dto.SignUpRequest;
@@ -23,6 +26,7 @@ import com.ts.rm.global.security.jwt.JwtTokenProvider;
 import com.ts.rm.domain.common.service.CustomUserDetailsService;
 import com.ts.rm.global.filter.JwtAuthenticationFilter;
 import java.time.LocalDateTime;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -77,6 +81,9 @@ class AuthControllerTest {
 
     @MockitoBean
     private ApiLogService apiLogService;
+
+    @MockitoBean
+    private AccountService accountService;
 
     private SignUpRequest signUpRequest;
     private SignUpResponse signUpResponse;
@@ -239,5 +246,65 @@ class AuthControllerTest {
                         .content(objectMapper.writeValueAsString(invalidRequest)))
                 .andDo(print())
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("GET /api/auth/admins - ADMIN+OPERATOR 활성 계정 반환 (부서 있음)")
+    void getAdminContacts_ReturnsList() throws Exception {
+        // given
+        List<AccountDto.AdminContactResponse> contacts = List.of(
+                new AccountDto.AdminContactResponse("인프라기술팀", "김관리자", "admin@example.com", "ADMIN"),
+                new AccountDto.AdminContactResponse("운영팀", "이운영자", "operator@example.com", "OPERATOR")
+        );
+        when(accountService.getAdminContacts()).thenReturn(contacts);
+
+        // when & then
+        mockMvc.perform(get("/api/auth/admins"))
+                .andDo(print())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("success"))
+                .andExpect(jsonPath("$.data").isArray())
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[0].departmentName").value("인프라기술팀"))
+                .andExpect(jsonPath("$.data[0].accountName").value("김관리자"))
+                .andExpect(jsonPath("$.data[0].email").value("admin@example.com"))
+                .andExpect(jsonPath("$.data[0].role").value("ADMIN"))
+                // 민감 필드 미노출 검증
+                .andExpect(jsonPath("$.data[0].accountId").doesNotExist())
+                .andExpect(jsonPath("$.data[0].password").doesNotExist())
+                .andExpect(jsonPath("$.data[0].phone").doesNotExist())
+                .andExpect(jsonPath("$.data[0].position").doesNotExist())
+                .andExpect(jsonPath("$.data[0].status").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("GET /api/auth/admins - 부서 없는 계정은 '부서 없음' 반환")
+    void getAdminContacts_NoDepartment_ReturnsDepartmentNone() throws Exception {
+        // given
+        List<AccountDto.AdminContactResponse> contacts = List.of(
+                new AccountDto.AdminContactResponse("부서 없음", "박관리자", "admin2@example.com", "ADMIN")
+        );
+        when(accountService.getAdminContacts()).thenReturn(contacts);
+
+        // when & then
+        mockMvc.perform(get("/api/auth/admins"))
+                .andDo(print())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].departmentName").value("부서 없음"));
+    }
+
+    @Test
+    @DisplayName("GET /api/auth/admins - 활성 관리자 없으면 빈 배열 반환")
+    void getAdminContacts_NoActiveAdmins_ReturnsEmptyList() throws Exception {
+        // given
+        when(accountService.getAdminContacts()).thenReturn(List.of());
+
+        // when & then
+        mockMvc.perform(get("/api/auth/admins"))
+                .andDo(print())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("success"))
+                .andExpect(jsonPath("$.data").isArray())
+                .andExpect(jsonPath("$.data.length()").value(0));
     }
 }

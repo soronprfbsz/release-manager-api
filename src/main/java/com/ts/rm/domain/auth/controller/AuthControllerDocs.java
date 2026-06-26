@@ -1,5 +1,6 @@
 package com.ts.rm.domain.auth.controller;
 
+import com.ts.rm.domain.account.dto.AccountDto;
 import com.ts.rm.domain.auth.dto.AccessTokenResponse;
 import com.ts.rm.domain.auth.dto.SignInRequest;
 import com.ts.rm.domain.auth.dto.SignUpRequest;
@@ -11,6 +12,7 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletResponse;
+import java.util.List;
 import java.util.Map;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CookieValue;
@@ -92,6 +94,20 @@ public interface AuthControllerDocs {
             HttpServletResponse response
     );
 
+    @Operation(
+            summary = "비밀번호 재설정 안내용 관리자 연락처 조회",
+            description = "비인증 공개 API. 활성 상태인 ADMIN/OPERATOR 계정의 연락처(이름·이메일·부서·역할)를 반환합니다. 민감 정보(비밀번호, 전화번호 등)는 포함되지 않습니다.",
+            responses = @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "성공",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = AdminContactListApiResponse.class)
+                    )
+            )
+    )
+    ResponseEntity<ApiResponse<List<AccountDto.AdminContactResponse>>> getAdminContacts();
+
     /**
      * Swagger 스키마용 wrapper 클래스 - 회원가입 응답
      */
@@ -114,5 +130,17 @@ public interface AuthControllerDocs {
 
         @Schema(description = "Access Token 정보")
         public AccessTokenResponse data;
+    }
+
+    /**
+     * Swagger 스키마용 wrapper 클래스 - 관리자 연락처 목록 응답
+     */
+    @Schema(description = "관리자 연락처 목록 API 응답")
+    class AdminContactListApiResponse {
+        @Schema(description = "응답 상태", example = "success")
+        public String status;
+
+        @Schema(description = "관리자 연락처 목록")
+        public List<AccountDto.AdminContactResponse> data;
     }
 }

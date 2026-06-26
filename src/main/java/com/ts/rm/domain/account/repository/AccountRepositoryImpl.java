@@ -8,6 +8,8 @@ import com.querydsl.jpa.impl.JPAQuery;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import com.ts.rm.domain.account.entity.Account;
 import com.ts.rm.domain.account.entity.QAccount;
+import com.ts.rm.domain.account.enums.AccountRole;
+import com.ts.rm.domain.account.enums.AccountStatus;
 import com.ts.rm.domain.common.entity.QCode;
 import com.ts.rm.domain.department.entity.QDepartment;
 import com.ts.rm.global.querydsl.QuerydslPaginationUtil;
@@ -102,6 +104,24 @@ public class AccountRepositoryImpl implements AccountRepositoryCustom {
                 additionalOrders,
                 account.createdAt.desc()
         );
+    }
+
+    @Override
+    public List<Account> findActiveAdminContacts() {
+        // ADMIN 우선(0), OPERATOR 후순(1) → 이름 오름차순
+        NumberExpression<Integer> rolePriority = new CaseBuilder()
+                .when(account.role.eq(AccountRole.ADMIN.getCodeId())).then(0)
+                .otherwise(1);
+
+        return queryFactory
+                .selectFrom(account)
+                .leftJoin(account.department, department).fetchJoin()
+                .where(
+                        account.role.in(AccountRole.ADMIN.getCodeId(), AccountRole.OPERATOR.getCodeId()),
+                        account.status.eq(AccountStatus.ACTIVE.name())
+                )
+                .orderBy(rolePriority.asc(), account.accountName.asc())
+                .fetch();
     }
 
     /**
