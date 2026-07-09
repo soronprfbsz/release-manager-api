@@ -504,12 +504,16 @@ public class PatchGenerationService {
             }
             content.append(String.format("- 포함된 버전: %s\n\n", includedStr));
 
+            content.append("## 패치 준비\n");
+            content.append("1. `/{설치경로}/patch` 하위에 본 패치 파일을 압축 해제합니다.\n");
+            content.append("   - 이 경로에는 **패치 파일이 하나만 있어야 합니다.** 기존 패치 파일이 있다면 모두 `/{설치경로}/patch/backup` 으로 옮긴 뒤 진행하세요.\n\n");
+
             content.append("## 패치 방법\n");
             content.append("> ⚠ **최초 패치 (InfraEye CLI 미설치/구버전) 시**: 먼저 압축 해제된 `manual-setup/etc/1.0.0/` 디렉토리에서 `sudo ./InfraEye cli patch` 로 InfraEye CLI 를 설치/갱신해야 합니다.\n");
             content.append("> 이 단계를 마친 뒤에야 `InfraEye db patch` / `was patch` / `eng patch` 등 CLI 패치 명령이 올바르게 동작합니다 (구버전 `/usr/bin/InfraEye` 에는 신규 패치 로직이 없습니다).\n\n");
             content.append("1. `InfraEye info version` — 사이트 버전 확인 (사전)\n");
             content.append("2. 본 패치 파일을 `/{설치경로}/infraeye/patch/` 에 복사 후 압축 해제\n");
-            content.append("3. `sudo ./InfraEye cli patch` — InfraEye CLI 자체 설치/갱신 (포함 시, 최초 1회는 `manual-setup/etc/1.0.0/` 에서 실행)\n");
+            content.append("3.(패치본에 존재 시) `sudo ./InfraEye cli patch` — InfraEye CLI 패치\n");
             content.append("4. `InfraEye db patch` — DB 패치 (mariadb / cratedb)\n");
             content.append("5. `InfraEye was patch` — WAS 패치 (war / webobjects)\n");
             content.append("6. `manual-setup/` 폴더 안 자산 (web / engine / etc) 을 운영자가 버전 폴더 순으로 수동 적용\n");
@@ -1337,6 +1341,33 @@ public class PatchGenerationService {
                     "MARIADB"
             );
 
+            // [생성 정합성 가드] 범위 안 버전에 MARIADB SQL 이 실제로 존재하는데 범위 조회가 0건이면,
+            // 스크립트가 execute_sql 없이 'DB 미변경' 상태로 조용히 생성되던 과거 버그
+            // (version VARCHAR 사전식 비교, 수정 dea0bc6)의 재발이다. sqlVersions 는 범위의 min~max 를
+            // 포함하므로 버전별 MARIADB 파일 합계가 1개라도 있으면 범위 조회는 절대 0건일 수 없다.
+            // → 조용히 넘기지 말고 생성을 중단해, 잘못된 '빈 DB 패치'가 운영에 나가는 것을 원천 차단한다.
+            long expectedMariadbFileCount = sqlVersions.stream()
+                    .flatMap(v -> releaseFileRepository
+                            .findAllByReleaseVersion_ReleaseVersionIdOrderByExecutionOrderAsc(v.getReleaseVersionId())
+                            .stream())
+                    .filter(f -> "MARIADB".equalsIgnoreCase(f.getSubCategory()))
+                    .count();
+
+            if (expectedMariadbFileCount > 0 && mariadbFiles.isEmpty()) {
+                throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, String.format(
+                        "패치 생성 정합성 오류: 범위(%s~%s) 안 버전에 MARIADB SQL %d개가 존재하는데 "
+                                + "범위 조회 결과가 0건입니다. 버전 비교 로직 회귀 가능성이 있어 생성을 중단합니다.",
+                        sqlVersions.get(0).getVersion(),
+                        sqlVersions.get(sqlVersions.size() - 1).getVersion(),
+                        expectedMariadbFileCount));
+            }
+            if (mariadbFiles.size() != expectedMariadbFileCount) {
+                log.warn("MariaDB SQL 파일 수 불일치 — 범위 조회 {}개 vs 버전별 합계 {}개 (범위: {}~{}). "
+                                + "커스텀 버전 패치가 아니라면 원인 확인 필요.",
+                        mariadbFiles.size(), expectedMariadbFileCount,
+                        sqlVersions.get(0).getVersion(), sqlVersions.get(sqlVersions.size() - 1).getVersion());
+            }
+
             List<ReleaseFile> cratedbFiles = releaseFileRepository.findReleaseFilesBetweenVersionsBySubCategory(
                     projectId,
                     sqlVersions.get(0).getVersion(),
@@ -1407,12 +1438,16 @@ public class PatchGenerationService {
             }
             content.append(String.format("- 포함된 버전: %s\n\n", includedStr));
 
+            content.append("## 패치 준비\n");
+            content.append("1. `/{설치경로}/patch` 하위에 본 패치 파일을 압축 해제합니다.\n");
+            content.append("   - 이 경로에는 **패치 파일이 하나만 있어야 합니다.** 기존 패치 파일이 있다면 모두 `/{설치경로}/patch/backup` 으로 옮긴 뒤 진행하세요.\n\n");
+
             content.append("## 패치 방법\n");
             content.append("> ⚠ **최초 패치 (InfraEye CLI 미설치/구버전) 시**: 먼저 압축 해제된 `manual-setup/etc/1.0.0/` 디렉토리에서 `sudo ./InfraEye cli patch` 로 InfraEye CLI 를 설치/갱신해야 합니다.\n");
             content.append("> 이 단계를 마친 뒤에야 `InfraEye db patch` / `was patch` / `eng patch` 등 CLI 패치 명령이 올바르게 동작합니다 (구버전 `/usr/bin/InfraEye` 에는 신규 패치 로직이 없습니다).\n\n");
             content.append("1. `InfraEye info version` — 사이트 버전 확인 (사전)\n");
             content.append("2. 본 패치 파일을 `/{설치경로}/infraeye/patch/` 에 복사 후 압축 해제\n");
-            content.append("3. `sudo ./InfraEye cli patch` — InfraEye CLI 자체 설치/갱신 (포함 시, 최초 1회는 `manual-setup/etc/1.0.0/` 에서 실행)\n");
+            content.append("3.(패치본에 존재 시) `sudo ./InfraEye cli patch` — InfraEye CLI 패치\n");
             content.append("4. `InfraEye db patch` — DB 패치 (mariadb / cratedb)\n");
             content.append("5. `InfraEye was patch` — WAS 패치 (war / webobjects)\n");
             content.append("6. `manual-setup/` 폴더 안 자산 (web / engine / etc) 을 운영자가 버전 폴더 순으로 수동 적용\n");
