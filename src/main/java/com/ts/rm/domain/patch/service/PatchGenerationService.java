@@ -512,7 +512,7 @@ public class PatchGenerationService {
             content.append("> ⚠ **최초 패치 (InfraEye CLI 미설치/구버전) 시**: 먼저 압축 해제된 `manual-setup/etc/1.0.0/` 디렉토리에서 `sudo ./InfraEye cli patch` 로 InfraEye CLI 를 설치/갱신해야 합니다.\n");
             content.append("> 이 단계를 마친 뒤에야 `InfraEye db patch` / `was patch` / `eng patch` 등 CLI 패치 명령이 올바르게 동작합니다 (구버전 `/usr/bin/InfraEye` 에는 신규 패치 로직이 없습니다).\n\n");
             content.append("1. `InfraEye info version` — 사이트 버전 확인 (사전)\n");
-            content.append("2. 본 패치 파일을 `/{설치경로}/infraeye/patch/` 에 복사 후 압축 해제\n");
+            content.append("2. 본 패치 파일을 `/{설치경로}/patch` 에 복사 후 압축 해제\n");
             content.append("3.(패치본에 존재 시) `sudo ./InfraEye cli patch` — InfraEye CLI 패치\n");
             content.append("4. `InfraEye db patch` — DB 패치 (mariadb / cratedb)\n");
             content.append("5. `InfraEye was patch` — WAS 패치 (war / webobjects)\n");
@@ -1446,7 +1446,7 @@ public class PatchGenerationService {
             content.append("> ⚠ **최초 패치 (InfraEye CLI 미설치/구버전) 시**: 먼저 압축 해제된 `manual-setup/etc/1.0.0/` 디렉토리에서 `sudo ./InfraEye cli patch` 로 InfraEye CLI 를 설치/갱신해야 합니다.\n");
             content.append("> 이 단계를 마친 뒤에야 `InfraEye db patch` / `was patch` / `eng patch` 등 CLI 패치 명령이 올바르게 동작합니다 (구버전 `/usr/bin/InfraEye` 에는 신규 패치 로직이 없습니다).\n\n");
             content.append("1. `InfraEye info version` — 사이트 버전 확인 (사전)\n");
-            content.append("2. 본 패치 파일을 `/{설치경로}/infraeye/patch/` 에 복사 후 압축 해제\n");
+            content.append("2. 본 패치 파일을 `/{설치경로}/patch` 에 복사 후 압축 해제\n");
             content.append("3.(패치본에 존재 시) `sudo ./InfraEye cli patch` — InfraEye CLI 패치\n");
             content.append("4. `InfraEye db patch` — DB 패치 (mariadb / cratedb)\n");
             content.append("5. `InfraEye was patch` — WAS 패치 (war / webobjects)\n");
