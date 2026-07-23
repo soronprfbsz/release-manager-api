@@ -66,17 +66,22 @@ public interface MenuControllerDocs {
                                                   ]
                                                 },
                                                 {
+                                                  "menuId": "site_management",
+                                                  "menuName": "사이트 관리",
+                                                  "children": []
+                                                },
+                                                {
                                                   "menuId": "operation_management",
                                                   "menuName": "운영 관리",
                                                   "children": [
                                                     {
-                                                      "menuId": "operation_site",
-                                                      "menuName": "사이트",
+                                                      "menuId": "operation_projects",
+                                                      "menuName": "프로젝트",
                                                       "children": []
                                                     },
                                                     {
-                                                      "menuId": "operation_engineer",
-                                                      "menuName": "엔지니어",
+                                                      "menuId": "operation_accounts",
+                                                      "menuName": "계정",
                                                       "children": []
                                                     }
                                                   ]
