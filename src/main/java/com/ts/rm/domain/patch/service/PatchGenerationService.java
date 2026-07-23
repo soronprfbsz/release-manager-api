@@ -2,10 +2,10 @@ package com.ts.rm.domain.patch.service;
 
 import com.ts.rm.domain.account.entity.Account;
 import com.ts.rm.domain.account.repository.AccountRepository;
-import com.ts.rm.domain.customer.entity.Customer;
-import com.ts.rm.domain.customer.entity.CustomerProject;
-import com.ts.rm.domain.customer.repository.CustomerProjectRepository;
-import com.ts.rm.domain.customer.repository.CustomerRepository;
+import com.ts.rm.domain.site.entity.Site;
+import com.ts.rm.domain.site.entity.SiteProject;
+import com.ts.rm.domain.site.repository.SiteProjectRepository;
+import com.ts.rm.domain.site.repository.SiteRepository;
 import com.ts.rm.domain.patch.dto.PatchDto;
 import com.ts.rm.domain.patch.entity.Patch;
 import com.ts.rm.domain.patch.entity.PatchHotfixInRange;
@@ -68,8 +68,8 @@ public class PatchGenerationService {
     private final PatchRepository patchRepository;
     private final ReleaseVersionRepository releaseVersionRepository;
     private final ReleaseFileRepository releaseFileRepository;
-    private final CustomerRepository customerRepository;
-    private final CustomerProjectRepository customerProjectRepository;
+    private final SiteRepository siteRepository;
+    private final SiteProjectRepository siteProjectRepository;
     private final AccountRepository accountRepository;
     private final ProjectRepository projectRepository;
     private final ScriptGenerator mariaDBScriptGenerator;
@@ -89,7 +89,7 @@ public class PatchGenerationService {
      *
      * @param projectId      프로젝트 ID
      * @param releaseType    릴리즈 타입 (STANDARD/CUSTOM)
-     * @param customerId     고객사 ID (CUSTOM인 경우)
+     * @param siteId     사이트 ID (CUSTOM인 경우)
      * @param fromVersion    From 버전 (예: 1.0.0)
      * @param toVersion      To 버전 (예: 1.1.1)
      * @param createdByEmail 생성자
@@ -100,7 +100,7 @@ public class PatchGenerationService {
      * @return 생성된 패치
      */
     @Transactional
-    public GenerateResult generatePatchByVersion(String projectId, String releaseType, Long customerId,
+    public GenerateResult generatePatchByVersion(String projectId, String releaseType, Long siteId,
             String fromVersion, String toVersion, String createdByEmail, String description,
             Long assigneeId, String patchName, PatchDto.BuildSelection buildSelection) {
 
@@ -123,14 +123,14 @@ public class PatchGenerationService {
                         "To 버전을 찾을 수 없습니다: " + toVersion));
 
         return generatePatch(projectId, from.getReleaseVersionId(), to.getReleaseVersionId(),
-                customerId, createdByEmail, description, assigneeId, patchName, buildSelection);
+                siteId, createdByEmail, description, assigneeId, patchName, buildSelection);
     }
 
     /**
      * 커스텀 패치 생성 (커스텀 버전 문자열 기반)
      *
      * @param projectId    프로젝트 ID
-     * @param customerId   고객사 ID
+     * @param siteId   사이트 ID
      * @param fromVersion  From 커스텀 버전 (예: 1.0.0)
      * @param toVersion    To 커스텀 버전 (예: 1.0.2)
      * @param createdByEmail    생성자
@@ -140,14 +140,14 @@ public class PatchGenerationService {
      * @return 생성된 패치
      */
     @Transactional
-    public Patch generateCustomPatchByVersion(String projectId, Long customerId,
+    public Patch generateCustomPatchByVersion(String projectId, Long siteId,
             String fromVersion, String toVersion, String createdByEmail, String description,
             Long assigneeId, String patchName, PatchDto.BuildSelection buildSelection) {
 
-        // 고객사 조회
-        Customer customer = customerRepository.findById(customerId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.CUSTOMER_NOT_FOUND,
-                        "고객사를 찾을 수 없습니다: " + customerId));
+        // 사이트 조회
+        Site site = siteRepository.findById(siteId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.SITE_NOT_FOUND,
+                        "사이트를 찾을 수 없습니다: " + siteId));
 
         // From 버전 조회 (베이스 버전 또는 커스텀 버전, 빌드 인식)
         // 베이스 버전 형식: 1.1.0(.260427), 커스텀 버전 형식: 1.1.0-companyA.1.0.0(.260427)
@@ -156,8 +156,8 @@ public class PatchGenerationService {
 
         ReleaseVersion from;
         if (fromVersion.contains("-")) {
-            // 커스텀 버전: 고객사 내에서 (version, build) 일치 row
-            from = releaseVersionRepository.findAllByCustomer_CustomerIdOrderByCreatedAtDesc(customerId)
+            // 커스텀 버전: 사이트 내에서 (version, build) 일치 row
+            from = releaseVersionRepository.findAllBySite_SiteIdOrderByCreatedAtDesc(siteId)
                     .stream()
                     .filter(v -> fromParsed.baseVersionString().equals(v.getVersion()))
                     .filter(v -> v.getHotfixVersion() == 0)
@@ -176,7 +176,7 @@ public class PatchGenerationService {
         }
 
         // To 버전 조회 (커스텀 버전만 허용, 빌드 인식)
-        ReleaseVersion to = releaseVersionRepository.findAllByCustomer_CustomerIdOrderByCreatedAtDesc(customerId)
+        ReleaseVersion to = releaseVersionRepository.findAllBySite_SiteIdOrderByCreatedAtDesc(siteId)
                 .stream()
                 .filter(v -> toParsed.baseVersionString().equals(v.getVersion()))
                 .filter(v -> v.getHotfixVersion() == 0)
@@ -186,7 +186,7 @@ public class PatchGenerationService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.RELEASE_VERSION_NOT_FOUND,
                         "To 커스텀 버전을 찾을 수 없습니다: " + toVersion));
 
-        return generateCustomPatch(projectId, customerId, from, to,
+        return generateCustomPatch(projectId, siteId, from, to,
                 createdByEmail, description, assigneeId, patchName, buildSelection);
     }
 
@@ -196,7 +196,7 @@ public class PatchGenerationService {
      * <p>fromVersion이 베이스 버전(STANDARD)인 경우와 커스텀 버전인 경우를 모두 지원합니다.
      */
     @Transactional
-    public Patch generateCustomPatch(String projectId, Long customerId,
+    public Patch generateCustomPatch(String projectId, Long siteId,
             ReleaseVersion fromVersion, ReleaseVersion toVersion,
             String createdByEmail, String description, Long assigneeId, String patchName,
             PatchDto.BuildSelection buildSelection) {
@@ -206,10 +206,10 @@ public class PatchGenerationService {
                     .orElseThrow(() -> new BusinessException(ErrorCode.PROJECT_NOT_FOUND,
                             "프로젝트를 찾을 수 없습니다: " + projectId));
 
-            // 고객사 조회
-            Customer customer = customerRepository.findById(customerId)
-                    .orElseThrow(() -> new BusinessException(ErrorCode.CUSTOMER_NOT_FOUND,
-                            "고객사를 찾을 수 없습니다: " + customerId));
+            // 사이트 조회
+            Site site = siteRepository.findById(siteId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.SITE_NOT_FOUND,
+                            "사이트를 찾을 수 없습니다: " + siteId));
 
             // 핫픽스 버전은 패치 생성 대상이 아님
             if (fromVersion.isHotfix()) {
@@ -236,7 +236,7 @@ public class PatchGenerationService {
                 // 베이스 버전에서 시작하는 경우 모든 커스텀 버전을 포함 (fromCustomVersion = "0.0.-1")
                 String fromCustomVersionForQuery = isFromBaseVersion ? "0.0.-1" : fromVersion.getCustomVersion();
                 List<ReleaseVersion> baseVersions = releaseVersionRepository.findCustomVersionsBetween(
-                        customerId,
+                        siteId,
                         fromCustomVersionForQuery,
                         toVersion.getCustomVersion()
                 );
@@ -258,8 +258,8 @@ public class PatchGenerationService {
                                 fromVersion.getFullVersion(), toVersion.getFullVersion()));
             }
 
-            log.info("커스텀 패치 생성 시작 - Project: {}, Customer: {}, From: {}{}, To: {}, 포함 버전: {}",
-                    projectId, customer.getCustomerCode(),
+            log.info("커스텀 패치 생성 시작 - Project: {}, Site: {}, From: {}{}, To: {}, 포함 버전: {}",
+                    projectId, site.getSiteCode(),
                     fromVersion.getVersion(), isFromBaseVersion ? " (베이스)" : "",
                     toVersion.getVersion(),
                     betweenVersions.stream().map(ReleaseVersion::getVersion).toList());
@@ -274,11 +274,11 @@ public class PatchGenerationService {
 
             progressService.update(1, TOTAL_STEPS, "버전 범위 검증");
             // 4. 패치 이름 결정 (전체 버전 형식 사용)
-            String resolvedPatchName = resolvePatchName(patchName, customer);
+            String resolvedPatchName = resolvePatchName(patchName, site);
 
             // 5. 출력 디렉토리 생성 (커스텀 패치용)
             progressService.update(2, TOTAL_STEPS, "출력 디렉토리 생성");
-            String outputPath = createCustomOutputDirectory(resolvedPatchName, projectId, customer.getCustomerCode());
+            String outputPath = createCustomOutputDirectory(resolvedPatchName, projectId, site.getSiteCode());
 
             // 6. SQL 파일 복사 (빌드 포함 누적 walk — ENGINE 공유 자산 동반, picker 엔진 skip)
             progressService.update(3, TOTAL_STEPS, "DB 누적 변경 파일 복사 중");
@@ -301,7 +301,7 @@ public class PatchGenerationService {
             progressService.update(5, TOTAL_STEPS, "ENGINE 빌드 파일 범위 누적 중");
             if (buildSelection != null && buildSelection.enabled()) {
                 List<ReleaseVersion> rangeBuilds = releaseVersionRepository.findBuildsInBaseRange(
-                        projectId, fromVersion.getReleaseVersionId(), toVersion.getReleaseVersionId(), customerId);
+                        projectId, fromVersion.getReleaseVersionId(), toVersion.getReleaseVersionId(), siteId);
                 accumulateBuildEngineFiles(Paths.get(releaseBasePath, outputPath), rangeBuilds);
             }
 
@@ -312,7 +312,7 @@ public class PatchGenerationService {
 
             // 8. README / 빌드 메타 생성
             progressService.update(7, TOTAL_STEPS, "README / 빌드 메타 생성 중");
-            generateCustomReadme(fromVersion, toVersion, betweenVersions, outputPath, customer);
+            generateCustomReadme(fromVersion, toVersion, betweenVersions, outputPath, site);
             generateBuildVersionFile(fromVersion, toVersion, outputPath, buildSelection, selectedBuilds);
             generateManualSetupReadmeIfNeeded(outputPath);
 
@@ -324,7 +324,7 @@ public class PatchGenerationService {
             Patch patch = Patch.builder()
                     .project(project)
                     .releaseType("CUSTOM")
-                    .customer(customer)
+                    .site(site)
                     .fromVersion(fromVersion.getFullVersion())
                     .toVersion(toVersion.getFullVersion())
                     .patchName(resolvedPatchName)
@@ -338,7 +338,7 @@ public class PatchGenerationService {
             Patch saved = patchRepository.save(patch);
 
             // 11. 빌드 picker 메타 저장 (cascade)
-            // 패치 이력 저장 및 CustomerProject 갱신은 완료(적용) 시점으로 이동 (PatchService.completePatch)
+            // 패치 이력 저장 및 SiteProject 갱신은 완료(적용) 시점으로 이동 (PatchService.completePatch)
             saved.setIsBuildIncluded(buildSelection != null && buildSelection.enabled());
             persistIncludedBuilds(saved, buildSelection, selectedBuilds);
             saved = patchRepository.save(saved);
@@ -387,10 +387,10 @@ public class PatchGenerationService {
                                 fromVersion.getVersion(), toVersion.getVersion()));
             }
 
-            // 같은 고객사 검증
-            if (!fromVersion.getCustomer().getCustomerId().equals(toVersion.getCustomer().getCustomerId())) {
+            // 같은 사이트 검증
+            if (!fromVersion.getSite().getSiteId().equals(toVersion.getSite().getSiteId())) {
                 throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
-                        "From 버전과 To 버전은 같은 고객사의 버전이어야 합니다.");
+                        "From 버전과 To 버전은 같은 사이트의 버전이어야 합니다.");
             }
         }
 
@@ -398,7 +398,7 @@ public class PatchGenerationService {
         // 베이스 버전에서 시작하는 경우 fromCustomVersion은 "0.0.0" 이전이므로 모든 커스텀 버전 포함
         String fromCustomVersion = isFromBaseVersion ? "0.0.-1" : fromVersion.getCustomVersion();
         List<ReleaseVersion> unapprovedVersions = releaseVersionRepository.findUnapprovedCustomVersionsBetween(
-                toVersion.getCustomer().getCustomerId(),
+                toVersion.getSite().getSiteId(),
                 fromCustomVersion,
                 toVersion.getCustomVersion()
         );
@@ -451,10 +451,10 @@ public class PatchGenerationService {
     /**
      * 커스텀 패치 출력 디렉토리 생성
      */
-    private String createCustomOutputDirectory(String patchName, String projectId, String customerCode) {
+    private String createCustomOutputDirectory(String patchName, String projectId, String siteCode) {
         try {
-            // 출력 경로: patches/{projectId}/custom/{customerCode}/{patchName}
-            String relativePath = String.format("patches/%s/custom/%s/%s", projectId, customerCode, patchName);
+            // 출력 경로: patches/{projectId}/custom/{siteCode}/{patchName}
+            String relativePath = String.format("patches/%s/custom/%s/%s", projectId, siteCode, patchName);
 
             Path outputDir = Paths.get(releaseBasePath, relativePath);
             Files.createDirectories(outputDir);
@@ -476,7 +476,7 @@ public class PatchGenerationService {
      * <p>fromVersion이 베이스 버전(STANDARD)인 경우와 커스텀 버전인 경우를 모두 지원합니다.
      */
     private void generateCustomReadme(ReleaseVersion fromVersion, ReleaseVersion toVersion,
-            List<ReleaseVersion> includedVersions, String outputPath, Customer customer) {
+            List<ReleaseVersion> includedVersions, String outputPath, Site site) {
         try {
             Path readmePath = Paths.get(releaseBasePath, outputPath, "README.md");
 
@@ -496,7 +496,7 @@ public class PatchGenerationService {
             content.append(String.format("- 패치 생성일시: %s (KST)\n",
                     LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul"))
                             .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))));
-            content.append(String.format("- 고객사: %s (%s)\n", customer.getCustomerName(), customer.getCustomerCode()));
+            content.append(String.format("- 사이트: %s (%s)\n", site.getSiteName(), site.getSiteCode()));
             content.append(String.format("- VERSION: %s%s -> %s\n",
                     fromVersion.getVersion(), fromBaseLabel, toVersion.getVersion()));
             if (buildVersionStr != null) {
@@ -545,7 +545,7 @@ public class PatchGenerationService {
      * @param projectId      프로젝트 ID
      * @param fromVersionId  From 버전 ID
      * @param toVersionId    To 버전 ID
-     * @param customerId     고객사 ID (선택)
+     * @param siteId     사이트 ID (선택)
      * @param createdByEmail 생성자
      * @param description    설명 (선택)
      * @param assigneeId     패치 담당자 ID (선택)
@@ -554,7 +554,7 @@ public class PatchGenerationService {
      * @return 생성된 패치
      */
     @Transactional
-    public GenerateResult generatePatch(String projectId, Long fromVersionId, Long toVersionId, Long customerId,
+    public GenerateResult generatePatch(String projectId, Long fromVersionId, Long toVersionId, Long siteId,
             String createdByEmail, String description, Long assigneeId, String patchName,
             PatchDto.BuildSelection buildSelection) {
         try {
@@ -600,12 +600,12 @@ public class PatchGenerationService {
                     projectId, fromVersion.getFullVersion(), toVersion.getFullVersion(),
                     betweenVersions.stream().map(ReleaseVersion::getFullVersion).toList());
 
-            // 3. 고객사 조회 (customerId가 있는 경우)
-            Customer customer = null;
-            if (customerId != null) {
-                customer = customerRepository.findById(customerId)
-                        .orElseThrow(() -> new BusinessException(ErrorCode.CUSTOMER_NOT_FOUND,
-                                "고객사를 찾을 수 없습니다: " + customerId));
+            // 3. 사이트 조회 (siteId가 있는 경우)
+            Site site = null;
+            if (siteId != null) {
+                site = siteRepository.findById(siteId)
+                        .orElseThrow(() -> new BusinessException(ErrorCode.SITE_NOT_FOUND,
+                                "사이트를 찾을 수 없습니다: " + siteId));
             }
 
             // 3-1. 담당자 조회 (assigneeId가 있는 경우)
@@ -616,9 +616,9 @@ public class PatchGenerationService {
                                 "담당자를 찾을 수 없습니다: " + assigneeId));
             }
 
-            // 4. 패치 이름 결정 (입력값이 없으면 자동 생성: customerCode_yyMMdd, 충돌 시 -N suffix)
+            // 4. 패치 이름 결정 (입력값이 없으면 자동 생성: siteCode_yyMMdd, 충돌 시 -N suffix)
             progressService.update(1, TOTAL_STEPS, "버전 범위 검증");
-            String resolvedPatchName = resolvePatchName(patchName, customer);
+            String resolvedPatchName = resolvePatchName(patchName, site);
 
             // 5. 출력 디렉토리 생성 (패치 이름으로)
             progressService.update(2, TOTAL_STEPS, "출력 디렉토리 생성");
@@ -644,7 +644,7 @@ public class PatchGenerationService {
             // ---- ENGINE: 범위 내 전체 빌드의 engine/ 를 경로별 최신 누적 ----
             progressService.update(5, TOTAL_STEPS, "ENGINE 빌드 파일 범위 누적 중");
             if (buildSelection != null && buildSelection.enabled()) {
-                // 표준 빌드는 customer=null. 범위 전체 빌드를 소스로 누적.
+                // 표준 빌드는 site=null. 범위 전체 빌드를 소스로 누적.
                 List<ReleaseVersion> rangeBuilds = releaseVersionRepository.findBuildsInBaseRange(
                         projectId, fromVersionId, toVersionId, null);
                 accumulateBuildEngineFiles(Paths.get(releaseBasePath, outputPath), rangeBuilds);
@@ -673,7 +673,7 @@ public class PatchGenerationService {
             Patch patch = Patch.builder()
                     .project(project)
                     .releaseType(fromVersion.getReleaseType())
-                    .customer(customer)
+                    .site(site)
                     .fromVersion(fromVersion.getFullVersion())
                     .toVersion(toVersion.getFullVersion())
                     .patchName(resolvedPatchName)
@@ -686,7 +686,7 @@ public class PatchGenerationService {
 
             Patch saved = patchRepository.save(patch);
 
-            // 10. 패치 이력 저장 및 CustomerProject 갱신은 완료(적용) 시점으로 이동
+            // 10. 패치 이력 저장 및 SiteProject 갱신은 완료(적용) 시점으로 이동
             //     (PatchService.completePatch 에서 처리)
 
             log.info("패치 생성 완료 - ID: {}, Path: {}", saved.getPatchId(),
@@ -697,10 +697,10 @@ public class PatchGenerationService {
             progressService.update(8, TOTAL_STEPS, "DB 메타 저장 중");
             // 빌드 전용 패치 개념 폐지 — from==to 도 해당 버전의 DB 를 포함하는 정식 패치로 생성된다.
             boolean isBuildOnly = false;
-            // 표준 패치의 핫픽스는 customer=null(표준 핫픽스)이다. 고객사 태깅과 무관하게 표준
-            // 핫픽스를 봐야 하므로 customerId 가 아닌 null 로 조회한다.
-            // (customerId 를 넘기면 findHotfixesInBaseRange 가 표준 핫픽스를 배제하여
-            //  "범위 안의 핫픽스" 메타가 비게 됨 — 빌드 picker 와 동일한 customerMatch 함정)
+            // 표준 패치의 핫픽스는 site=null(표준 핫픽스)이다. 사이트 태깅과 무관하게 표준
+            // 핫픽스를 봐야 하므로 siteId 가 아닌 null 로 조회한다.
+            // (siteId 를 넘기면 findHotfixesInBaseRange 가 표준 핫픽스를 배제하여
+            //  "범위 안의 핫픽스" 메타가 비게 됨 — 빌드 picker 와 동일한 siteMatch 함정)
             List<ReleaseVersion> hotfixVersions = releaseVersionRepository
                     .findHotfixesInBaseRange(projectId, fromVersionId, toVersionId, null);
 
@@ -763,23 +763,23 @@ public class PatchGenerationService {
     /**
      * 패치 이름 결정
      *
-     * <p>미입력 시 {@code {customerCode|undefined}_{yyMMdd}} 형태로 자동 생성하고,
+     * <p>미입력 시 {@code {siteCode|undefined}_{yyMMdd}} 형태로 자동 생성하고,
      * 동일 이름이 이미 존재하면 {@code -2}, {@code -3} ... suffix 를 붙여 충돌을 피한다.
      * 사용자가 직접 입력한 이름은 그대로 사용 (충돌 검사 X — 운영자 책임).
      *
      * @param patchName 입력된 패치 이름 (nullable)
-     * @param customer  고객사 (nullable — 미선택 시 "undefined")
+     * @param site  사이트 (nullable — 미선택 시 "undefined")
      * @return 최종 패치 이름
      */
-    private String resolvePatchName(String patchName, Customer customer) {
+    private String resolvePatchName(String patchName, Site site) {
         if (StringUtils.hasText(patchName)) {
             return patchName;
         }
         // 운영자가 인식하는 시각이라 KST 명시 (DB 저장은 UTC, 사용자 표시·파일명은 KST 정책)
         String date = LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul"))
                 .format(DateTimeFormatter.ofPattern("yyMMdd"));
-        String prefix = (customer != null && StringUtils.hasText(customer.getCustomerCode()))
-                ? customer.getCustomerCode()
+        String prefix = (site != null && StringUtils.hasText(site.getSiteCode()))
+                ? site.getSiteCode()
                 : "undefined";
         String base = String.format("%s_%s", prefix, date);
 
@@ -939,7 +939,7 @@ public class PatchGenerationService {
         // 커스텀 버전
         String afterDash = input.substring(dashIndex + 1);
         String[] customParts = afterDash.split("\\.");
-        // customParts: [customerCode, customMaj, customMin, customPatch] (4) 또는 + build (5)
+        // customParts: [siteCode, customMaj, customMin, customPatch] (4) 또는 + build (5)
         if (customParts.length == 4) {
             return new ParsedInputVersion(input, 0);
         }
@@ -1473,30 +1473,30 @@ public class PatchGenerationService {
     }
 
     /**
-     * CustomerProject 마지막 패치 정보 업데이트
+     * SiteProject 마지막 패치 정보 업데이트
      *
-     * <p>고객사-프로젝트 매핑이 없으면 새로 생성하고, 있으면 업데이트합니다.
+     * <p>사이트-프로젝트 매핑이 없으면 새로 생성하고, 있으면 업데이트합니다.
      *
-     * @param customer  고객사
+     * @param site  사이트
      * @param project   프로젝트
      * @param toVersion 패치된 버전 (to_version)
      */
-    private void updateCustomerProjectPatchInfo(Customer customer, Project project, String toVersion) {
-        CustomerProject customerProject = customerProjectRepository
-                .findByCustomer_CustomerIdAndProject_ProjectId(customer.getCustomerId(), project.getProjectId())
+    private void updateSiteProjectPatchInfo(Site site, Project project, String toVersion) {
+        SiteProject siteProject = siteProjectRepository
+                .findBySite_SiteIdAndProject_ProjectId(site.getSiteId(), project.getProjectId())
                 .orElseGet(() -> {
                     // 매핑이 없으면 새로 생성
-                    log.info("고객사-프로젝트 매핑 생성 - customerId: {}, projectId: {}",
-                            customer.getCustomerId(), project.getProjectId());
-                    return CustomerProject.create(customer, project);
+                    log.info("사이트-프로젝트 매핑 생성 - siteId: {}, projectId: {}",
+                            site.getSiteId(), project.getProjectId());
+                    return SiteProject.create(site, project);
                 });
 
         // 마지막 패치 정보 업데이트
-        customerProject.updateLastPatchInfo(toVersion, LocalDateTime.now());
-        customerProjectRepository.save(customerProject);
+        siteProject.updateLastPatchInfo(toVersion, LocalDateTime.now());
+        siteProjectRepository.save(siteProject);
 
-        log.info("CustomerProject 업데이트 완료 - customerId: {}, projectId: {}, lastPatchedVersion: {}",
-                customer.getCustomerId(), project.getProjectId(), toVersion);
+        log.info("SiteProject 업데이트 완료 - siteId: {}, projectId: {}, lastPatchedVersion: {}",
+                site.getSiteId(), project.getProjectId(), toVersion);
     }
 
     /**

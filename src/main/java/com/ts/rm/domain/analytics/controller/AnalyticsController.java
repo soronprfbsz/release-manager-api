@@ -1,8 +1,8 @@
 package com.ts.rm.domain.analytics.controller;
 
 import com.ts.rm.domain.analytics.dto.AnalyticsDto.MonthlyPatchResponse;
-import com.ts.rm.domain.analytics.dto.AnalyticsDto.TopCustomersResponse;
-import com.ts.rm.domain.analytics.dto.AnalyticsDto.VersionCustomerDistributionResponse;
+import com.ts.rm.domain.analytics.dto.AnalyticsDto.TopSitesResponse;
+import com.ts.rm.domain.analytics.dto.AnalyticsDto.VersionSiteDistributionResponse;
 import com.ts.rm.domain.analytics.service.AnalyticsService;
 import com.ts.rm.global.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
@@ -27,15 +27,15 @@ public class AnalyticsController implements AnalyticsControllerDocs {
     private final AnalyticsService analyticsService;
 
     @Override
-    @GetMapping("/patches/top-customers")
-    public ApiResponse<TopCustomersResponse> getTopCustomersByPatchCount(
+    @GetMapping("/patches/top-sites")
+    public ApiResponse<TopSitesResponse> getTopSitesByPatchCount(
             @PathVariable String id,
             @RequestParam(defaultValue = "6") int months,
             @RequestParam(defaultValue = "5") int topN) {
 
-        log.info("프로젝트별 고객사별 패치 Top-{} 조회 요청 - projectId: {}, 최근 {}개월", topN, id, months);
+        log.info("프로젝트별 사이트별 패치 Top-{} 조회 요청 - projectId: {}, 최근 {}개월", topN, id, months);
 
-        TopCustomersResponse response = analyticsService.getTopCustomersByPatchCount(id, months, topN);
+        TopSitesResponse response = analyticsService.getTopSitesByPatchCount(id, months, topN);
 
         return ApiResponse.success(response);
     }
@@ -54,13 +54,13 @@ public class AnalyticsController implements AnalyticsControllerDocs {
     }
 
     @Override
-    @GetMapping("/patches/version-customers")
-    public ApiResponse<VersionCustomerDistributionResponse> getVersionCustomerDistribution(
+    @GetMapping("/patches/version-sites")
+    public ApiResponse<VersionSiteDistributionResponse> getVersionSiteDistribution(
             @PathVariable String id) {
 
-        log.info("프로젝트별 버전별 고객사 분포 조회 요청 - projectId: {}", id);
+        log.info("프로젝트별 버전별 사이트 분포 조회 요청 - projectId: {}", id);
 
-        VersionCustomerDistributionResponse response = analyticsService.getVersionCustomerDistribution(id);
+        VersionSiteDistributionResponse response = analyticsService.getVersionSiteDistribution(id);
 
         return ApiResponse.success(response);
     }

@@ -70,8 +70,8 @@ public interface PublishingControllerDocs {
             @Parameter(description = "퍼블리싱 설명", example = "Infraeye 2 대시보드 퍼블리싱")
             @RequestParam(required = false) String description,
 
-            @Parameter(description = "고객사 ID (커스터마이징인 경우)", example = "1")
-            @RequestParam(required = false) Long customerId,
+            @Parameter(description = "사이트 ID (커스터마이징인 경우)", example = "1")
+            @RequestParam(required = false) Long siteId,
 
             @Parameter(description = "글리프 텍스트(배지용)", example = "BETA")
             @RequestParam(required = false) String glyphText,
@@ -108,7 +108,7 @@ public interface PublishingControllerDocs {
                     + "- `description`: 설명\n"
                     + "- `publishingCategory`: 카테고리 (INFRAEYE1/INFRAEYE2/COMMON/ETC)\n"
                     + "- `subCategory`: 서브 카테고리\n"
-                    + "- `customerId`: 고객사 ID\n\n"
+                    + "- `siteId`: 사이트 ID\n\n"
                     + "**주의사항**:\n"
                     + "- 퍼블리싱명은 중복될 수 없습니다\n"
                     + "- 파일은 수정되지 않습니다 (재업로드 필요)",
@@ -160,7 +160,7 @@ public interface PublishingControllerDocs {
                     + "**필터링 옵션**:\n"
                     + "- `publishingCategory`: 카테고리 필터\n"
                     + "- `subCategory`: 서브 카테고리 필터\n"
-                    + "- `customerId`: 고객사 ID 필터 (0이면 표준만)\n"
+                    + "- `siteId`: 사이트 ID 필터 (0이면 표준만)\n"
                     + "- `keyword`: 퍼블리싱명, 설명 통합 검색",
             responses = @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "200",
@@ -178,8 +178,8 @@ public interface PublishingControllerDocs {
             @Parameter(description = "서브 카테고리 필터")
             @RequestParam(required = false) String subCategory,
 
-            @Parameter(description = "고객사 ID 필터 (0이면 표준만)")
-            @RequestParam(required = false) Long customerId,
+            @Parameter(description = "사이트 ID 필터 (0이면 표준만)")
+            @RequestParam(required = false) Long siteId,
 
             @Parameter(description = "검색 키워드 (퍼블리싱명, 설명 통합 검색)")
             @RequestParam(required = false) String keyword

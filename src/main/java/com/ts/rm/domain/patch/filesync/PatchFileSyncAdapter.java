@@ -6,8 +6,8 @@ import static com.ts.rm.global.util.MapExtractUtil.extractStringOrDefault;
 
 import com.ts.rm.domain.account.entity.Account;
 import com.ts.rm.domain.account.repository.AccountRepository;
-import com.ts.rm.domain.customer.entity.Customer;
-import com.ts.rm.domain.customer.repository.CustomerRepository;
+import com.ts.rm.domain.site.entity.Site;
+import com.ts.rm.domain.site.repository.SiteRepository;
 import com.ts.rm.domain.filesync.adapter.FileSyncAdapter;
 import com.ts.rm.domain.filesync.dto.FileSyncMetadata;
 import com.ts.rm.domain.filesync.enums.FileSyncTarget;
@@ -45,7 +45,7 @@ public class PatchFileSyncAdapter implements FileSyncAdapter {
 
     private final PatchRepository patchRepository;
     private final ProjectRepository projectRepository;
-    private final CustomerRepository customerRepository;
+    private final SiteRepository siteRepository;
     private final AccountRepository accountRepository;
     private final AccountLookupService accountLookupService;
 
@@ -60,8 +60,8 @@ public class PatchFileSyncAdapter implements FileSyncAdapter {
 
     /**
      * 커스텀 패치 폴더명 파싱 패턴
-     * <p>형식: {timestamp}_{customerCode}_{fromVersion}_{toVersion}
-     * <p>예: 202512241547_customer1_1.0.0_1.1.0 (12자리) 또는 20251226123045_customer1_1.0.0_1.1.0 (14자리)
+     * <p>형식: {timestamp}_{siteCode}_{fromVersion}_{toVersion}
+     * <p>예: 202512241547_site1_1.0.0_1.1.0 (12자리) 또는 20251226123045_site1_1.0.0_1.1.0 (14자리)
      */
     private static final Pattern CUSTOM_PATCH_FOLDER_PATTERN = Pattern.compile(
             "^(\\d{12,14})_([a-zA-Z0-9_-]+)_([0-9.]+)_([0-9.]+)$"
@@ -127,7 +127,7 @@ public class PatchFileSyncAdapter implements FileSyncAdapter {
         String releaseType = extractStringOrDefault(additionalData, "releaseType", folderInfo.releaseType);
         String fromVersion = extractStringOrDefault(additionalData, "fromVersion", folderInfo.fromVersion);
         String toVersion = extractStringOrDefault(additionalData, "toVersion", folderInfo.toVersion);
-        String customerCode = extractStringOrDefault(additionalData, "customerCode", folderInfo.customerCode);
+        String siteCode = extractStringOrDefault(additionalData, "siteCode", folderInfo.siteCode);
         String description = extractString(additionalData, "description");
         String createdByEmail = extractStringOrDefault(additionalData, "createdByEmail", "SYSTEM_SYNC");
         Long assigneeId = extractLong(additionalData, "assigneeId");
@@ -137,13 +137,13 @@ public class PatchFileSyncAdapter implements FileSyncAdapter {
                 .orElseThrow(() -> new BusinessException(ErrorCode.PROJECT_NOT_FOUND,
                         "프로젝트를 찾을 수 없습니다: " + projectId));
 
-        // 커스텀 패치인 경우 고객사 조회
-        Customer customer = null;
-        if ("CUSTOM".equalsIgnoreCase(releaseType) && customerCode != null) {
-            customer = customerRepository.findByCustomerCode(customerCode)
-                    .orElse(null); // 고객사가 없어도 등록은 진행
-            if (customer == null) {
-                log.warn("고객사를 찾을 수 없습니다: {}. 고객사 없이 패치를 등록합니다.", customerCode);
+        // 커스텀 패치인 경우 사이트 조회
+        Site site = null;
+        if ("CUSTOM".equalsIgnoreCase(releaseType) && siteCode != null) {
+            site = siteRepository.findBySiteCode(siteCode)
+                    .orElse(null); // 사이트가 없어도 등록은 진행
+            if (site == null) {
+                log.warn("사이트를 찾을 수 없습니다: {}. 사이트 없이 패치를 등록합니다.", siteCode);
             }
         }
 
@@ -165,7 +165,7 @@ public class PatchFileSyncAdapter implements FileSyncAdapter {
         Patch patch = Patch.builder()
                 .project(project)
                 .releaseType(releaseType.toUpperCase())
-                .customer(customer)
+                .site(site)
                 .assignee(assignee)
                 .fromVersion(fromVersion)
                 .toVersion(toVersion)
@@ -320,19 +320,19 @@ public class PatchFileSyncAdapter implements FileSyncAdapter {
                     standardMatcher.group(2),  // fromVersion
                     standardMatcher.group(3),  // toVersion
                     "STANDARD",                // releaseType
-                    null                       // customerCode
+                    null                       // siteCode
             );
         }
 
-        // 커스텀 패치 형식 시도: {timestamp}_{customerCode}_{fromVersion}_{toVersion}
-        // 예: 20251226123045_customer1_1.0.0_1.1.0
+        // 커스텀 패치 형식 시도: {timestamp}_{siteCode}_{fromVersion}_{toVersion}
+        // 예: 20251226123045_site1_1.0.0_1.1.0
         Matcher customMatcher = CUSTOM_PATCH_FOLDER_PATTERN.matcher(folderName);
         if (customMatcher.matches()) {
             return new PatchFolderInfo(
                     customMatcher.group(3),    // fromVersion
                     customMatcher.group(4),    // toVersion
                     "CUSTOM",                  // releaseType
-                    customMatcher.group(2)     // customerCode
+                    customMatcher.group(2)     // siteCode
             );
         }
 
@@ -346,6 +346,6 @@ public class PatchFileSyncAdapter implements FileSyncAdapter {
             String fromVersion,
             String toVersion,
             String releaseType,
-            String customerCode
+            String siteCode
     ) {}
 }

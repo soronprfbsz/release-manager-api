@@ -28,7 +28,7 @@ public interface PatchHistoryControllerDocs {
 
                     - 패치 파일(patch_file)이 삭제되어도 이력은 영구 보존됩니다.
                     - projectId: 프로젝트별 필터링 (미입력 시 전체)
-                    - customerId: 고객사별 필터링 (미입력 시 전체)
+                    - siteId: 사이트별 필터링 (미입력 시 전체)
                     - 정렬: createdAt, patchName, fromVersion, toVersion 지원
                     """,
             responses = @io.swagger.v3.oas.annotations.responses.ApiResponse(
@@ -44,8 +44,8 @@ public interface PatchHistoryControllerDocs {
             @Parameter(description = "프로젝트 ID (미입력 시 전체)", example = "infraeye2")
             @RequestParam(required = false) String projectId,
 
-            @Parameter(description = "고객사 ID (미입력 시 전체)", example = "1")
-            @RequestParam(required = false) Long customerId,
+            @Parameter(description = "사이트 ID (미입력 시 전체)", example = "1")
+            @RequestParam(required = false) Long siteId,
 
             @ParameterObject Pageable pageable
     );

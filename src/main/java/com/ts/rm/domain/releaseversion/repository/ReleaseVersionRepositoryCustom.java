@@ -65,32 +65,32 @@ public interface ReleaseVersionRepositoryCustom {
     List<ReleaseVersion> findUnapprovedVersionsBetween(String projectId, String releaseType, String fromVersion, String toVersion);
 
     /**
-     * 고객사별 커스텀 버전 범위 조회 (from ~ to)
+     * 사이트별 커스텀 버전 범위 조회 (from ~ to)
      *
-     * @param customerId  고객사 ID
+     * @param siteId  사이트 ID
      * @param fromVersion 시작 버전 (커스텀 버전)
      * @param toVersion   종료 버전 (커스텀 버전)
      * @return 커스텀 버전 목록
      */
-    List<ReleaseVersion> findCustomVersionsBetween(Long customerId, String fromVersion, String toVersion);
+    List<ReleaseVersion> findCustomVersionsBetween(Long siteId, String fromVersion, String toVersion);
 
     /**
-     * 고객사별 커스텀 버전 범위 내 미승인 버전 조회 (from ~ to)
+     * 사이트별 커스텀 버전 범위 내 미승인 버전 조회 (from ~ to)
      *
-     * @param customerId  고객사 ID
+     * @param siteId  사이트 ID
      * @param fromVersion 시작 버전 (커스텀 버전)
      * @param toVersion   종료 버전 (커스텀 버전)
      * @return 미승인 버전 목록 (isApproved = false)
      */
-    List<ReleaseVersion> findUnapprovedCustomVersionsBetween(Long customerId, String fromVersion, String toVersion);
+    List<ReleaseVersion> findUnapprovedCustomVersionsBetween(Long siteId, String fromVersion, String toVersion);
 
     /**
-     * 커스텀 버전이 존재하는 고객사 ID 목록 조회
+     * 커스텀 버전이 존재하는 사이트 ID 목록 조회
      *
      * @param projectId 프로젝트 ID
-     * @return 고객사 ID 목록 (중복 제거)
+     * @return 사이트 ID 목록 (중복 제거)
      */
-    List<Long> findCustomerIdsWithCustomVersions(String projectId);
+    List<Long> findSiteIdsWithCustomVersions(String projectId);
 
     // ========================================
     // Hotfix 관련 메서드
@@ -150,16 +150,16 @@ public interface ReleaseVersionRepositoryCustom {
     /**
      * 두 base 버전 사이의 빌드 행 (build_version > 0) 조회.
      *
-     * <p>표준 패치는 customerId 가 null. 커스텀 패치는 해당 고객사의 빌드만 반환한다.
+     * <p>표준 패치는 siteId 가 null. 커스텀 패치는 해당 사이트의 빌드만 반환한다.
      * 결과는 build_version DESC 정렬.
      *
      * @param projectId  프로젝트 ID
      * @param fromBaseId 시작 base 버전 ID (포함)
      * @param toBaseId   종료 base 버전 ID (포함)
-     * @param customerId 고객사 ID (null = 표준)
+     * @param siteId 사이트 ID (null = 표준)
      * @return 빌드 ReleaseVersion 목록 (build_version DESC)
      */
-    List<ReleaseVersion> findBuildsInBaseRange(String projectId, Long fromBaseId, Long toBaseId, Long customerId);
+    List<ReleaseVersion> findBuildsInBaseRange(String projectId, Long fromBaseId, Long toBaseId, Long siteId);
 
     /**
      * 두 base 버전 사이의 핫픽스 행 (hotfix_version > 0) 조회.
@@ -167,8 +167,8 @@ public interface ReleaseVersionRepositoryCustom {
      * @param projectId  프로젝트 ID
      * @param fromBaseId 시작 base 버전 ID (포함)
      * @param toBaseId   종료 base 버전 ID (포함)
-     * @param customerId 고객사 ID (null = 표준)
+     * @param siteId 사이트 ID (null = 표준)
      * @return 핫픽스 ReleaseVersion 목록 (hotfix_version ASC)
      */
-    List<ReleaseVersion> findHotfixesInBaseRange(String projectId, Long fromBaseId, Long toBaseId, Long customerId);
+    List<ReleaseVersion> findHotfixesInBaseRange(String projectId, Long fromBaseId, Long toBaseId, Long siteId);
 }

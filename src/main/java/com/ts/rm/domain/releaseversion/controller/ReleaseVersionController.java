@@ -95,7 +95,7 @@ public class ReleaseVersionController implements ReleaseVersionControllerDocs {
     /**
      * 커스텀 릴리즈 버전 생성 (ZIP 파일 업로드)
      *
-     * @param request       버전 생성 요청 (customerId, customBaseVersionId, customVersion, comment)
+     * @param request       버전 생성 요청 (siteId, customBaseVersionId, customVersion, comment)
      * @param patchFiles    패치 파일 ZIP
      * @param authorization JWT 토큰 (Bearer {token})
      * @return 생성된 버전 정보
@@ -108,8 +108,8 @@ public class ReleaseVersionController implements ReleaseVersionControllerDocs {
             @RequestHeader("Authorization") String authorization,
             @RequestHeader(value = "X-Progress-Id", required = false) String progressId) {
 
-        log.info("커스텀 릴리즈 버전 생성 요청 - projectId: {}, customerId: {}, customBaseVersionId: {}, customVersion: {}, comment: {}, fileSize: {}, progressId: {}",
-                request.projectId(), request.customerId(), request.customBaseVersionId(),
+        log.info("커스텀 릴리즈 버전 생성 요청 - projectId: {}, siteId: {}, customBaseVersionId: {}, customVersion: {}, comment: {}, fileSize: {}, progressId: {}",
+                request.projectId(), request.siteId(), request.customBaseVersionId(),
                 request.customVersion(), request.comment(), patchFiles.getSize(), progressId);
 
         // SecurityUtil에서 현재 인증된 사용자 정보 추출
@@ -160,10 +160,10 @@ public class ReleaseVersionController implements ReleaseVersionControllerDocs {
     }
 
     /**
-     * 전체 커스텀 릴리즈 버전 트리 조회 (프로젝트별, 모든 고객사)
+     * 전체 커스텀 릴리즈 버전 트리 조회 (프로젝트별, 모든 사이트)
      *
      * @param id 프로젝트 ID
-     * @return 커스텀 릴리즈 버전 트리 (고객사별 그룹화)
+     * @return 커스텀 릴리즈 버전 트리 (사이트별 그룹화)
      */
     @Override
     @GetMapping("/projects/{id}/custom/tree")
@@ -174,18 +174,18 @@ public class ReleaseVersionController implements ReleaseVersionControllerDocs {
     }
 
     /**
-     * 커스텀 릴리즈 버전 트리 조회 (프로젝트별, 특정 고객사)
+     * 커스텀 릴리즈 버전 트리 조회 (프로젝트별, 특정 사이트)
      *
      * @param id           프로젝트 ID
-     * @param customerCode 고객사 코드
+     * @param siteCode 사이트 코드
      * @return 릴리즈 버전 트리 (계층 구조)
      */
     @Override
-    @GetMapping("/projects/{id}/custom/{customer-code}/tree")
+    @GetMapping("/projects/{id}/custom/{site-code}/tree")
     public ResponseEntity<ApiResponse<ReleaseVersionDto.TreeResponse>> getCustomReleaseTree(
             @PathVariable String id,
-            @PathVariable("customer-code") String customerCode) {
-        ReleaseVersionDto.TreeResponse response = treeService.getCustomReleaseTree(id, customerCode);
+            @PathVariable("site-code") String siteCode) {
+        ReleaseVersionDto.TreeResponse response = treeService.getCustomReleaseTree(id, siteCode);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
@@ -455,7 +455,7 @@ public class ReleaseVersionController implements ReleaseVersionControllerDocs {
      * @param projectId     프로젝트 ID
      * @param fromVersionId 시작 base 버전 ID (포함)
      * @param toVersionId   종료 base 버전 ID (포함)
-     * @param customerId    고객사 ID (커스텀인 경우, 선택)
+     * @param siteId    사이트 ID (커스텀인 경우, 선택)
      * @return 빌드 후보 및 hotfixesInRange 메타정보
      */
     @Override
@@ -464,12 +464,12 @@ public class ReleaseVersionController implements ReleaseVersionControllerDocs {
             @RequestParam String projectId,
             @RequestParam Long fromVersionId,
             @RequestParam Long toVersionId,
-            @RequestParam(required = false) Long customerId) {
-        log.info("빌드 후보 range 조회 요청 - projectId: {}, fromVersionId: {}, toVersionId: {}, customerId: {}",
-                projectId, fromVersionId, toVersionId, customerId);
+            @RequestParam(required = false) Long siteId) {
+        log.info("빌드 후보 range 조회 요청 - projectId: {}, fromVersionId: {}, toVersionId: {}, siteId: {}",
+                projectId, fromVersionId, toVersionId, siteId);
 
         ReleaseVersionDto.BuildsInRangeResponse response =
-                buildsInRangeService.getBuildsInRange(projectId, fromVersionId, toVersionId, customerId);
+                buildsInRangeService.getBuildsInRange(projectId, fromVersionId, toVersionId, siteId);
 
         return ResponseEntity.ok(ApiResponse.success(response));
     }

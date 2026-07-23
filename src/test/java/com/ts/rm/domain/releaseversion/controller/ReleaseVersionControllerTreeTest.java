@@ -41,7 +41,7 @@ class ReleaseVersionControllerTreeTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("success"))
                 .andExpect(jsonPath("$.data.releaseType").value("STANDARD"))
-                .andExpect(jsonPath("$.data.customerCode").doesNotExist())
+                .andExpect(jsonPath("$.data.siteCode").doesNotExist())
                 .andExpect(jsonPath("$.data.majorMinorGroups").isArray())
                 .andExpect(jsonPath("$.data.majorMinorGroups[0].majorMinor").exists())
                 .andExpect(jsonPath("$.data.majorMinorGroups[0].versions").isArray())

@@ -383,8 +383,8 @@ public class FileSyncDto {
         /** 담당 엔지니어 ID (선택) */
         private Long engineerId;
 
-        /** 고객사 코드 (선택, 커스텀 패치 시 폴더명에서 추론 안 될 때) */
-        private String customerCode;
+        /** 사이트 코드 (선택, 커스텀 패치 시 폴더명에서 추론 안 될 때) */
+        private String siteCode;
 
         /** 설명 (선택) */
         private String description;

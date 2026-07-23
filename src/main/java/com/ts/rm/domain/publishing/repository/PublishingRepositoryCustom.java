@@ -15,14 +15,14 @@ public interface PublishingRepositoryCustom {
      *
      * @param publishingCategory 퍼블리싱 카테고리 (null이면 전체)
      * @param subCategory 서브 카테고리 (null이면 전체)
-     * @param customerId 고객사 ID (null이면 전체, 0이면 표준만)
+     * @param siteId 사이트 ID (null이면 전체, 0이면 표준만)
      * @param keyword 검색 키워드 (퍼블리싱명, 설명)
      * @return 퍼블리싱 목록
      */
     List<Publishing> findAllWithFilters(
             String publishingCategory,
             String subCategory,
-            Long customerId,
+            Long siteId,
             String keyword
     );
 

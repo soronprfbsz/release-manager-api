@@ -27,13 +27,13 @@ public class PatchHistoryRepositoryImpl implements PatchHistoryRepositoryCustom 
     private static final QPatchHistory patchHistory = QPatchHistory.patchHistory;
 
     @Override
-    public Page<PatchHistory> findAllWithFilters(String projectId, Long customerId, Pageable pageable) {
+    public Page<PatchHistory> findAllWithFilters(String projectId, Long siteId, Pageable pageable) {
         // 1. Content 쿼리
         JPAQuery<PatchHistory> contentQuery = queryFactory
                 .selectFrom(patchHistory)
                 .where(
                         projectIdCondition(projectId),
-                        customerIdCondition(customerId)
+                        siteIdCondition(siteId)
                 );
 
         // 2. Count 쿼리
@@ -42,7 +42,7 @@ public class PatchHistoryRepositoryImpl implements PatchHistoryRepositoryCustom 
                 .from(patchHistory)
                 .where(
                         projectIdCondition(projectId),
-                        customerIdCondition(customerId)
+                        siteIdCondition(siteId)
                 );
 
         // 3. 정렬 필드 매핑
@@ -99,11 +99,11 @@ public class PatchHistoryRepositoryImpl implements PatchHistoryRepositoryCustom 
     }
 
     /**
-     * 고객사 ID 조건
+     * 사이트 ID 조건
      */
-    private BooleanExpression customerIdCondition(Long customerId) {
-        return (customerId != null)
-                ? patchHistory.customer.customerId.eq(customerId)
+    private BooleanExpression siteIdCondition(Long siteId) {
+        return (siteId != null)
+                ? patchHistory.site.siteId.eq(siteId)
                 : null;
     }
 }

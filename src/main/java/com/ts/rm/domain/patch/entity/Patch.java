@@ -1,7 +1,7 @@
 package com.ts.rm.domain.patch.entity;
 
 import com.ts.rm.domain.account.entity.Account;
-import com.ts.rm.domain.customer.entity.Customer;
+import com.ts.rm.domain.site.entity.Site;
 import com.ts.rm.domain.project.entity.Project;
 import com.ts.rm.domain.common.entity.BaseEntity;
 import jakarta.persistence.CascadeType;
@@ -53,7 +53,7 @@ public class Patch extends BaseEntity {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "customer_id")
-    private Customer customer;
+    private Site site;
 
     @Column(name = "from_version", nullable = false, length = 50)
     private String fromVersion;

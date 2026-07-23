@@ -1,7 +1,7 @@
 package com.ts.rm.domain.patch.entity;
 
 import com.ts.rm.domain.account.entity.Account;
-import com.ts.rm.domain.customer.entity.Customer;
+import com.ts.rm.domain.site.entity.Site;
 import com.ts.rm.domain.project.entity.Project;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -51,7 +51,7 @@ public class PatchHistory {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "customer_id")
-    private Customer customer;
+    private Site site;
 
     @Column(name = "from_version", nullable = false, length = 50)
     private String fromVersion;
@@ -118,7 +118,7 @@ public class PatchHistory {
         return PatchHistory.builder()
                 .project(patch.getProject())
                 .releaseType(patch.getReleaseType())
-                .customer(patch.getCustomer())
+                .site(patch.getSite())
                 .fromVersion(patch.getFromVersion())
                 .toVersion(patch.getToVersion())
                 .patchName(patch.getPatchName())

@@ -46,10 +46,10 @@ public enum ErrorCode {
   ACCOUNT_INACTIVE(HttpStatus.FORBIDDEN, "AU011", "error.auth.account_inactive"),
   ACCOUNT_LOCKED(HttpStatus.FORBIDDEN, "AU012", "error.auth.account_locked"),
 
-  // Customer - 고객사
-  CUSTOMER_NOT_FOUND(HttpStatus.NOT_FOUND, "CU001", "error.customer.not_found"),
-  CUSTOMER_CODE_CONFLICT(HttpStatus.CONFLICT, "CU002", "error.customer.code_conflict"),
-  CUSTOMER_ID_REQUIRED(HttpStatus.BAD_REQUEST, "CU003", "error.customer.id_required"),
+  // Site - 사이트
+  SITE_NOT_FOUND(HttpStatus.NOT_FOUND, "ST001", "error.site.not_found"),
+  SITE_CODE_CONFLICT(HttpStatus.CONFLICT, "ST002", "error.site.code_conflict"),
+  SITE_ID_REQUIRED(HttpStatus.BAD_REQUEST, "ST003", "error.site.id_required"),
 
   // Engineer - 엔지니어
   ENGINEER_NOT_FOUND(HttpStatus.NOT_FOUND, "E001", "error.engineer.not_found"),

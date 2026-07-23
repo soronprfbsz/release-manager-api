@@ -48,7 +48,7 @@ public interface DashboardControllerDocs {
                     + "**응답 정보**:\n"
                     + "- 빌드 라벨 포함 전체 버전 (예: 1.1.0.260501-1)\n"
                     + "- 파일 카테고리 목록\n"
-                    + "- 고객사 정보 (CUSTOM 타입인 경우)\n"
+                    + "- 사이트 정보 (CUSTOM 타입인 경우)\n"
                     + "- 생성자 정보 (이름, 이메일, 아바타)",
             responses = @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "200",
@@ -74,7 +74,7 @@ public interface DashboardControllerDocs {
                     + "정상 완료 패치만 반환합니다.\n\n"
                     + "**응답 정보**:\n"
                     + "- 패치 정보 (이름, 버전 범위, 릴리즈 타입)\n"
-                    + "- 고객사 정보 (CUSTOM 타입인 경우)\n"
+                    + "- 사이트 정보 (CUSTOM 타입인 경우)\n"
                     + "- 담당자 정보 (이름, 이메일, 아바타)\n"
                     + "- 생성자 정보 (이름, 이메일, 아바타)",
             responses = @io.swagger.v3.oas.annotations.responses.ApiResponse(

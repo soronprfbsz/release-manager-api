@@ -2,8 +2,8 @@ package com.ts.rm.domain.releaseversion.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.ts.rm.domain.customer.entity.Customer;
-import com.ts.rm.domain.customer.repository.CustomerRepository;
+import com.ts.rm.domain.site.entity.Site;
+import com.ts.rm.domain.site.repository.SiteRepository;
 import com.ts.rm.domain.project.entity.Project;
 import com.ts.rm.domain.project.repository.ProjectRepository;
 import com.ts.rm.domain.releaseversion.entity.ReleaseVersion;
@@ -32,7 +32,7 @@ class ReleaseVersionRepositoryTest {
     private ReleaseVersionRepository releaseVersionRepository;
 
     @Autowired
-    private CustomerRepository customerRepository;
+    private SiteRepository siteRepository;
 
     @Autowired
     private ProjectRepository projectRepository;
@@ -40,7 +40,7 @@ class ReleaseVersionRepositoryTest {
     @Autowired
     private jakarta.persistence.EntityManager entityManager;
 
-    private Customer testCustomer;
+    private Site testSite;
     private Project testProject;
 
     @BeforeEach
@@ -50,15 +50,15 @@ class ReleaseVersionRepositoryTest {
                 .projectName("Infraeye 2")
                 .build());
 
-        testCustomer = Customer.builder()
-                .customerCode("company_a")
-                .customerName("A회사")
-                .description("테스트 고객사")
+        testSite = Site.builder()
+                .siteCode("company_a")
+                .siteName("A회사")
+                .description("테스트 사이트")
                 .isActive(true)
                 .createdByEmail("admin@tscientific")
                 .updatedByEmail("admin@tscientific")
                 .build();
-        testCustomer = customerRepository.save(testCustomer);
+        testSite = siteRepository.save(testSite);
     }
 
     @Test
@@ -83,7 +83,7 @@ class ReleaseVersionRepositoryTest {
         assertThat(saved.getReleaseVersionId()).isNotNull();
         assertThat(saved.getVersion()).isEqualTo("1.1.0");
         assertThat(saved.getReleaseType()).isEqualTo("STANDARD");
-        assertThat(saved.getCustomer()).isNull();
+        assertThat(saved.getSite()).isNull();
         assertThat(saved.getMajorMinor()).isEqualTo("1.1.x"); // @Transient 계산 필드 검증
         assertThat(saved.getCreatedAt()).isNotNull();
     }
@@ -95,13 +95,13 @@ class ReleaseVersionRepositoryTest {
         ReleaseVersion version = ReleaseVersion.builder()
                 .project(testProject)
                 .releaseType("CUSTOM")
-                .customer(testCustomer)
+                .site(testSite)
                 .version("1.0.0-custom")
                 .majorVersion(1)
                 .minorVersion(0)
                 .patchVersion(0)
                 .createdByEmail("admin@tscientific")
-                .comment("고객사 맞춤 기능")
+                .comment("사이트 맞춤 기능")
                 .customMajorVersion(1)
                 .customMinorVersion(0)
                 .customPatchVersion(0)
@@ -114,8 +114,8 @@ class ReleaseVersionRepositoryTest {
         assertThat(saved.getReleaseVersionId()).isNotNull();
         assertThat(saved.getVersion()).isEqualTo("1.0.0-custom");
         assertThat(saved.getReleaseType()).isEqualTo("CUSTOM");
-        assertThat(saved.getCustomer()).isNotNull();
-        assertThat(saved.getCustomer().getCustomerCode()).isEqualTo("company_a");
+        assertThat(saved.getSite()).isNotNull();
+        assertThat(saved.getSite().getSiteCode()).isEqualTo("company_a");
     }
 
     @Test
@@ -166,13 +166,13 @@ class ReleaseVersionRepositoryTest {
     }
 
     @Test
-    @DisplayName("고객사별 버전 목록 조회 - 최신순")
-    void findAllByCustomerIdOrderByCreatedAtDesc_Success() {
+    @DisplayName("사이트별 버전 목록 조회 - 최신순")
+    void findAllBySiteIdOrderByCreatedAtDesc_Success() {
         // given
         ReleaseVersion customVersion1 = ReleaseVersion.builder()
                 .project(testProject)
                 .releaseType("CUSTOM")
-                .customer(testCustomer)
+                .site(testSite)
                 .version("1.0.0")
                 .majorVersion(1)
                 .minorVersion(0)
@@ -185,7 +185,7 @@ class ReleaseVersionRepositoryTest {
         ReleaseVersion customVersion2 = ReleaseVersion.builder()
                 .project(testProject)
                 .releaseType("CUSTOM")
-                .customer(testCustomer)
+                .site(testSite)
                 .version("1.0.1")
                 .majorVersion(1)
                 .minorVersion(0)
@@ -197,7 +197,7 @@ class ReleaseVersionRepositoryTest {
 
         // when
         List<ReleaseVersion> versions = releaseVersionRepository
-                .findAllByCustomer_CustomerIdOrderByCreatedAtDesc(testCustomer.getCustomerId());
+                .findAllBySite_SiteIdOrderByCreatedAtDesc(testSite.getSiteId());
 
         // then
         assertThat(versions).hasSize(2);
@@ -271,7 +271,7 @@ class ReleaseVersionRepositoryTest {
         ReleaseVersion version = ReleaseVersion.builder()
                 .project(testProject)
                 .releaseType("CUSTOM")
-                .customer(testCustomer)
+                .site(testSite)
                 .version("1.0.0")
                 .majorVersion(1)
                 .minorVersion(0)

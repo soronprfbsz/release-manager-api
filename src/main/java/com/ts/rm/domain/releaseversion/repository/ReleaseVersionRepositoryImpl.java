@@ -175,7 +175,7 @@ public class ReleaseVersionRepositoryImpl implements ReleaseVersionRepositoryCus
     }
 
     @Override
-    public List<ReleaseVersion> findCustomVersionsBetween(Long customerId, String fromVersion,
+    public List<ReleaseVersion> findCustomVersionsBetween(Long siteId, String fromVersion,
             String toVersion) {
         QReleaseVersion rv = QReleaseVersion.releaseVersion;
 
@@ -194,7 +194,7 @@ public class ReleaseVersionRepositoryImpl implements ReleaseVersionRepositoryCus
         return queryFactory
                 .selectFrom(rv)
                 .where(rv.releaseType.eq("CUSTOM")
-                        .and(rv.customer.customerId.eq(customerId))
+                        .and(rv.site.siteId.eq(siteId))
                         .and(rv.hotfixVersion.eq(0))  // 핫픽스 제외 (패치 생성에서 핫픽스 미포함)
                         .and(
                                 // fromVersion <= version <= toVersion (커스텀 버전 기준)
@@ -225,7 +225,7 @@ public class ReleaseVersionRepositoryImpl implements ReleaseVersionRepositoryCus
     }
 
     @Override
-    public List<ReleaseVersion> findUnapprovedCustomVersionsBetween(Long customerId,
+    public List<ReleaseVersion> findUnapprovedCustomVersionsBetween(Long siteId,
             String fromVersion, String toVersion) {
         QReleaseVersion rv = QReleaseVersion.releaseVersion;
 
@@ -244,7 +244,7 @@ public class ReleaseVersionRepositoryImpl implements ReleaseVersionRepositoryCus
         return queryFactory
                 .selectFrom(rv)
                 .where(rv.releaseType.eq("CUSTOM")
-                        .and(rv.customer.customerId.eq(customerId))
+                        .and(rv.site.siteId.eq(siteId))
                         .and(rv.hotfixVersion.eq(0))  // 핫픽스 제외 (핫픽스는 별도 승인 처리)
                         .and(rv.isApproved.isFalse())  // 미승인 버전만 조회
                         .and(
@@ -275,16 +275,16 @@ public class ReleaseVersionRepositoryImpl implements ReleaseVersionRepositoryCus
     }
 
     @Override
-    public List<Long> findCustomerIdsWithCustomVersions(String projectId) {
+    public List<Long> findSiteIdsWithCustomVersions(String projectId) {
         QReleaseVersion rv = QReleaseVersion.releaseVersion;
 
         return queryFactory
-                .select(rv.customer.customerId)
+                .select(rv.site.siteId)
                 .distinct()
                 .from(rv)
                 .where(rv.releaseType.eq("CUSTOM")
                         .and(rv.project.projectId.eq(projectId))
-                        .and(rv.customer.isNotNull()))
+                        .and(rv.site.isNotNull()))
                 .fetch();
     }
 
@@ -342,20 +342,20 @@ public class ReleaseVersionRepositoryImpl implements ReleaseVersionRepositoryCus
     }
 
     @Override
-    public List<ReleaseVersion> findBuildsInBaseRange(String projectId, Long fromBaseId, Long toBaseId, Long customerId) {
+    public List<ReleaseVersion> findBuildsInBaseRange(String projectId, Long fromBaseId, Long toBaseId, Long siteId) {
         QReleaseVersion rv = QReleaseVersion.releaseVersion;
 
         BooleanExpression projectMatch = rv.project.projectId.eq(projectId);
         BooleanExpression isBuild = rv.buildVersion.gt(0);
         BooleanExpression baseRange = rv.buildBaseVersion.releaseVersionId.goe(fromBaseId)
                 .and(rv.buildBaseVersion.releaseVersionId.loe(toBaseId));
-        BooleanExpression customerMatch = (customerId == null)
-                ? rv.customer.isNull()
-                : rv.customer.customerId.eq(customerId);
+        BooleanExpression siteMatch = (siteId == null)
+                ? rv.site.isNull()
+                : rv.site.siteId.eq(siteId);
 
         return queryFactory
                 .selectFrom(rv)
-                .where(projectMatch, isBuild, baseRange, customerMatch)
+                .where(projectMatch, isBuild, baseRange, siteMatch)
                 // build_version DESC + 같은 날짜 내에서는 build_iteration DESC.
                 // (iteration 정렬이 빠지면 같은 build_version 의 -1/-2 순서가 PK 자연 순서로 결정되어
                 //  picker UI 가 -1 을 latest 로 잘못 표시한다)
@@ -364,20 +364,20 @@ public class ReleaseVersionRepositoryImpl implements ReleaseVersionRepositoryCus
     }
 
     @Override
-    public List<ReleaseVersion> findHotfixesInBaseRange(String projectId, Long fromBaseId, Long toBaseId, Long customerId) {
+    public List<ReleaseVersion> findHotfixesInBaseRange(String projectId, Long fromBaseId, Long toBaseId, Long siteId) {
         QReleaseVersion rv = QReleaseVersion.releaseVersion;
 
         BooleanExpression projectMatch = rv.project.projectId.eq(projectId);
         BooleanExpression isHotfix = rv.hotfixVersion.gt(0);
         BooleanExpression baseRange = rv.hotfixBaseVersion.releaseVersionId.goe(fromBaseId)
                 .and(rv.hotfixBaseVersion.releaseVersionId.loe(toBaseId));
-        BooleanExpression customerMatch = (customerId == null)
-                ? rv.customer.isNull()
-                : rv.customer.customerId.eq(customerId);
+        BooleanExpression siteMatch = (siteId == null)
+                ? rv.site.isNull()
+                : rv.site.siteId.eq(siteId);
 
         return queryFactory
                 .selectFrom(rv)
-                .where(projectMatch, isHotfix, baseRange, customerMatch)
+                .where(projectMatch, isHotfix, baseRange, siteMatch)
                 .orderBy(rv.hotfixVersion.asc())
                 .fetch();
     }

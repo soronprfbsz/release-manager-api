@@ -1,7 +1,7 @@
 package com.ts.rm.domain.releaseversion.entity;
 
 import com.ts.rm.domain.account.entity.Account;
-import com.ts.rm.domain.customer.entity.Customer;
+import com.ts.rm.domain.site.entity.Site;
 import com.ts.rm.domain.project.entity.Project;
 import com.ts.rm.domain.releasefile.entity.ReleaseFile;
 import jakarta.persistence.CascadeType;
@@ -55,7 +55,7 @@ public class ReleaseVersion {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "customer_id")
-    private Customer customer;
+    private Site site;
 
     @Column(nullable = false, length = 50)
     private String version;
@@ -158,8 +158,8 @@ public class ReleaseVersion {
     public String getVersionKey() {
         StringBuilder key = new StringBuilder();
         key.append(releaseType.toLowerCase()).append("/");
-        if (customer != null) {
-            key.append(customer.getCustomerCode()).append("/");
+        if (site != null) {
+            key.append(site.getSiteCode()).append("/");
         }
         key.append(version);
         return key.toString();
@@ -236,9 +236,9 @@ public class ReleaseVersion {
      * <p>표준 버전:       1.3.2
      * <p>핫픽스:          1.3.2.1
      * <p>빌드:            1.3.2.260430-1  (yyMMdd-iteration)
-     * <p>커스텀:          1.1.0-customerA.1.0.0
-     * <p>커스텀+핫픽스:   1.1.0-customerA.1.0.0.1
-     * <p>커스텀+빌드:     1.1.0-customerA.1.0.0.260430-1
+     * <p>커스텀:          1.1.0-siteA.1.0.0
+     * <p>커스텀+핫픽스:   1.1.0-siteA.1.0.0.1
+     * <p>커스텀+빌드:     1.1.0-siteA.1.0.0.260430-1
      */
     @Transient
     public String getFullVersion() {

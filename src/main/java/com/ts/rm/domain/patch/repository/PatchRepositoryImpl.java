@@ -42,15 +42,15 @@ public class PatchRepositoryImpl implements PatchRepositoryCustom {
     }
 
     @Override
-    public Page<Patch> findAllWithFilters(String projectId, String releaseType, String customerCode, Pageable pageable) {
-        // 1. Content 쿼리 (customer LEFT JOIN으로 정렬 지원)
+    public Page<Patch> findAllWithFilters(String projectId, String releaseType, String siteCode, Pageable pageable) {
+        // 1. Content 쿼리 (site LEFT JOIN으로 정렬 지원)
         JPAQuery<Patch> contentQuery = queryFactory
                 .selectFrom(patch)
-                .leftJoin(patch.customer).fetchJoin()
+                .leftJoin(patch.site).fetchJoin()
                 .where(
                         projectIdCondition(projectId),
                         releaseTypeCondition(releaseType),
-                        customerCodeCondition(customerCode)
+                        siteCodeCondition(siteCode)
                 );
 
         // 2. Count 쿼리
@@ -60,7 +60,7 @@ public class PatchRepositoryImpl implements PatchRepositoryCustom {
                 .where(
                         projectIdCondition(projectId),
                         releaseTypeCondition(releaseType),
-                        customerCodeCondition(customerCode)
+                        siteCodeCondition(siteCode)
                 );
 
         // 3. 정렬 필드 매핑
@@ -71,7 +71,7 @@ public class PatchRepositoryImpl implements PatchRepositoryCustom {
                 "fromVersion", patch.fromVersion,
                 "toVersion", patch.toVersion,
                 "createdAt", patch.createdAt,
-                "customerName", patch.customer.customerName
+                "siteName", patch.site.siteName
         );
 
         // 4. 페이징 적용
@@ -104,11 +104,11 @@ public class PatchRepositoryImpl implements PatchRepositoryCustom {
     }
 
     /**
-     * 고객사 코드 조건
+     * 사이트 코드 조건
      */
-    private BooleanExpression customerCodeCondition(String customerCode) {
-        return (customerCode != null && !customerCode.isBlank())
-                ? patch.customer.customerCode.eq(customerCode)
+    private BooleanExpression siteCodeCondition(String siteCode) {
+        return (siteCode != null && !siteCode.isBlank())
+                ? patch.site.siteCode.eq(siteCode)
                 : null;
     }
 

@@ -1,8 +1,8 @@
 package com.ts.rm.domain.analytics.controller;
 
 import com.ts.rm.domain.analytics.dto.AnalyticsDto.MonthlyPatchResponse;
-import com.ts.rm.domain.analytics.dto.AnalyticsDto.TopCustomersResponse;
-import com.ts.rm.domain.analytics.dto.AnalyticsDto.VersionCustomerDistributionResponse;
+import com.ts.rm.domain.analytics.dto.AnalyticsDto.TopSitesResponse;
+import com.ts.rm.domain.analytics.dto.AnalyticsDto.VersionSiteDistributionResponse;
 import com.ts.rm.global.response.ApiResponse;
 import com.ts.rm.global.response.SwaggerResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -22,24 +22,24 @@ import org.springframework.web.bind.annotation.RequestParam;
 public interface AnalyticsControllerDocs {
 
     @Operation(
-            summary = "고객사별 패치 Top-N 조회",
-            description = "프로젝트별 최근 n개월간 패치가 가장 많이 나간 고객사 Top-N을 조회합니다.\n\n"
+            summary = "사이트별 패치 Top-N 조회",
+            description = "프로젝트별 최근 n개월간 패치가 가장 많이 나간 사이트 Top-N을 조회합니다.\n\n"
                     + "**파라미터**:\n"
                     + "- `months`: 조회 기간 (개월, 기본값: 6)\n"
                     + "- `topN`: 상위 N개 (기본값: 5)\n\n"
                     + "**참고**:\n"
-                    + "- CUSTOM 타입 패치만 집계됩니다 (STANDARD는 고객사 정보 없음)\n"
+                    + "- CUSTOM 타입 패치만 집계됩니다 (STANDARD는 사이트 정보 없음)\n"
                     + "- 패치 건수 기준 내림차순 정렬",
             responses = @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "200",
                     description = "성공",
                     content = @Content(
                             mediaType = "application/json",
-                            schema = @Schema(implementation = TopCustomersApiResponse.class)
+                            schema = @Schema(implementation = TopSitesApiResponse.class)
                     )
             )
     )
-    ApiResponse<TopCustomersResponse> getTopCustomersByPatchCount(
+    ApiResponse<TopSitesResponse> getTopSitesByPatchCount(
             @Parameter(description = "프로젝트 ID", required = true, example = "infraeye2")
             @PathVariable String projectId,
 
@@ -56,10 +56,10 @@ public interface AnalyticsControllerDocs {
                     + "**파라미터**:\n"
                     + "- `months`: 조회 기간 (개월, 기본값: 6)\n\n"
                     + "**참고**:\n"
-                    + "- CUSTOM 타입 패치만 집계 (고객사별 통계)\n"
+                    + "- CUSTOM 타입 패치만 집계 (사이트별 통계)\n"
                     + "- 연월(YYYY-MM) 기준 오름차순 정렬\n"
                     + "- 패치가 없는 월/고객은 0으로 표시\n"
-                    + "- customerCounts는 Map<String, Long> 형태로 고객사명을 키로 사용",
+                    + "- siteCounts는 Map<String, Long> 형태로 사이트명을 키로 사용",
             responses = @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "200",
                     description = "성공",
@@ -73,11 +73,11 @@ public interface AnalyticsControllerDocs {
                                               "status": "success",
                                               "data": {
                                                 "months": 6,
-                                                "customers": ["A회사", "B회사", "C회사"],
+                                                "sites": ["A회사", "B회사", "C회사"],
                                                 "monthly": [
                                                   {
                                                     "yearMonth": "2025-07",
-                                                    "customerCounts": {
+                                                    "siteCounts": {
                                                       "A회사": 3,
                                                       "B회사": 2,
                                                       "C회사": 0
@@ -85,7 +85,7 @@ public interface AnalyticsControllerDocs {
                                                   },
                                                   {
                                                     "yearMonth": "2025-08",
-                                                    "customerCounts": {
+                                                    "siteCounts": {
                                                       "A회사": 2,
                                                       "B회사": 0,
                                                       "C회사": 1
@@ -93,7 +93,7 @@ public interface AnalyticsControllerDocs {
                                                   },
                                                   {
                                                     "yearMonth": "2025-09",
-                                                    "customerCounts": {
+                                                    "siteCounts": {
                                                       "A회사": 5,
                                                       "B회사": 3,
                                                       "C회사": 2
@@ -101,7 +101,7 @@ public interface AnalyticsControllerDocs {
                                                   },
                                                   {
                                                     "yearMonth": "2025-10",
-                                                    "customerCounts": {
+                                                    "siteCounts": {
                                                       "A회사": 1,
                                                       "B회사": 4,
                                                       "C회사": 0
@@ -109,7 +109,7 @@ public interface AnalyticsControllerDocs {
                                                   },
                                                   {
                                                     "yearMonth": "2025-11",
-                                                    "customerCounts": {
+                                                    "siteCounts": {
                                                       "A회사": 4,
                                                       "B회사": 1,
                                                       "C회사": 3
@@ -117,7 +117,7 @@ public interface AnalyticsControllerDocs {
                                                   },
                                                   {
                                                     "yearMonth": "2025-12",
-                                                    "customerCounts": {
+                                                    "siteCounts": {
                                                       "A회사": 2,
                                                       "B회사": 2,
                                                       "C회사": 1
@@ -140,35 +140,35 @@ public interface AnalyticsControllerDocs {
     );
 
     @Operation(
-            summary = "버전별 고객사 분포 조회",
-            description = "각 고객사의 최신 완료 patch_history.to_version 을 기준으로 버전별로 고객사를 그룹화하여 반환합니다.\n\n"
+            summary = "버전별 사이트 분포 조회",
+            description = "각 사이트의 최신 완료 patch_history.to_version 을 기준으로 버전별로 사이트를 그룹화하여 반환합니다.\n\n"
                     + "**참고**:\n"
-                    + "- CUSTOM 타입 패치만 집계 (STANDARD 는 고객사 정보 없음)\n"
+                    + "- CUSTOM 타입 패치만 집계 (STANDARD 는 사이트 정보 없음)\n"
                     + "- 버전 내림차순 정렬",
             responses = @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "200",
                     description = "성공",
                     content = @Content(
                             mediaType = "application/json",
-                            schema = @Schema(implementation = VersionCustomerDistributionApiResponse.class)
+                            schema = @Schema(implementation = VersionSiteDistributionApiResponse.class)
                     )
             )
     )
-    ApiResponse<VersionCustomerDistributionResponse> getVersionCustomerDistribution(
+    ApiResponse<VersionSiteDistributionResponse> getVersionSiteDistribution(
             @Parameter(description = "프로젝트 ID", required = true, example = "infraeye2")
             @PathVariable String projectId
     );
 
     /**
-     * Swagger 스키마용 wrapper 클래스 - 고객사 Top-N 응답
+     * Swagger 스키마용 wrapper 클래스 - 사이트 Top-N 응답
      */
-    @Schema(description = "고객사 Top-N API 응답")
-    class TopCustomersApiResponse {
+    @Schema(description = "사이트 Top-N API 응답")
+    class TopSitesApiResponse {
         @Schema(description = "응답 상태", example = "success")
         public String status;
 
-        @Schema(description = "고객사 Top-N 데이터")
-        public TopCustomersResponse data;
+        @Schema(description = "사이트 Top-N 데이터")
+        public TopSitesResponse data;
     }
 
     /**
@@ -184,14 +184,14 @@ public interface AnalyticsControllerDocs {
     }
 
     /**
-     * Swagger 스키마용 wrapper 클래스 - 버전별 고객사 분포 응답
+     * Swagger 스키마용 wrapper 클래스 - 버전별 사이트 분포 응답
      */
-    @Schema(description = "버전별 고객사 분포 API 응답")
-    class VersionCustomerDistributionApiResponse {
+    @Schema(description = "버전별 사이트 분포 API 응답")
+    class VersionSiteDistributionApiResponse {
         @Schema(description = "응답 상태", example = "success")
         public String status;
 
-        @Schema(description = "버전별 고객사 분포 데이터")
-        public VersionCustomerDistributionResponse data;
+        @Schema(description = "버전별 사이트 분포 데이터")
+        public VersionSiteDistributionResponse data;
     }
 }

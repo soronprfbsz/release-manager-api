@@ -170,7 +170,7 @@ public class ReleaseFileSyncAdapter implements FileSyncAdapter {
      * <p>경로 형식 (createDirectoryStructure / createCustomVersionDirectory 참조):
      * <ul>
      *   <li>Standard: versions/{projectId}/standard/{majorMinor}/{version}/...</li>
-     *   <li>Custom:   versions/{projectId}/custom/{customerCode}/{majorMinor}/{version}/...</li>
+     *   <li>Custom:   versions/{projectId}/custom/{siteCode}/{majorMinor}/{version}/...</li>
      * </ul>
      *
      * @param filePath 확인할 파일 경로
@@ -203,17 +203,17 @@ public class ReleaseFileSyncAdapter implements FileSyncAdapter {
             return releaseVersionRepository.existsByProject_ProjectIdAndReleaseTypeAndVersion(
                     projectId, "STANDARD", version);
         } else if ("custom".equals(releaseType)) {
-            // Custom: versions/{projectId}/custom/{customerCode}/{majorMinor}/{version}/...
+            // Custom: versions/{projectId}/custom/{siteCode}/{majorMinor}/{version}/...
             if (pathParts.length < 6) {
                 return false;
             }
-            String customerCode = pathParts[3];
+            String siteCode = pathParts[3];
             String version = pathParts[5];
             if (!isValidVersionFormat(version)) {
                 return false;
             }
-            return releaseVersionRepository.existsByProject_ProjectIdAndReleaseTypeAndCustomer_CustomerCodeAndVersion(
-                    projectId, "CUSTOM", customerCode, version);
+            return releaseVersionRepository.existsByProject_ProjectIdAndReleaseTypeAndSite_SiteCodeAndVersion(
+                    projectId, "CUSTOM", siteCode, version);
         }
 
         return false;
@@ -250,7 +250,7 @@ public class ReleaseFileSyncAdapter implements FileSyncAdapter {
                     .map(ReleaseVersion::getReleaseVersionId)
                     .orElse(null);
         }
-        // custom 은 별도 매칭 메서드(customer + version) 가 필요. 향후 운영 케이스 발생 시 보강.
+        // custom 은 별도 매칭 메서드(site + version) 가 필요. 향후 운영 케이스 발생 시 보강.
         return null;
     }
 

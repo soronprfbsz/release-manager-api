@@ -18,7 +18,7 @@ public interface PublishingDtoMapper {
      * Entity -> SimpleResponse 변환
      * 주의: htmlFiles는 PublishingService에서 직접 처리 (커스텀 URL 생성 로직 필요)
      */
-    @Mapping(target = "customerName", source = "customer.customerName")
+    @Mapping(target = "siteName", source = "site.siteName")
     @Mapping(target = "fileCount", expression = "java(publishing.getFiles() != null ? publishing.getFiles().size() : 0)")
     @Mapping(target = "htmlFiles", ignore = true)
     PublishingDto.SimpleResponse toSimpleResponse(Publishing publishing);

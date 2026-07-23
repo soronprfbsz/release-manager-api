@@ -67,7 +67,7 @@ class DashboardServiceTest {
             "DELETE FROM release_file",
             "DELETE FROM release_version_hierarchy",
             "DELETE FROM release_version",
-            "DELETE FROM customer"
+            "DELETE FROM site"
     })
     void getRecentData_EmptyData() {
         // given - 테스트 데이터 없는 상태

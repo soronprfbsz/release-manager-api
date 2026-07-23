@@ -1,6 +1,6 @@
 package com.ts.rm.domain.releaseversion.service;
 
-import com.ts.rm.domain.customer.entity.Customer;
+import com.ts.rm.domain.site.entity.Site;
 import com.ts.rm.domain.releaseversion.entity.ReleaseVersion;
 import com.ts.rm.domain.releaseversion.util.VersionParser.VersionInfo;
 import com.ts.rm.global.exception.BusinessException;
@@ -38,7 +38,7 @@ public class ReleaseVersionFileSystemService {
      * versions/{projectId}/{type}/{majorMinor}.x/{version}/cratedb/
      * </pre>
      */
-    public void createDirectoryStructure(ReleaseVersion version, Customer customer) {
+    public void createDirectoryStructure(ReleaseVersion version, Site site) {
         try {
             String projectId = version.getProject() != null ? version.getProject().getProjectId() : "infraeye2";
             String basePath;
@@ -49,11 +49,11 @@ public class ReleaseVersionFileSystemService {
                         version.getMajorMinor(),
                         version.getVersion());
             } else {
-                // CUSTOM인 경우 고객사 코드 사용
-                String customerCode = customer != null ? customer.getCustomerCode() : "unknown";
+                // CUSTOM인 경우 사이트 코드 사용
+                String siteCode = site != null ? site.getSiteCode() : "unknown";
                 basePath = String.format("versions/%s/custom/%s/%s/%s",
                         projectId,
-                        customerCode,
+                        siteCode,
                         version.getMajorMinor(),
                         version.getVersion());
             }
@@ -99,16 +99,16 @@ public class ReleaseVersionFileSystemService {
      * 커스텀 버전 디렉토리 생성
      *
      * @param projectId        프로젝트 ID
-     * @param customerCode     고객사 코드
+     * @param siteCode     사이트 코드
      * @param customMajorMinor 커스텀 메이저.마이너 (예: 1.0.x)
      * @param customVersion    커스텀 버전 (예: 1.0.0)
      * @return 생성된 버전 경로
      */
-    public Path createCustomVersionDirectory(String projectId, String customerCode,
+    public Path createCustomVersionDirectory(String projectId, String siteCode,
                                               String customMajorMinor, String customVersion) throws IOException {
-        // 경로: release-manager/versions/{projectId}/custom/{customerCode}/{customMajorMinor}/{customVersion}/
+        // 경로: release-manager/versions/{projectId}/custom/{siteCode}/{customMajorMinor}/{customVersion}/
         Path versionPath = Paths.get(baseReleasePath, "versions", projectId, "custom",
-                customerCode, customMajorMinor, customVersion);
+                siteCode, customMajorMinor, customVersion);
 
         Files.createDirectories(versionPath);
         log.info("커스텀 버전 디렉토리 생성: {}", versionPath);
@@ -163,19 +163,19 @@ public class ReleaseVersionFileSystemService {
                     version.getMajorMinor(), version.getVersion());
         }
 
-        String customerCode = version.getCustomer() != null
-                ? version.getCustomer().getCustomerCode()
+        String siteCode = version.getSite() != null
+                ? version.getSite().getSiteCode()
                 : "unknown";
 
         // 운영 ZIP 생성 레이아웃 (custom majorMinor) — getCustomMajorMinor 는 커스텀 버전 숫자가
         // 모두 있을 때만 값을 주므로 null 가드.
         Path customLayout = version.getCustomMajorMinor() != null
                 ? Paths.get(baseReleasePath, "versions", projectId, "custom",
-                        customerCode, version.getCustomMajorMinor(), version.getVersion())
+                        siteCode, version.getCustomMajorMinor(), version.getVersion())
                 : null;
         // 레거시 비-ZIP 생성 레이아웃 (base majorMinor)
         Path legacyLayout = Paths.get(baseReleasePath, "versions", projectId, "custom",
-                customerCode, version.getMajorMinor(), version.getVersion());
+                siteCode, version.getMajorMinor(), version.getVersion());
 
         if (customLayout != null && Files.exists(customLayout)) {
             return customLayout;
@@ -334,13 +334,13 @@ public class ReleaseVersionFileSystemService {
                         hotfixBaseVersion.getVersion(),
                         hotfixVersion.getHotfixVersion());
             } else {
-                // CUSTOM인 경우 고객사 코드 사용
-                String customerCode = hotfixBaseVersion.getCustomer() != null
-                        ? hotfixBaseVersion.getCustomer().getCustomerCode()
+                // CUSTOM인 경우 사이트 코드 사용
+                String siteCode = hotfixBaseVersion.getSite() != null
+                        ? hotfixBaseVersion.getSite().getSiteCode()
                         : "unknown";
                 basePath = String.format("versions/%s/custom/%s/%s/%s/hotfix/%d",
                         projectId,
-                        customerCode,
+                        siteCode,
                         hotfixBaseVersion.getMajorMinor(),
                         hotfixBaseVersion.getVersion(),
                         hotfixVersion.getHotfixVersion());
@@ -382,11 +382,11 @@ public class ReleaseVersionFileSystemService {
                     hotfixBaseVersion.getMajorMinor(), hotfixBaseVersion.getVersion(),
                     "hotfix", String.valueOf(hotfixVersion.getHotfixVersion()));
         } else {
-            String customerCode = hotfixBaseVersion.getCustomer() != null
-                    ? hotfixBaseVersion.getCustomer().getCustomerCode()
+            String siteCode = hotfixBaseVersion.getSite() != null
+                    ? hotfixBaseVersion.getSite().getSiteCode()
                     : "unknown";
             hotfixPath = Paths.get(baseReleasePath, "versions", projectId, "custom",
-                    customerCode, hotfixBaseVersion.getMajorMinor(), hotfixBaseVersion.getVersion(),
+                    siteCode, hotfixBaseVersion.getMajorMinor(), hotfixBaseVersion.getVersion(),
                     "hotfix", String.valueOf(hotfixVersion.getHotfixVersion()));
         }
 
@@ -416,7 +416,7 @@ public class ReleaseVersionFileSystemService {
      *
      * <pre>
      * STANDARD: versions/{projectId}/standard/{majorMinor}/{version}/builds/{buildVersion}-{iteration}
-     * CUSTOM:   versions/{projectId}/custom/{customerCode}/{majorMinor}/{version}/builds/{buildVersion}-{iteration}
+     * CUSTOM:   versions/{projectId}/custom/{siteCode}/{majorMinor}/{version}/builds/{buildVersion}-{iteration}
      * </pre>
      *
      * @param buildVersionEntity 빌드 버전 엔티티 (buildBaseVersion / buildVersion / buildIteration 포함)
@@ -439,11 +439,11 @@ public class ReleaseVersionFileSystemService {
                     "builds", dirName);
         }
 
-        String customerCode = baseVersion.getCustomer() != null
-                ? baseVersion.getCustomer().getCustomerCode()
+        String siteCode = baseVersion.getSite() != null
+                ? baseVersion.getSite().getSiteCode()
                 : "unknown";
         return Paths.get(baseReleasePath, "versions", projectId, "custom",
-                customerCode, baseVersion.getMajorMinor(), baseVersion.getVersion(),
+                siteCode, baseVersion.getMajorMinor(), baseVersion.getVersion(),
                 "builds", dirName);
     }
 

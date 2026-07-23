@@ -17,9 +17,9 @@ public interface PublishingRepository extends JpaRepository<Publishing, Long>, P
     List<Publishing> findByPublishingCategoryOrderBySortOrderAscCreatedAtDesc(String publishingCategory);
 
     /**
-     * 고객사별 퍼블리싱 조회
+     * 사이트별 퍼블리싱 조회
      */
-    List<Publishing> findByCustomer_CustomerIdOrderBySortOrderAscCreatedAtDesc(Long customerId);
+    List<Publishing> findBySite_SiteIdOrderBySortOrderAscCreatedAtDesc(Long siteId);
 
 
     /**

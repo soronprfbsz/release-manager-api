@@ -63,12 +63,12 @@ public interface PatchRepository extends JpaRepository<Patch, Long>, PatchReposi
     List<Patch> findAllByReleaseTypeOrderByCreatedAtDesc(String releaseType);
 
     /**
-     * 고객사별 패치 조회 (최신순)
+     * 사이트별 패치 조회 (최신순)
      *
-     * @param customerId 고객사 ID
+     * @param siteId 사이트 ID
      * @return 패치 목록
      */
-    List<Patch> findAllByCustomer_CustomerIdOrderByCreatedAtDesc(Long customerId);
+    List<Patch> findAllBySite_SiteIdOrderByCreatedAtDesc(Long siteId);
 
     /**
      * 버전 범위로 패치 조회

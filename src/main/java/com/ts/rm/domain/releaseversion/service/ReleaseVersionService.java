@@ -1,8 +1,8 @@
 package com.ts.rm.domain.releaseversion.service;
 
 import com.ts.rm.domain.account.entity.Account;
-import com.ts.rm.domain.customer.entity.Customer;
-import com.ts.rm.domain.customer.repository.CustomerRepository;
+import com.ts.rm.domain.site.entity.Site;
+import com.ts.rm.domain.site.repository.SiteRepository;
 import com.ts.rm.domain.project.entity.Project;
 import com.ts.rm.domain.project.repository.ProjectRepository;
 import com.ts.rm.domain.releasefile.entity.ReleaseFile;
@@ -43,7 +43,7 @@ public class ReleaseVersionService {
     private final ReleaseVersionRepository releaseVersionRepository;
     private final ReleaseFileRepository releaseFileRepository;
     private final ReleaseVersionHierarchyRepository hierarchyRepository;
-    private final CustomerRepository customerRepository;
+    private final SiteRepository siteRepository;
     private final ProjectRepository projectRepository;
     private final AccountLookupService accountLookupService;
     private final ReleaseVersionDtoMapper mapper;
@@ -76,20 +76,20 @@ public class ReleaseVersionService {
     @Transactional
     public ReleaseVersionDto.DetailResponse createCustomVersion(
             ReleaseVersionDto.CreateRequest request) {
-        log.info("Creating custom release version: {} for customerId: {}",
-                request.version(), request.customerId());
+        log.info("Creating custom release version: {} for siteId: {}",
+                request.version(), request.siteId());
 
-        // 고객사 ID 필수 검증
-        if (request.customerId() == null) {
-            throw new BusinessException(ErrorCode.CUSTOMER_ID_REQUIRED);
+        // 사이트 ID 필수 검증
+        if (request.siteId() == null) {
+            throw new BusinessException(ErrorCode.SITE_ID_REQUIRED);
         }
 
-        // Customer 조회
-        Customer customer = customerRepository.findById(request.customerId())
-                .orElseThrow(() -> new BusinessException(ErrorCode.CUSTOMER_NOT_FOUND));
+        // Site 조회
+        Site site = siteRepository.findById(request.siteId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.SITE_NOT_FOUND));
 
         // 버전 생성
-        return createVersion("CUSTOM", customer, request);
+        return createVersion("CUSTOM", site, request);
     }
 
     /**
@@ -270,7 +270,7 @@ public class ReleaseVersionService {
      * 공통 버전 생성 로직
      */
     private ReleaseVersionDto.DetailResponse createVersion(String releaseType,
-            Customer customer, ReleaseVersionDto.CreateRequest request) {
+            Site site, ReleaseVersionDto.CreateRequest request) {
 
         // 프로젝트 ID 필수 검증
         if (request.projectId() == null || request.projectId().isBlank()) {
@@ -297,7 +297,7 @@ public class ReleaseVersionService {
         ReleaseVersion version = ReleaseVersion.builder()
                 .project(project)
                 .releaseType(releaseType)
-                .customer(customer)
+                .site(site)
                 .version(request.version())
                 .majorVersion(versionInfo.getMajorVersion())
                 .minorVersion(versionInfo.getMinorVersion())
@@ -317,7 +317,7 @@ public class ReleaseVersionService {
         treeService.createHierarchyForNewVersion(savedVersion, releaseType);
 
         // 디렉토리 구조 생성
-        fileSystemService.createDirectoryStructure(savedVersion, customer);
+        fileSystemService.createDirectoryStructure(savedVersion, site);
 
         log.info("Release version created successfully with id: {}, projectId: {}",
                 savedVersion.getReleaseVersionId(), project.getProjectId());
@@ -358,7 +358,7 @@ public class ReleaseVersionService {
                 response.releaseVersionId(),
                 response.projectId(),
                 response.releaseType(),
-                response.customerCode(),
+                response.siteCode(),
                 response.version(),
                 response.hotfixVersion(),      // hotfixVersion
                 response.isHotfix(),           // isHotfix
@@ -474,7 +474,7 @@ public class ReleaseVersionService {
         ReleaseVersion hotfixVersion = ReleaseVersion.builder()
                 .project(baseVersion.getProject())
                 .releaseType(baseVersion.getReleaseType())
-                .customer(baseVersion.getCustomer())
+                .site(baseVersion.getSite())
                 .version(baseVersion.getVersion())  // 기본 버전은 동일
                 .majorVersion(baseVersion.getMajorVersion())
                 .minorVersion(baseVersion.getMinorVersion())
@@ -713,7 +713,7 @@ public class ReleaseVersionService {
         ReleaseVersion build = ReleaseVersion.builder()
                 .project(baseVersion.getProject())
                 .releaseType(baseVersion.getReleaseType())
-                .customer(baseVersion.getCustomer())
+                .site(baseVersion.getSite())
                 .version(baseVersion.getVersion())
                 .majorVersion(baseVersion.getMajorVersion())
                 .minorVersion(baseVersion.getMinorVersion())

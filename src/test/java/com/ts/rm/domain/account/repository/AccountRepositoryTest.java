@@ -167,7 +167,7 @@ class AccountRepositoryTest {
      * JPA Auditing 및 QueryDSL 설정
      *
      * <p>Account 도메인은 QueryDSL Custom을 사용하지 않지만,
-     * <p>다른 Repository들(Customer, ReleaseVersion 등)이 아직 Custom Impl을 사용하므로
+     * <p>다른 Repository들(Site, ReleaseVersion 등)이 아직 Custom Impl을 사용하므로
      * <p>JPAQueryFactory 빈이 필요함
      */
     @org.springframework.boot.test.context.TestConfiguration

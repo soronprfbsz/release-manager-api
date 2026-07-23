@@ -72,8 +72,8 @@ public class ReleaseVersionHierarchyRepositoryImpl implements
     }
 
     @Override
-    public List<ReleaseVersion> findAllByReleaseTypeAndCustomerWithHierarchy(String releaseType,
-            String customerCode) {
+    public List<ReleaseVersion> findAllByReleaseTypeAndSiteWithHierarchy(String releaseType,
+            String siteCode) {
         QReleaseVersion rv = QReleaseVersion.releaseVersion;
         QReleaseVersionHierarchy h = QReleaseVersionHierarchy.releaseVersionHierarchy;
 
@@ -81,13 +81,13 @@ public class ReleaseVersionHierarchyRepositoryImpl implements
                 .selectDistinct(rv)
                 .from(h)
                 .innerJoin(h.descendant, rv)
-                .leftJoin(rv.customer).fetchJoin()
+                .leftJoin(rv.site).fetchJoin()
                 .leftJoin(rv.creator).fetchJoin()
                 .leftJoin(rv.approver).fetchJoin()
                 .where(
                         h.depth.eq(0),
                         rv.releaseType.eq(releaseType),
-                        rv.customer.customerCode.eq(customerCode)
+                        rv.site.siteCode.eq(siteCode)
                 )
                 .orderBy(
                         rv.majorVersion.asc(),
@@ -98,8 +98,8 @@ public class ReleaseVersionHierarchyRepositoryImpl implements
     }
 
     @Override
-    public List<ReleaseVersion> findAllByProjectIdAndReleaseTypeAndCustomerWithHierarchy(
-            String projectId, String releaseType, String customerCode) {
+    public List<ReleaseVersion> findAllByProjectIdAndReleaseTypeAndSiteWithHierarchy(
+            String projectId, String releaseType, String siteCode) {
         QReleaseVersion rv = QReleaseVersion.releaseVersion;
         QReleaseVersionHierarchy h = QReleaseVersionHierarchy.releaseVersionHierarchy;
 
@@ -108,14 +108,14 @@ public class ReleaseVersionHierarchyRepositoryImpl implements
                 .from(h)
                 .innerJoin(h.descendant, rv)
                 .leftJoin(rv.project).fetchJoin()
-                .leftJoin(rv.customer).fetchJoin()
+                .leftJoin(rv.site).fetchJoin()
                 .leftJoin(rv.creator).fetchJoin()
                 .leftJoin(rv.approver).fetchJoin()
                 .where(
                         h.depth.eq(0),
                         rv.project.projectId.eq(projectId),
                         rv.releaseType.eq(releaseType),
-                        rv.customer.customerCode.eq(customerCode)
+                        rv.site.siteCode.eq(siteCode)
                 )
                 .orderBy(
                         rv.majorVersion.asc(),

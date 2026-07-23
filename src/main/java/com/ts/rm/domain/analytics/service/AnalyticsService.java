@@ -1,14 +1,14 @@
 package com.ts.rm.domain.analytics.service;
 
-import com.ts.rm.domain.analytics.dto.AnalyticsDto.CustomerInfo;
-import com.ts.rm.domain.analytics.dto.AnalyticsDto.CustomerPatchCount;
-import com.ts.rm.domain.analytics.dto.AnalyticsDto.MonthlyCustomerPatchCount;
-import com.ts.rm.domain.analytics.dto.AnalyticsDto.MonthlyCustomerPatchRaw;
+import com.ts.rm.domain.analytics.dto.AnalyticsDto.SiteInfo;
+import com.ts.rm.domain.analytics.dto.AnalyticsDto.SitePatchCount;
+import com.ts.rm.domain.analytics.dto.AnalyticsDto.MonthlySitePatchCount;
+import com.ts.rm.domain.analytics.dto.AnalyticsDto.MonthlySitePatchRaw;
 import com.ts.rm.domain.analytics.dto.AnalyticsDto.MonthlyPatchResponse;
-import com.ts.rm.domain.analytics.dto.AnalyticsDto.TopCustomersResponse;
-import com.ts.rm.domain.analytics.dto.AnalyticsDto.VersionCustomerDistributionResponse;
-import com.ts.rm.domain.analytics.dto.AnalyticsDto.VersionCustomerGroup;
-import com.ts.rm.domain.analytics.dto.AnalyticsDto.VersionCustomerRaw;
+import com.ts.rm.domain.analytics.dto.AnalyticsDto.TopSitesResponse;
+import com.ts.rm.domain.analytics.dto.AnalyticsDto.VersionSiteDistributionResponse;
+import com.ts.rm.domain.analytics.dto.AnalyticsDto.VersionSiteGroup;
+import com.ts.rm.domain.analytics.dto.AnalyticsDto.VersionSiteRaw;
 import com.ts.rm.domain.analytics.repository.PatchAnalyticsRepository;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
@@ -39,26 +39,26 @@ public class AnalyticsService {
     private static final DateTimeFormatter YEAR_MONTH_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM");
 
     /**
-     * 프로젝트별 고객사별 패치 Top-N 조회
+     * 프로젝트별 사이트별 패치 Top-N 조회
      *
-     * <p>최근 n개월간 패치가 가장 많이 나간 고객사 Top-N을 조회합니다.
+     * <p>최근 n개월간 패치가 가장 많이 나간 사이트 Top-N을 조회합니다.
      *
      * @param projectId 프로젝트 ID
      * @param months    조회 기간 (개월)
      * @param topN      상위 N개
-     * @return 고객사별 패치 통계 응답
+     * @return 사이트별 패치 통계 응답
      */
-    public TopCustomersResponse getTopCustomersByPatchCount(String projectId, int months, int topN) {
-        log.info("프로젝트별 고객사별 패치 Top-{} 조회 - projectId: {}, 최근 {}개월", topN, projectId, months);
+    public TopSitesResponse getTopSitesByPatchCount(String projectId, int months, int topN) {
+        log.info("프로젝트별 사이트별 패치 Top-{} 조회 - projectId: {}, 최근 {}개월", topN, projectId, months);
 
         LocalDateTime startDate = LocalDateTime.now().minusMonths(months);
 
-        List<CustomerPatchCount> customers =
-                patchAnalyticsRepository.findTopCustomersByPatchCount(projectId, startDate, topN);
+        List<SitePatchCount> sites =
+                patchAnalyticsRepository.findTopSitesByPatchCount(projectId, startDate, topN);
 
-        log.info("고객사별 패치 통계 조회 완료 - 결과 건수: {}", customers.size());
+        log.info("사이트별 패치 통계 조회 완료 - 결과 건수: {}", sites.size());
 
-        return new TopCustomersResponse(months, topN, customers);
+        return new TopSitesResponse(months, topN, sites);
     }
 
     /**
@@ -76,8 +76,8 @@ public class AnalyticsService {
         LocalDateTime startDate = LocalDateTime.now().minusMonths(months);
 
         // 원본 데이터 조회
-        List<MonthlyCustomerPatchRaw> rawData =
-                patchAnalyticsRepository.findMonthlyCustomerPatchCounts(projectId, startDate);
+        List<MonthlySitePatchRaw> rawData =
+                patchAnalyticsRepository.findMonthlySitePatchCounts(projectId, startDate);
 
         // 데이터가 없으면 빈 응답 반환 (프론트엔드에서 nodata 처리 가능)
         if (rawData.isEmpty()) {
@@ -85,76 +85,76 @@ public class AnalyticsService {
             return new MonthlyPatchResponse(months, List.of(), List.of());
         }
 
-        // 고객사 목록 추출 (중복 제거, 순서 유지)
-        Set<String> customerSet = new LinkedHashSet<>();
-        for (MonthlyCustomerPatchRaw raw : rawData) {
-            customerSet.add(raw.customerName());
+        // 사이트 목록 추출 (중복 제거, 순서 유지)
+        Set<String> siteSet = new LinkedHashSet<>();
+        for (MonthlySitePatchRaw raw : rawData) {
+            siteSet.add(raw.siteName());
         }
-        List<String> customers = new ArrayList<>(customerSet);
+        List<String> sites = new ArrayList<>(siteSet);
 
         // 조회 기간의 모든 월 생성
         List<String> allMonths = generateAllMonths(months);
 
-        // 월별+고객별 데이터를 Map으로 변환 (yearMonth -> customerName -> count)
+        // 월별+고객별 데이터를 Map으로 변환 (yearMonth -> siteName -> count)
         Map<String, Map<String, Long>> monthlyDataMap = new LinkedHashMap<>();
         for (String yearMonth : allMonths) {
             monthlyDataMap.put(yearMonth, new LinkedHashMap<>());
         }
 
-        for (MonthlyCustomerPatchRaw raw : rawData) {
+        for (MonthlySitePatchRaw raw : rawData) {
             monthlyDataMap
                     .computeIfAbsent(raw.yearMonth(), k -> new LinkedHashMap<>())
-                    .put(raw.customerName(), raw.patchCount());
+                    .put(raw.siteName(), raw.patchCount());
         }
 
         // 응답 형식으로 변환 (없는 고객은 0으로 채움)
-        List<MonthlyCustomerPatchCount> monthly = new ArrayList<>();
+        List<MonthlySitePatchCount> monthly = new ArrayList<>();
         for (String yearMonth : allMonths) {
-            Map<String, Long> customerCounts = new LinkedHashMap<>();
-            for (String customer : customers) {
-                customerCounts.put(customer, monthlyDataMap.get(yearMonth).getOrDefault(customer, 0L));
+            Map<String, Long> siteCounts = new LinkedHashMap<>();
+            for (String site : sites) {
+                siteCounts.put(site, monthlyDataMap.get(yearMonth).getOrDefault(site, 0L));
             }
-            monthly.add(new MonthlyCustomerPatchCount(yearMonth, customerCounts));
+            monthly.add(new MonthlySitePatchCount(yearMonth, siteCounts));
         }
 
-        log.info("월별+고객별 패치 통계 조회 완료 - 월수: {}, 고객수: {}", monthly.size(), customers.size());
+        log.info("월별+고객별 패치 통계 조회 완료 - 월수: {}, 고객수: {}", monthly.size(), sites.size());
 
-        return new MonthlyPatchResponse(months, customers, monthly);
+        return new MonthlyPatchResponse(months, sites, monthly);
     }
 
     /**
-     * 프로젝트별 버전별 고객사 분포 조회
+     * 프로젝트별 버전별 사이트 분포 조회
      *
-     * <p>각 고객사의 최신 완료 patch_history.to_version 을 기준으로
-     * 버전별로 고객사를 그룹화하여 반환한다. version 정렬은 내림차순.
+     * <p>각 사이트의 최신 완료 patch_history.to_version 을 기준으로
+     * 버전별로 사이트를 그룹화하여 반환한다. version 정렬은 내림차순.
      *
      * @param projectId 프로젝트 ID
-     * @return 버전별 고객사 분포 응답
+     * @return 버전별 사이트 분포 응답
      */
-    public VersionCustomerDistributionResponse getVersionCustomerDistribution(String projectId) {
-        log.info("프로젝트별 버전별 고객사 분포 조회 - projectId: {}", projectId);
+    public VersionSiteDistributionResponse getVersionSiteDistribution(String projectId) {
+        log.info("프로젝트별 버전별 사이트 분포 조회 - projectId: {}", projectId);
 
-        List<VersionCustomerRaw> raw = patchAnalyticsRepository.findLatestVersionByCustomer(projectId);
+        List<VersionSiteRaw> raw = patchAnalyticsRepository.findLatestVersionBySite(projectId);
 
-        // version 별 고객사 그룹화
-        Map<String, List<CustomerInfo>> grouped = new LinkedHashMap<>();
-        for (VersionCustomerRaw r : raw) {
+        // version 별 사이트 그룹화
+        Map<String, List<SiteInfo>> grouped = new LinkedHashMap<>();
+        for (VersionSiteRaw r : raw) {
             grouped.computeIfAbsent(r.version(), k -> new ArrayList<>())
-                    .add(new CustomerInfo(r.customerId(), r.customerCode(), r.customerName()));
+                    .add(new SiteInfo(r.siteId(), r.siteCode(), r.siteName()));
         }
 
         // version 내림차순 정렬 (semver-aware 가벼운 비교)
-        List<VersionCustomerGroup> versions = new ArrayList<>(grouped.entrySet().stream()
-                .map(e -> new VersionCustomerGroup(e.getKey(), (long) e.getValue().size(), e.getValue()))
+        List<VersionSiteGroup> versions = new ArrayList<>(grouped.entrySet().stream()
+                .map(e -> new VersionSiteGroup(e.getKey(), (long) e.getValue().size(), e.getValue()))
                 .sorted((a, b) -> compareVersionDesc(a.version(), b.version()))
                 .toList());
 
-        log.info("버전별 고객사 분포 조회 완료 - 버전 수: {}", versions.size());
-        return new VersionCustomerDistributionResponse(versions);
+        log.info("버전별 사이트 분포 조회 완료 - 버전 수: {}", versions.size());
+        return new VersionSiteDistributionResponse(versions);
     }
 
     /**
-     * 버전 문자열을 숫자 segment 로 분해해 내림차순 비교. 1.1.0 / 1.1.0.260514-1 / 1.1.0-customerA.1.0.0 모두 처리.
+     * 버전 문자열을 숫자 segment 로 분해해 내림차순 비교. 1.1.0 / 1.1.0.260514-1 / 1.1.0-siteA.1.0.0 모두 처리.
      */
     private int compareVersionDesc(String a, String b) {
         String[] aParts = a.split("[.\\-]");

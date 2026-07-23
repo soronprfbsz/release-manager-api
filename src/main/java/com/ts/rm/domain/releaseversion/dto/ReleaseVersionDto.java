@@ -43,8 +43,8 @@ public final class ReleaseVersionDto {
             @Schema(description = "승인 여부", example = "false", defaultValue = "false")
             Boolean isApproved,
 
-            @Schema(description = "고객사 ID (커스텀 릴리즈인 경우)", example = "1")
-            Long customerId,
+            @Schema(description = "사이트 ID (커스텀 릴리즈인 경우)", example = "1")
+            Long siteId,
 
             @Schema(description = "커스텀 메이저 버전 (커스텀 릴리즈인 경우)", example = "1")
             Integer customMajorVersion,
@@ -91,8 +91,8 @@ public final class ReleaseVersionDto {
             @Schema(description = "릴리즈 타입", example = "standard")
             String releaseType,
 
-            @Schema(description = "고객사 코드 (커스텀인 경우)", example = "company_a")
-            String customerCode,
+            @Schema(description = "사이트 코드 (커스텀인 경우)", example = "company_a")
+            String siteCode,
 
             @Schema(description = "버전", example = "1.1.0")
             String version,
@@ -210,8 +210,8 @@ public final class ReleaseVersionDto {
             @Schema(description = "릴리즈 타입", example = "standard")
             String releaseType,
 
-            @Schema(description = "고객사 코드", example = "company_a")
-            String customerCode,
+            @Schema(description = "사이트 코드", example = "company_a")
+            String siteCode,
 
             @Schema(description = "버전", example = "1.1.0")
             String version,
@@ -293,8 +293,8 @@ public final class ReleaseVersionDto {
             @Schema(description = "릴리즈 타입", example = "STANDARD")
             String releaseType,
 
-            @Schema(description = "고객사 코드 (커스텀인 경우)", example = "company_a")
-            String customerCode,
+            @Schema(description = "사이트 코드 (커스텀인 경우)", example = "company_a")
+            String siteCode,
 
             @Schema(description = "메이저.마이너 그룹 목록")
             List<MajorMinorNode> majorMinorGroups
@@ -502,32 +502,32 @@ public final class ReleaseVersionDto {
     }
 
     /**
-     * 커스텀 릴리즈 버전 전체 트리 응답 (고객사별 그룹화)
+     * 커스텀 릴리즈 버전 전체 트리 응답 (사이트별 그룹화)
      */
     @Schema(description = "커스텀 릴리즈 버전 전체 트리 응답")
     public record CustomTreeResponse(
             @Schema(description = "릴리즈 타입", example = "CUSTOM")
             String releaseType,
 
-            @Schema(description = "고객사별 커스텀 버전 목록")
-            List<CustomerNode> customers
+            @Schema(description = "사이트별 커스텀 버전 목록")
+            List<SiteNode> sites
     ) {
 
     }
 
     /**
-     * 고객사 노드 (커스텀 트리의 최상위 노드)
+     * 사이트 노드 (커스텀 트리의 최상위 노드)
      */
-    @Schema(description = "고객사 노드")
-    public record CustomerNode(
-            @Schema(description = "고객사 ID", example = "1")
-            Long customerId,
+    @Schema(description = "사이트 노드")
+    public record SiteNode(
+            @Schema(description = "사이트 ID", example = "1")
+            Long siteId,
 
-            @Schema(description = "고객사 코드", example = "companyA")
-            String customerCode,
+            @Schema(description = "사이트 코드", example = "companyA")
+            String siteCode,
 
-            @Schema(description = "고객사명", example = "A회사")
-            String customerName,
+            @Schema(description = "사이트명", example = "A회사")
+            String siteName,
 
             @Schema(description = "기준 표준본 버전 ID", example = "5")
             Long customBaseVersionId,
@@ -658,11 +658,11 @@ public final class ReleaseVersionDto {
             @Size(max = 50, message = "프로젝트 ID는 50자 이하여야 합니다")
             String projectId,
 
-            @Schema(description = "고객사 ID", example = "1", required = true)
-            @NotNull(message = "고객사 ID는 필수입니다")
-            Long customerId,
+            @Schema(description = "사이트 ID", example = "1", required = true)
+            @NotNull(message = "사이트 ID는 필수입니다")
+            Long siteId,
 
-            @Schema(description = "기준 표준 버전 ID (파생 원본). 해당 고객사의 최초 커스텀 버전 생성 시 필수", example = "2")
+            @Schema(description = "기준 표준 버전 ID (파생 원본). 해당 사이트의 최초 커스텀 버전 생성 시 필수", example = "2")
             Long customBaseVersionId,
 
             @Schema(description = "커스텀 버전 (예: 1.0.0)", example = "1.0.0", required = true)
@@ -792,11 +792,11 @@ public final class ReleaseVersionDto {
             @Schema(description = "프로젝트 ID", example = "infraeye2")
             String projectId,
 
-            @Schema(description = "고객사 코드", example = "customerA")
-            String customerCode,
+            @Schema(description = "사이트 코드", example = "siteA")
+            String siteCode,
 
-            @Schema(description = "고객사명", example = "A회사")
-            String customerName,
+            @Schema(description = "사이트명", example = "A회사")
+            String siteName,
 
             @Schema(description = "기준 표준 버전 ID", example = "2")
             Long customBaseVersionId,

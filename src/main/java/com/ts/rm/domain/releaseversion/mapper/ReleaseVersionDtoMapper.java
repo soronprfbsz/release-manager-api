@@ -15,7 +15,7 @@ public interface ReleaseVersionDtoMapper {
 
     @Mapping(target = "projectId", source = "project.projectId")
     @Mapping(target = "releaseType", source = "releaseType")
-    @Mapping(target = "customerCode", source = "customer.customerCode")
+    @Mapping(target = "siteCode", source = "site.siteCode")
     @Mapping(target = "hotfixVersion", source = "hotfixVersion")
     @Mapping(target = "isHotfix", expression = "java(releaseVersion.isHotfix())")
     @Mapping(target = "buildVersion", source = "buildVersion")
@@ -41,7 +41,7 @@ public interface ReleaseVersionDtoMapper {
     @Mapping(target = "projectId", source = "project.projectId")
     @Mapping(target = "projectName", source = "project.projectName")
     @Mapping(target = "releaseType", source = "releaseType")
-    @Mapping(target = "customerCode", source = "customer.customerCode")
+    @Mapping(target = "siteCode", source = "site.siteCode")
     @Mapping(target = "hotfixVersion", source = "hotfixVersion")
     @Mapping(target = "isHotfix", expression = "java(releaseVersion.isHotfix())")
     @Mapping(target = "buildVersion", source = "buildVersion")

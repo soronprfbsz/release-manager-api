@@ -28,14 +28,14 @@ public final class PatchHistoryDto {
             @Schema(description = "릴리즈 타입", example = "STANDARD")
             String releaseType,
 
-            @Schema(description = "고객사 ID", example = "1")
-            Long customerId,
+            @Schema(description = "사이트 ID", example = "1")
+            Long siteId,
 
-            @Schema(description = "고객사 코드", example = "companyA")
-            String customerCode,
+            @Schema(description = "사이트 코드", example = "companyA")
+            String siteCode,
 
-            @Schema(description = "고객사명", example = "A 회사")
-            String customerName,
+            @Schema(description = "사이트명", example = "A 회사")
+            String siteName,
 
             @Schema(description = "시작 버전", example = "1.0.0")
             String fromVersion,

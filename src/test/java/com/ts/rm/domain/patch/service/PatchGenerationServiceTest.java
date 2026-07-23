@@ -13,8 +13,8 @@ import org.mockito.ArgumentCaptor;
 
 import com.ts.rm.domain.account.entity.Account;
 import com.ts.rm.domain.account.repository.AccountRepository;
-import com.ts.rm.domain.customer.repository.CustomerProjectRepository;
-import com.ts.rm.domain.customer.repository.CustomerRepository;
+import com.ts.rm.domain.site.repository.SiteProjectRepository;
+import com.ts.rm.domain.site.repository.SiteRepository;
 import com.ts.rm.domain.patch.dto.PatchDto;
 import com.ts.rm.domain.patch.entity.Patch;
 import com.ts.rm.domain.patch.entity.PatchHistory;
@@ -71,10 +71,10 @@ class PatchGenerationServiceTest {
     private ReleaseFileRepository releaseFileRepository;
 
     @Mock
-    private CustomerRepository customerRepository;
+    private SiteRepository siteRepository;
 
     @Mock
-    private CustomerProjectRepository customerProjectRepository;
+    private SiteProjectRepository siteProjectRepository;
 
     @Mock
     private AccountRepository accountRepository;

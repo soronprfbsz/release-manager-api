@@ -1,10 +1,10 @@
 package com.ts.rm.domain.patch.service;
 
-import com.ts.rm.domain.customer.entity.Customer;
-import com.ts.rm.domain.customer.entity.CustomerProject;
-import com.ts.rm.domain.customer.repository.CustomerProjectRepository;
-import com.ts.rm.domain.customer.repository.CustomerRepository;
-import com.ts.rm.domain.customer.service.CustomerSiteVersionService;
+import com.ts.rm.domain.site.entity.Site;
+import com.ts.rm.domain.site.entity.SiteProject;
+import com.ts.rm.domain.site.repository.SiteProjectRepository;
+import com.ts.rm.domain.site.repository.SiteRepository;
+import com.ts.rm.domain.site.service.SiteVersionService;
 import com.ts.rm.domain.patch.dto.PatchDto;
 import com.ts.rm.domain.patch.entity.Patch;
 import com.ts.rm.domain.patch.entity.PatchIncludedBuild;
@@ -58,11 +58,11 @@ public class PatchService {
     private final PatchGenerationService patchGenerationService;
     private final PatchDownloadService patchDownloadService;
     private final PatchHistoryService patchHistoryService;
-    private final CustomerSiteVersionService customerSiteVersionService;
+    private final SiteVersionService siteVersionService;
     private final ReleaseVersionRepository releaseVersionRepository;
     private final ReleaseVersionFileSystemService releaseVersionFileSystemService;
-    private final CustomerRepository customerRepository;
-    private final CustomerProjectRepository customerProjectRepository;
+    private final SiteRepository siteRepository;
+    private final SiteProjectRepository siteProjectRepository;
 
     @Value("${app.release.base-path:data/release-manager}")
     private String releaseBasePath;
@@ -72,11 +72,11 @@ public class PatchService {
      */
     @Transactional
     public PatchGenerationService.GenerateResult generatePatchByVersion(String projectId, String releaseType,
-            Long customerId, String fromVersion, String toVersion, String createdByEmail, String description,
+            Long siteId, String fromVersion, String toVersion, String createdByEmail, String description,
             Long engineerId, String patchName, PatchDto.BuildSelection buildSelection) {
         validateBuildSelection(buildSelection);
         return patchGenerationService.generatePatchByVersion(
-                projectId, releaseType, customerId, fromVersion, toVersion,
+                projectId, releaseType, siteId, fromVersion, toVersion,
                 createdByEmail, description, engineerId, patchName, buildSelection);
     }
 
@@ -85,11 +85,11 @@ public class PatchService {
      */
     @Transactional
     public PatchGenerationService.GenerateResult generatePatch(String projectId, Long fromVersionId,
-            Long toVersionId, Long customerId, String createdByEmail, String description, Long engineerId,
+            Long toVersionId, Long siteId, String createdByEmail, String description, Long engineerId,
             String patchName, PatchDto.BuildSelection buildSelection) {
         validateBuildSelection(buildSelection);
         return patchGenerationService.generatePatch(
-                projectId, fromVersionId, toVersionId, customerId,
+                projectId, fromVersionId, toVersionId, siteId,
                 createdByEmail, description, engineerId, patchName, buildSelection);
     }
 
@@ -125,14 +125,14 @@ public class PatchService {
      *
      * @param projectId    프로젝트 ID (null이면 전체)
      * @param releaseType  릴리즈 타입 (STANDARD/CUSTOM, null이면 전체)
-     * @param customerCode 고객사 코드 (null이면 전체)
+     * @param siteCode 사이트 코드 (null이면 전체)
      * @param pageable     페이징 정보
      * @return 패치 목록 페이지 (rowNumber 포함)
      */
     @Transactional(readOnly = true)
     public Page<PatchDto.ListResponse> listPatchesWithPaging(String projectId, String releaseType,
-            String customerCode, Pageable pageable) {
-        Page<Patch> patches = patchRepository.findAllWithFilters(projectId, releaseType, customerCode, pageable);
+            String siteCode, Pageable pageable) {
+        Page<Patch> patches = patchRepository.findAllWithFilters(projectId, releaseType, siteCode, pageable);
 
         // 페이징 결과의 patch_id 들에 대해 batch 1번으로 PatchIncludedBuild 행 조회 (N+1 방지)
         List<Long> patchIds = patches.getContent().stream()
@@ -153,8 +153,8 @@ public class PatchService {
                     base.patchId(),
                     base.projectId(),
                     base.releaseType(),
-                    base.customerCode(),
-                    base.customerName(),
+                    base.siteCode(),
+                    base.siteName(),
                     base.fromVersion(),
                     base.toVersion(),
                     base.patchName(),
@@ -244,7 +244,7 @@ public class PatchService {
      * <p>처리 순서:
      * <ol>
      *   <li>패치 이력(patch_history) 영구 저장 — 완료 시점 / 완료자 기록</li>
-     *   <li>CustomerProject.last_patched_* 갱신 (고객사 지정 패치인 경우만)</li>
+     *   <li>SiteProject.last_patched_* 갱신 (사이트 지정 패치인 경우만)</li>
      *   <li>디스크 패치 디렉토리 삭제</li>
      *   <li>patch_file row 삭제</li>
      * </ol>
@@ -269,11 +269,11 @@ public class PatchService {
         // 2. 패치 이력 영구 저장 (완료 시점)
         patchHistoryService.saveFromPatch(patch, completedBy, now);
 
-        // 3. 고객사 지정 패치인 경우 — CustomerProject 갱신 + 사이트 버전 upsert
-        if (patch.getCustomer() != null) {
-            updateCustomerProjectPatchInfo(patch.getCustomer(), patch.getProject(),
+        // 3. 사이트 지정 패치인 경우 — SiteProject 갱신 + 사이트 버전 upsert
+        if (patch.getSite() != null) {
+            updateSiteProjectPatchInfo(patch.getSite(), patch.getProject(),
                     patch.getToVersion(), now);
-            applyCustomerSiteVersions(patch, completedBy, now);
+            applySiteVersions(patch, completedBy, now);
         }
 
         // 4. 디스크 패치 디렉토리 삭제
@@ -299,32 +299,32 @@ public class PatchService {
     }
 
     /**
-     * CustomerProject 마지막 패치 정보 갱신
+     * SiteProject 마지막 패치 정보 갱신
      *
-     * <p>고객사-프로젝트 매핑이 없으면 새로 생성하고, 있으면 업데이트합니다.
+     * <p>사이트-프로젝트 매핑이 없으면 새로 생성하고, 있으면 업데이트합니다.
      * 패치 완료 시점에 호출됩니다.
      *
-     * @param customer    고객사
+     * @param site    사이트
      * @param project     프로젝트
      * @param toVersion   완료된 패치의 toVersion
      * @param completedAt 완료 일시
      */
-    private void updateCustomerProjectPatchInfo(Customer customer, Project project,
+    private void updateSiteProjectPatchInfo(Site site, Project project,
             String toVersion, LocalDateTime completedAt) {
-        CustomerProject customerProject = customerProjectRepository
-                .findByCustomer_CustomerIdAndProject_ProjectId(
-                        customer.getCustomerId(), project.getProjectId())
+        SiteProject siteProject = siteProjectRepository
+                .findBySite_SiteIdAndProject_ProjectId(
+                        site.getSiteId(), project.getProjectId())
                 .orElseGet(() -> {
-                    log.info("고객사-프로젝트 매핑 신규 생성 - customerId: {}, projectId: {}",
-                            customer.getCustomerId(), project.getProjectId());
-                    return CustomerProject.create(customer, project);
+                    log.info("사이트-프로젝트 매핑 신규 생성 - siteId: {}, projectId: {}",
+                            site.getSiteId(), project.getProjectId());
+                    return SiteProject.create(site, project);
                 });
 
-        customerProject.updateLastPatchInfo(toVersion, completedAt);
-        customerProjectRepository.save(customerProject);
+        siteProject.updateLastPatchInfo(toVersion, completedAt);
+        siteProjectRepository.save(siteProject);
 
-        log.info("CustomerProject 업데이트 완료 - customerId: {}, projectId: {}, lastPatchedVersion: {}",
-                customer.getCustomerId(), project.getProjectId(), toVersion);
+        log.info("SiteProject 업데이트 완료 - siteId: {}, projectId: {}, lastPatchedVersion: {}",
+                site.getSiteId(), project.getProjectId(), toVersion);
     }
 
     /**
@@ -342,23 +342,23 @@ public class PatchService {
      * @param updatedBy 갱신자 이메일
      * @param now       갱신 일시
      */
-    private void applyCustomerSiteVersions(Patch patch, String updatedBy, LocalDateTime now) {
-        Long customerId = patch.getCustomer().getCustomerId();
+    private void applySiteVersions(Patch patch, String updatedBy, LocalDateTime now) {
+        Long siteId = patch.getSite().getSiteId();
         String projectId = patch.getProject().getProjectId();
 
-        String baseVersion = customerSiteVersionService.extractBaseVersion(patch.getToVersion());
+        String baseVersion = siteVersionService.extractBaseVersion(patch.getToVersion());
 
-        List<CustomerSiteVersionService.BuildSnapshot> builds = List.of();
+        List<SiteVersionService.BuildSnapshot> builds = List.of();
         if (Boolean.TRUE.equals(patch.getIsBuildIncluded())) {
             builds = patchIncludedBuildRepository
                     .findAllByPatch_PatchIdOrderByPatchIncludedBuildIdAsc(patch.getPatchId())
                     .stream()
-                    .map(b -> new CustomerSiteVersionService.BuildSnapshot(
+                    .map(b -> new SiteVersionService.BuildSnapshot(
                             b.getKind(), b.getEngineName(), b.getFullVersion()))
                     .toList();
         }
-        customerSiteVersionService.applyComponentVersions(
-                customerId, projectId, baseVersion, builds, updatedBy, now);
+        siteVersionService.applyComponentVersions(
+                siteId, projectId, baseVersion, builds, updatedBy, now);
     }
 
     /**
@@ -422,23 +422,23 @@ public class PatchService {
     // ========================================
 
     /**
-     * 커스텀 버전 보유 고객사 목록 조회
+     * 커스텀 버전 보유 사이트 목록 조회
      *
      * @param projectId 프로젝트 ID
-     * @return 커스텀 버전이 있는 고객사 목록
+     * @return 커스텀 버전이 있는 사이트 목록
      */
     @Transactional(readOnly = true)
-    public List<PatchDto.CustomerWithCustomVersions> getCustomersWithCustomVersions(String projectId) {
-        log.info("커스텀 버전 보유 고객사 목록 조회 - projectId: {}", projectId);
+    public List<PatchDto.SiteWithCustomVersions> getSitesWithCustomVersions(String projectId) {
+        log.info("커스텀 버전 보유 사이트 목록 조회 - projectId: {}", projectId);
 
-        List<Long> customerIds = releaseVersionRepository.findCustomerIdsWithCustomVersions(projectId);
+        List<Long> siteIds = releaseVersionRepository.findSiteIdsWithCustomVersions(projectId);
 
-        return customerIds.stream()
-                .map(customerId -> customerRepository.findById(customerId)
-                        .map(customer -> new PatchDto.CustomerWithCustomVersions(
-                                customer.getCustomerId(),
-                                customer.getCustomerCode(),
-                                customer.getCustomerName()
+        return siteIds.stream()
+                .map(siteId -> siteRepository.findById(siteId)
+                        .map(site -> new PatchDto.SiteWithCustomVersions(
+                                site.getSiteId(),
+                                site.getSiteCode(),
+                                site.getSiteName()
                         ))
                         .orElse(null))
                 .filter(dto -> dto != null)
@@ -446,25 +446,25 @@ public class PatchService {
     }
 
     /**
-     * 고객사별 커스텀 버전 목록 조회 (셀렉트박스용)
+     * 사이트별 커스텀 버전 목록 조회 (셀렉트박스용)
      *
      * <p>베이스 버전(표준본)을 첫 번째로, 이후 커스텀 버전들을 반환합니다.
      * 프론트엔드에서 From 버전 선택 시 베이스 버전부터 선택 가능합니다.
      *
      * @param projectId  프로젝트 ID
-     * @param customerId 고객사 ID
+     * @param siteId 사이트 ID
      * @return 버전 목록 (베이스 버전 + 커스텀 버전들)
      */
     @Transactional(readOnly = true)
-    public List<PatchDto.CustomVersionSelectOption> getCustomVersionsByCustomer(String projectId, Long customerId) {
-        log.info("고객사별 커스텀 버전 목록 조회 - projectId: {}, customerId: {}", projectId, customerId);
+    public List<PatchDto.CustomVersionSelectOption> getCustomVersionsBySite(String projectId, Long siteId) {
+        log.info("사이트별 커스텀 버전 목록 조회 - projectId: {}, siteId: {}", projectId, siteId);
 
-        // 고객사 존재 확인
-        Customer customer = customerRepository.findById(customerId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.CUSTOMER_NOT_FOUND,
-                        "고객사를 찾을 수 없습니다: " + customerId));
+        // 사이트 존재 확인
+        Site site = siteRepository.findById(siteId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.SITE_NOT_FOUND,
+                        "사이트를 찾을 수 없습니다: " + siteId));
 
-        List<ReleaseVersion> customVersions = releaseVersionRepository.findAllByCustomer_CustomerIdOrderByCreatedAtDesc(customerId);
+        List<ReleaseVersion> customVersions = releaseVersionRepository.findAllBySite_SiteIdOrderByCreatedAtDesc(siteId);
 
         List<PatchDto.CustomVersionSelectOption> result = new java.util.ArrayList<>();
 
@@ -500,12 +500,12 @@ public class PatchService {
      * 커스텀 패치 생성 (버전 문자열 기반) - 위임
      */
     @Transactional
-    public Patch generateCustomPatchByVersion(String projectId, Long customerId,
+    public Patch generateCustomPatchByVersion(String projectId, Long siteId,
             String fromVersion, String toVersion, String createdByEmail, String description,
             Long engineerId, String patchName, PatchDto.BuildSelection buildSelection) {
         validateBuildSelection(buildSelection);
         return patchGenerationService.generateCustomPatchByVersion(
-                projectId, customerId, fromVersion, toVersion,
+                projectId, siteId, fromVersion, toVersion,
                 createdByEmail, description, engineerId, patchName, buildSelection);
     }
 
@@ -607,13 +607,13 @@ public class PatchService {
      * 자동 생성될 패치명을 미리 계산해 반환 — 프론트 미리보기 용.
      *
      * <p>{@link PatchGenerationService#resolvePatchName} 와 동일한 규칙:
-     *  {@code {customerCode|undefined}_{yyMMdd}} 형태, 이미 존재하면
+     *  {@code {siteCode|undefined}_{yyMMdd}} 형태, 이미 존재하면
      *  {@code -2}, {@code -3} ... suffix 부여.
      *
-     * @param customerCode 고객사 코드 (null / blank 이면 "undefined")
+     * @param siteCode 사이트 코드 (null / blank 이면 "undefined")
      */
-    public String previewAutoPatchName(String customerCode) {
-        String prefix = StringUtils.hasText(customerCode) ? customerCode : "undefined";
+    public String previewAutoPatchName(String siteCode) {
+        String prefix = StringUtils.hasText(siteCode) ? siteCode : "undefined";
         String date = LocalDateTime.now(ZoneId.of("Asia/Seoul"))
                 .format(DateTimeFormatter.ofPattern("yyMMdd"));
         String base = prefix + "_" + date;

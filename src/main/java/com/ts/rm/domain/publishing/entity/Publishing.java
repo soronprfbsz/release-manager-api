@@ -2,7 +2,7 @@ package com.ts.rm.domain.publishing.entity;
 
 import com.ts.rm.domain.account.entity.Account;
 import com.ts.rm.domain.common.entity.BaseEntity;
-import com.ts.rm.domain.customer.entity.Customer;
+import com.ts.rm.domain.site.entity.Site;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -70,11 +70,11 @@ public class Publishing extends BaseEntity {
     private String subCategory;
 
     /**
-     * 고객사 (커스터마이징 퍼블리싱인 경우)
+     * 사이트 (커스터마이징 퍼블리싱인 경우)
      */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "customer_id")
-    private Customer customer;
+    private Site site;
 
     /**
      * 정렬 순서

@@ -25,16 +25,16 @@ public class PublishingRepositoryImpl implements PublishingRepositoryCustom {
     public List<Publishing> findAllWithFilters(
             String publishingCategory,
             String subCategory,
-            Long customerId,
+            Long siteId,
             String keyword
     ) {
         return queryFactory
                 .selectFrom(publishing)
-                .leftJoin(publishing.customer).fetchJoin()
+                .leftJoin(publishing.site).fetchJoin()
                 .where(
                         publishingCategoryCondition(publishingCategory),
                         subCategoryCondition(subCategory),
-                        customerCondition(customerId),
+                        siteCondition(siteId),
                         keywordCondition(keyword)
                 )
                 .orderBy(publishing.sortOrder.asc(), publishing.createdAt.desc())
@@ -60,17 +60,17 @@ public class PublishingRepositoryImpl implements PublishingRepositoryCustom {
     }
 
     /**
-     * 고객사 조건
-     * customerId가 null이면 전체, 0이면 표준(customer가 null)만, 그 외는 해당 고객사
+     * 사이트 조건
+     * siteId가 null이면 전체, 0이면 표준(site가 null)만, 그 외는 해당 사이트
      */
-    private BooleanExpression customerCondition(Long customerId) {
-        if (customerId == null) {
+    private BooleanExpression siteCondition(Long siteId) {
+        if (siteId == null) {
             return null;
         }
-        if (customerId == 0L) {
-            return publishing.customer.isNull();
+        if (siteId == 0L) {
+            return publishing.site.isNull();
         }
-        return publishing.customer.customerId.eq(customerId);
+        return publishing.site.siteId.eq(siteId);
     }
 
     /**

@@ -83,7 +83,7 @@ public class ReleaseFile extends BaseEntity {
      * <p>filePath 구조:
      * <ul>
      *   <li>표준: versions/{projectId}/standard/{majorMinor}/{version}/{relativePath}
-     *   <li>커스텀: versions/{projectId}/custom/{customerCode}/{majorMinor}/{version}/{relativePath}
+     *   <li>커스텀: versions/{projectId}/custom/{siteCode}/{majorMinor}/{version}/{relativePath}
      * </ul>
      *
      * <p>예시:
@@ -109,7 +109,7 @@ public class ReleaseFile extends BaseEntity {
         // parts[1] = projectId
         // parts[2] = type (standard, custom)
         // 표준: parts[3] = majorMinor, parts[4] = version, parts[5...] = relativePath
-        // 커스텀: parts[3] = customerCode, parts[4] = majorMinor, parts[5] = version, parts[6...] = relativePath
+        // 커스텀: parts[3] = siteCode, parts[4] = majorMinor, parts[5] = version, parts[6...] = relativePath
 
         int relativeStartIndex;
         if ("versions".equals(parts[0])) {

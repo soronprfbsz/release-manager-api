@@ -75,14 +75,14 @@ public class DashboardDto {
             @Schema(description = "설명")
             String description,
 
-            @Schema(description = "고객사 ID (CUSTOM 타입인 경우)", example = "1")
-            Long customerId,
+            @Schema(description = "사이트 ID (CUSTOM 타입인 경우)", example = "1")
+            Long siteId,
 
-            @Schema(description = "고객사 코드 (CUSTOM 타입인 경우)", example = "CUST001")
-            String customerCode,
+            @Schema(description = "사이트 코드 (CUSTOM 타입인 경우)", example = "CUST001")
+            String siteCode,
 
-            @Schema(description = "고객사명 (CUSTOM 타입인 경우)", example = "A회사")
-            String customerName,
+            @Schema(description = "사이트명 (CUSTOM 타입인 경우)", example = "A회사")
+            String siteName,
 
             @Schema(description = "담당자명", example = "홍길동")
             String assigneeName,
@@ -146,14 +146,14 @@ public class DashboardDto {
             @Schema(description = "파일 카테고리 목록", example = "[\"DATABASE\", \"WEB\"]")
             List<String> fileCategories,
 
-            @Schema(description = "고객사 ID (CUSTOM 타입인 경우)", example = "1")
-            Long customerId,
+            @Schema(description = "사이트 ID (CUSTOM 타입인 경우)", example = "1")
+            Long siteId,
 
-            @Schema(description = "고객사 코드 (CUSTOM 타입인 경우)", example = "CUST001")
-            String customerCode,
+            @Schema(description = "사이트 코드 (CUSTOM 타입인 경우)", example = "CUST001")
+            String siteCode,
 
-            @Schema(description = "고객사명 (CUSTOM 타입인 경우)", example = "A회사")
-            String customerName,
+            @Schema(description = "사이트명 (CUSTOM 타입인 경우)", example = "A회사")
+            String siteName,
 
             @Schema(description = "생성자명", example = "홍길동")
             String createdByName,

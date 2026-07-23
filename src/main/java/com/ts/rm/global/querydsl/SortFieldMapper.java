@@ -11,8 +11,8 @@ import org.springframework.data.domain.Sort;
 /**
  * API 정렬 필드를 엔티티 경로로 매핑하는 유틸리티
  *
- * <p>프론트엔드는 간단한 필드명(예: customerName)으로 정렬을 요청하고,
- * <p>백엔드는 실제 엔티티 경로(예: customer.customerName)로 변환하여 처리
+ * <p>프론트엔드는 간단한 필드명(예: siteName)으로 정렬을 요청하고,
+ * <p>백엔드는 실제 엔티티 경로(예: site.siteName)로 변환하여 처리
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class SortFieldMapper {
@@ -50,13 +50,13 @@ public final class SortFieldMapper {
      *
      * <p>API 필드명:
      * <ul>
-     *   <li>customerName -> customer.customerName</li>
+     *   <li>siteName -> site.siteName</li>
      *   <li>engineerName -> engineer.engineerName</li>
      * </ul>
      */
     public static Pageable mapPatchSortFields(Pageable pageable) {
         Map<String, String> fieldMap = new HashMap<>();
-        fieldMap.put("customerName", "customer.customerName");
+        fieldMap.put("siteName", "site.siteName");
         fieldMap.put("engineerName", "engineer.engineerName");
         return mapSortFields(pageable, fieldMap);
     }

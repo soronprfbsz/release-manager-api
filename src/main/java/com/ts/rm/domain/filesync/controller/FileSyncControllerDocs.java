@@ -128,7 +128,7 @@ public interface FileSyncControllerDocs {
     @Operation(
             summary = "패치 파일 등록",
             description = "분석 결과에서 UNREGISTERED 상태인 패치 폴더들을 DB에 등록합니다. "
-                    + "담당 엔지니어, 고객사 코드, 설명 등의 메타데이터를 함께 입력할 수 있습니다.",
+                    + "담당 엔지니어, 사이트 코드, 설명 등의 메타데이터를 함께 입력할 수 있습니다.",
             responses = @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "200",
                     description = "성공",

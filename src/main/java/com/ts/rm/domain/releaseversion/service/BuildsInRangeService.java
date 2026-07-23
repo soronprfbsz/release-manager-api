@@ -35,10 +35,10 @@ public class BuildsInRangeService {
     private final ReleaseVersionFileSystemService fileSystemService;
 
     public ReleaseVersionDto.BuildsInRangeResponse getBuildsInRange(
-            String projectId, Long fromBaseId, Long toBaseId, Long customerId) {
+            String projectId, Long fromBaseId, Long toBaseId, Long siteId) {
 
         List<ReleaseVersion> builds = releaseVersionRepository
-                .findBuildsInBaseRange(projectId, fromBaseId, toBaseId, customerId);
+                .findBuildsInBaseRange(projectId, fromBaseId, toBaseId, siteId);
 
         List<ReleaseVersionDto.BuildCandidate> webCandidates = new ArrayList<>();
         Map<String, List<ReleaseVersionDto.BuildCandidate>> engineMap = new LinkedHashMap<>();
@@ -75,7 +75,7 @@ public class BuildsInRangeService {
         }
 
         List<ReleaseVersionDto.HotfixInRangeInfo> hotfixes = releaseVersionRepository
-                .findHotfixesInBaseRange(projectId, fromBaseId, toBaseId, customerId).stream()
+                .findHotfixesInBaseRange(projectId, fromBaseId, toBaseId, siteId).stream()
                 .map(h -> new ReleaseVersionDto.HotfixInRangeInfo(
                         h.getReleaseVersionId(), h.getFullVersion(), h.getHotfixVersion()))
                 .toList();

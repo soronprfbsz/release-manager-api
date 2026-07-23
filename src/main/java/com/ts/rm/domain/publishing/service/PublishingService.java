@@ -1,8 +1,8 @@
 package com.ts.rm.domain.publishing.service;
 
 import com.ts.rm.domain.account.entity.Account;
-import com.ts.rm.domain.customer.entity.Customer;
-import com.ts.rm.domain.customer.repository.CustomerRepository;
+import com.ts.rm.domain.site.entity.Site;
+import com.ts.rm.domain.site.repository.SiteRepository;
 import com.ts.rm.domain.publishing.dto.PublishingDto;
 import com.ts.rm.domain.publishing.dto.PublishingFileDto;
 import com.ts.rm.domain.publishing.entity.Publishing;
@@ -49,7 +49,7 @@ public class PublishingService {
 
     private final PublishingRepository publishingRepository;
     private final PublishingFileRepository publishingFileRepository;
-    private final CustomerRepository customerRepository;
+    private final SiteRepository siteRepository;
     private final PublishingDtoMapper publishingDtoMapper;
     private final AccountLookupService accountLookupService;
 
@@ -77,12 +77,12 @@ public class PublishingService {
         // ZIP 파일 검증
         validateZipFile(zipFile);
 
-        // 고객사 조회 (커스터마이징인 경우)
-        Customer customer = null;
-        if (request.customerId() != null) {
-            customer = customerRepository.findById(request.customerId())
+        // 사이트 조회 (커스터마이징인 경우)
+        Site site = null;
+        if (request.siteId() != null) {
+            site = siteRepository.findById(request.siteId())
                     .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
-                            "고객사를 찾을 수 없습니다: " + request.customerId()));
+                            "사이트를 찾을 수 없습니다: " + request.siteId()));
         }
 
         // sortOrder 자동 채번
@@ -105,7 +105,7 @@ public class PublishingService {
                 .description(request.description())
                 .publishingCategory(request.publishingCategory().toUpperCase())
                 .subCategory(request.subCategory() != null ? request.subCategory().toUpperCase() : null)
-                .customer(customer)
+                .site(site)
                 .sortOrder(sortOrder)
                 .glyphText(glyphText)
                 .glyphBackgroundColor(glyphBackgroundColor)
@@ -145,12 +145,12 @@ public class PublishingService {
                     "이미 존재하는 퍼블리싱 이름입니다: " + request.publishingName());
         }
 
-        // 고객사 조회 (커스터마이징인 경우)
-        Customer customer = null;
-        if (request.customerId() != null) {
-            customer = customerRepository.findById(request.customerId())
+        // 사이트 조회 (커스터마이징인 경우)
+        Site site = null;
+        if (request.siteId() != null) {
+            site = siteRepository.findById(request.siteId())
                     .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
-                            "고객사를 찾을 수 없습니다: " + request.customerId()));
+                            "사이트를 찾을 수 없습니다: " + request.siteId()));
         }
 
         // 수정자 Account 조회
@@ -161,7 +161,7 @@ public class PublishingService {
         publishing.setDescription(request.description());
         publishing.setPublishingCategory(request.publishingCategory().toUpperCase());
         publishing.setSubCategory(request.subCategory() != null ? request.subCategory().toUpperCase() : null);
-        publishing.setCustomer(customer);
+        publishing.setSite(site);
         publishing.setUpdater(updater);
         publishing.setUpdatedByEmail(updater.getEmail());
         publishing.updateGlyph(request.glyphText(), request.glyphBackgroundColor());
@@ -209,11 +209,11 @@ public class PublishingService {
     public List<PublishingDto.SimpleResponse> listPublishings(
             String publishingCategory,
             String subCategory,
-            Long customerId,
+            Long siteId,
             String keyword
     ) {
         List<Publishing> publishings = publishingRepository.findAllWithFilters(
-                publishingCategory, subCategory, customerId, keyword);
+                publishingCategory, subCategory, siteId, keyword);
         return publishings.stream()
                 .map(this::toSimpleResponse)
                 .toList();
@@ -656,8 +656,8 @@ public class PublishingService {
                 publishing.getDescription(),
                 publishing.getPublishingCategory(),
                 publishing.getSubCategory(),
-                publishing.getCustomer() != null ? publishing.getCustomer().getCustomerId() : null,
-                publishing.getCustomer() != null ? publishing.getCustomer().getCustomerName() : null,
+                publishing.getSite() != null ? publishing.getSite().getSiteId() : null,
+                publishing.getSite() != null ? publishing.getSite().getSiteName() : null,
                 publishing.getSortOrder(),
                 publishing.getGlyphText(),
                 publishing.getGlyphBackgroundColor(),
@@ -685,7 +685,7 @@ public class PublishingService {
                 publishing.getDescription(),
                 publishing.getPublishingCategory(),
                 publishing.getSubCategory(),
-                publishing.getCustomer() != null ? publishing.getCustomer().getCustomerName() : null,
+                publishing.getSite() != null ? publishing.getSite().getSiteName() : null,
                 publishing.getSortOrder(),
                 publishing.getGlyphText(),
                 publishing.getGlyphBackgroundColor(),

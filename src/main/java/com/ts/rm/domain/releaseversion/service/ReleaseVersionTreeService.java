@@ -51,24 +51,24 @@ public class ReleaseVersionTreeService {
     }
 
     /**
-     * 커스텀 릴리즈 버전 트리 조회 (프로젝트별, 특정 고객사)
+     * 커스텀 릴리즈 버전 트리 조회 (프로젝트별, 특정 사이트)
      *
      * @param projectId    프로젝트 ID
-     * @param customerCode 고객사 코드
+     * @param siteCode 사이트 코드
      * @return 릴리즈 버전 트리
      */
-    public ReleaseVersionDto.TreeResponse getCustomReleaseTree(String projectId, String customerCode) {
-        log.info("Getting custom release tree for project: {}, customer: {}", projectId, customerCode);
-        return buildReleaseTree(projectId, "CUSTOM", customerCode);
+    public ReleaseVersionDto.TreeResponse getCustomReleaseTree(String projectId, String siteCode) {
+        log.info("Getting custom release tree for project: {}, site: {}", projectId, siteCode);
+        return buildReleaseTree(projectId, "CUSTOM", siteCode);
     }
 
     /**
-     * 전체 커스텀 릴리즈 버전 트리 조회 (프로젝트별, 모든 고객사)
+     * 전체 커스텀 릴리즈 버전 트리 조회 (프로젝트별, 모든 사이트)
      *
-     * <p>고객사별로 그룹화된 커스텀 버전 트리를 반환합니다.
+     * <p>사이트별로 그룹화된 커스텀 버전 트리를 반환합니다.
      *
      * @param projectId 프로젝트 ID
-     * @return 전체 커스텀 버전 트리 (고객사별 그룹화)
+     * @return 전체 커스텀 버전 트리 (사이트별 그룹화)
      */
     public ReleaseVersionDto.CustomTreeResponse getAllCustomReleaseTree(String projectId) {
         log.info("Getting all custom release tree for project: {}", projectId);
@@ -83,29 +83,29 @@ public class ReleaseVersionTreeService {
                 return new ReleaseVersionDto.CustomTreeResponse("CUSTOM", List.of());
             }
 
-            // 고객사별로 그룹화
-            Map<Long, List<ReleaseVersion>> groupedByCustomer = new java.util.LinkedHashMap<>();
+            // 사이트별로 그룹화
+            Map<Long, List<ReleaseVersion>> groupedBySite = new java.util.LinkedHashMap<>();
             for (ReleaseVersion version : allCustomVersions) {
-                if (version.getCustomer() != null) {
-                    groupedByCustomer.computeIfAbsent(
-                            version.getCustomer().getCustomerId(),
+                if (version.getSite() != null) {
+                    groupedBySite.computeIfAbsent(
+                            version.getSite().getSiteId(),
                             k -> new ArrayList<>()
                     ).add(version);
                 }
             }
 
-            // CustomerNode 목록 생성
-            List<ReleaseVersionDto.CustomerNode> customerNodes = new ArrayList<>();
-            for (Map.Entry<Long, List<ReleaseVersion>> entry : groupedByCustomer.entrySet()) {
-                List<ReleaseVersion> customerVersions = entry.getValue();
+            // SiteNode 목록 생성
+            List<ReleaseVersionDto.SiteNode> siteNodes = new ArrayList<>();
+            for (Map.Entry<Long, List<ReleaseVersion>> entry : groupedBySite.entrySet()) {
+                List<ReleaseVersion> siteVersions = entry.getValue();
 
-                // 첫 번째 버전에서 고객사 정보 및 기준 표준본 정보 추출
-                ReleaseVersion firstVersion = customerVersions.get(0);
-                Long customerId = firstVersion.getCustomer().getCustomerId();
-                String customerCode = firstVersion.getCustomer().getCustomerCode();
-                String customerName = firstVersion.getCustomer().getCustomerName();
+                // 첫 번째 버전에서 사이트 정보 및 기준 표준본 정보 추출
+                ReleaseVersion firstVersion = siteVersions.get(0);
+                Long siteId = firstVersion.getSite().getSiteId();
+                String siteCode = firstVersion.getSite().getSiteCode();
+                String siteName = firstVersion.getSite().getSiteName();
 
-                // 기준 표준본 정보 (고객사 내 모든 커스텀 버전은 동일한 기준 표준본 사용)
+                // 기준 표준본 정보 (사이트 내 모든 커스텀 버전은 동일한 기준 표준본 사용)
                 Long customBaseVersionId = firstVersion.getCustomBaseVersion() != null
                         ? firstVersion.getCustomBaseVersion().getReleaseVersionId()
                         : null;
@@ -115,19 +115,19 @@ public class ReleaseVersionTreeService {
 
                 // 커스텀 버전의 majorMinor로 그룹화 (customMajorMinor 사용)
                 List<ReleaseVersionDto.CustomMajorMinorNode> majorMinorGroups =
-                        buildCustomMajorMinorGroups(customerVersions);
+                        buildCustomMajorMinorGroups(siteVersions);
 
-                customerNodes.add(new ReleaseVersionDto.CustomerNode(
-                        customerId,
-                        customerCode,
-                        customerName,
+                siteNodes.add(new ReleaseVersionDto.SiteNode(
+                        siteId,
+                        siteCode,
+                        siteName,
                         customBaseVersionId,
                         customBaseVersion,
                         majorMinorGroups
                 ));
             }
 
-            return new ReleaseVersionDto.CustomTreeResponse("CUSTOM", customerNodes);
+            return new ReleaseVersionDto.CustomTreeResponse("CUSTOM", siteNodes);
 
         } catch (Exception e) {
             log.error("Failed to build all custom release tree", e);
@@ -291,33 +291,33 @@ public class ReleaseVersionTreeService {
      *
      * @param projectId    프로젝트 ID
      * @param releaseType  릴리즈 타입 (STANDARD, CUSTOM)
-     * @param customerCode 고객사 코드 (CUSTOM인 경우 필수)
+     * @param siteCode 사이트 코드 (CUSTOM인 경우 필수)
      * @return 릴리즈 버전 트리
      */
     private ReleaseVersionDto.TreeResponse buildReleaseTree(String projectId, String releaseType,
-            String customerCode) {
+            String siteCode) {
         try {
             // 클로저 테이블을 통한 버전 조회
             List<ReleaseVersion> versions;
-            if ("CUSTOM".equals(releaseType) && customerCode != null) {
-                versions = hierarchyRepository.findAllByProjectIdAndReleaseTypeAndCustomerWithHierarchy(
-                        projectId, releaseType, customerCode);
+            if ("CUSTOM".equals(releaseType) && siteCode != null) {
+                versions = hierarchyRepository.findAllByProjectIdAndReleaseTypeAndSiteWithHierarchy(
+                        projectId, releaseType, siteCode);
             } else {
                 versions = hierarchyRepository.findAllByProjectIdAndReleaseTypeWithHierarchy(
                         projectId, releaseType);
             }
 
             if (versions.isEmpty()) {
-                log.warn("No versions found for projectId: {}, releaseType: {}, customerCode: {}",
-                        projectId, releaseType, customerCode);
-                return new ReleaseVersionDto.TreeResponse(releaseType, customerCode, List.of());
+                log.warn("No versions found for projectId: {}, releaseType: {}, siteCode: {}",
+                        projectId, releaseType, siteCode);
+                return new ReleaseVersionDto.TreeResponse(releaseType, siteCode, List.of());
             }
 
             // Major.Minor 그룹으로 묶기
             List<ReleaseVersionDto.MajorMinorNode> majorMinorGroups = buildMajorMinorGroupsFromDb(
                     versions);
 
-            return new ReleaseVersionDto.TreeResponse(releaseType, customerCode, majorMinorGroups);
+            return new ReleaseVersionDto.TreeResponse(releaseType, siteCode, majorMinorGroups);
 
         } catch (Exception e) {
             log.error("Failed to build release tree", e);

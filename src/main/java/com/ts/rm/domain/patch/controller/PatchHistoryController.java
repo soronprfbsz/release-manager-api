@@ -35,13 +35,13 @@ public class PatchHistoryController implements PatchHistoryControllerDocs {
     @GetMapping
     public ApiResponse<Page<PatchHistoryDto.ListResponse>> listHistories(
             @RequestParam(required = false) String projectId,
-            @RequestParam(required = false) Long customerId,
+            @RequestParam(required = false) Long siteId,
             @ParameterObject Pageable pageable) {
 
-        log.info("패치 이력 목록 조회 요청 - projectId: {}, customerId: {}", projectId, customerId);
+        log.info("패치 이력 목록 조회 요청 - projectId: {}, siteId: {}", projectId, siteId);
 
         Page<PatchHistoryDto.ListResponse> histories = patchHistoryService.listHistoriesWithPaging(
-                projectId, customerId, pageable);
+                projectId, siteId, pageable);
 
         return ApiResponse.success(histories);
     }

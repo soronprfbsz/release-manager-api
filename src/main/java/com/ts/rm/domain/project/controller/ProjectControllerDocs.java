@@ -117,7 +117,7 @@ public interface ProjectControllerDocs {
             description = """
                     프로젝트별 온보딩 파일 목록을 트리 구조로 조회합니다 (파일시스템 기반).
 
-                    **용도**: 기존 레거시 고객사들의 DB 상태를 버전관리 가능한 동일한 상태로 만들기 위한 온보딩 파일 조회
+                    **용도**: 기존 레거시 사이트들의 DB 상태를 버전관리 가능한 동일한 상태로 만들기 위한 온보딩 파일 조회
 
                     **API 경로**: `/api/projects/{id}/onboardings/files`
 

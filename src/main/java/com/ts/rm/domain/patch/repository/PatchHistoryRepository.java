@@ -14,31 +14,31 @@ public interface PatchHistoryRepository extends JpaRepository<PatchHistory, Long
         PatchHistoryRepositoryCustom {
 
     /**
-     * 고객사의 패치 이력 건수 조회 (고객사 초기화용).
+     * 사이트의 패치 이력 건수 조회 (사이트 초기화용).
      *
-     * @param customerId 고객사 ID
+     * @param siteId 사이트 ID
      * @return 패치 이력 건수
      */
-    long countByCustomer_CustomerId(Long customerId);
+    long countBySite_SiteId(Long siteId);
 
     /**
-     * 고객사의 모든 패치 이력 삭제 (고객사 초기화용).
+     * 사이트의 모든 패치 이력 삭제 (사이트 초기화용).
      *
      * <p>파생 delete 쿼리는 {@code void} 반환만 안정적으로 동작하므로,
-     * 삭제 건수는 {@link #countByCustomer_CustomerId} 로 별도 조회한다.
+     * 삭제 건수는 {@link #countBySite_SiteId} 로 별도 조회한다.
      *
-     * @param customerId 고객사 ID
+     * @param siteId 사이트 ID
      */
-    void deleteAllByCustomer_CustomerId(Long customerId);
+    void deleteAllBySite_SiteId(Long siteId);
 
     /**
-     * 고객사 + 프로젝트의 모든 패치 이력을 완료순으로 조회 (재계산 재생용).
+     * 사이트 + 프로젝트의 모든 패치 이력을 완료순으로 조회 (재계산 재생용).
      *
-     * @param customerId 고객사 ID
+     * @param siteId 사이트 ID
      * @param projectId  프로젝트 ID
      * @return 완료 일시 오름차순(동률 시 생성 일시 오름차순) 이력 목록
      */
-    java.util.List<PatchHistory> findAllByCustomer_CustomerIdAndProject_ProjectIdOrderByCompletedAtAscCreatedAtAsc(
-            Long customerId, String projectId);
+    java.util.List<PatchHistory> findAllBySite_SiteIdAndProject_ProjectIdOrderByCompletedAtAscCreatedAtAsc(
+            Long siteId, String projectId);
 
 }

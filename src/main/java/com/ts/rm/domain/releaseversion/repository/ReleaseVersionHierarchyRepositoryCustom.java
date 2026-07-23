@@ -29,25 +29,25 @@ public interface ReleaseVersionHierarchyRepositoryCustom {
             String releaseType);
 
     /**
-     * 특정 릴리즈 타입 + 고객사 코드의 모든 버전을 계층 구조로 조회
+     * 특정 릴리즈 타입 + 사이트 코드의 모든 버전을 계층 구조로 조회
      *
      * @param releaseType  릴리즈 타입 (CUSTOM)
-     * @param customerCode 고객사 코드
+     * @param siteCode 사이트 코드
      * @return 릴리즈 버전 목록 (버전 순서대로 정렬)
      */
-    List<ReleaseVersion> findAllByReleaseTypeAndCustomerWithHierarchy(String releaseType,
-            String customerCode);
+    List<ReleaseVersion> findAllByReleaseTypeAndSiteWithHierarchy(String releaseType,
+            String siteCode);
 
     /**
-     * 프로젝트 + 릴리즈 타입 + 고객사 코드의 모든 버전을 계층 구조로 조회
+     * 프로젝트 + 릴리즈 타입 + 사이트 코드의 모든 버전을 계층 구조로 조회
      *
      * @param projectId    프로젝트 ID
      * @param releaseType  릴리즈 타입 (CUSTOM)
-     * @param customerCode 고객사 코드
+     * @param siteCode 사이트 코드
      * @return 릴리즈 버전 목록 (버전 순서대로 정렬)
      */
-    List<ReleaseVersion> findAllByProjectIdAndReleaseTypeAndCustomerWithHierarchy(String projectId,
-            String releaseType, String customerCode);
+    List<ReleaseVersion> findAllByProjectIdAndReleaseTypeAndSiteWithHierarchy(String projectId,
+            String releaseType, String siteCode);
 
     /**
      * Descendant ID로 계층 구조 삭제

@@ -12,8 +12,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 
 import com.ts.rm.domain.account.entity.Account;
-import com.ts.rm.domain.customer.entity.Customer;
-import com.ts.rm.domain.customer.repository.CustomerRepository;
+import com.ts.rm.domain.site.entity.Site;
+import com.ts.rm.domain.site.repository.SiteRepository;
 import com.ts.rm.domain.project.entity.Project;
 import com.ts.rm.domain.project.repository.ProjectRepository;
 import com.ts.rm.domain.releasefile.repository.ReleaseFileRepository;
@@ -58,7 +58,7 @@ class ReleaseVersionServiceTest {
     private ReleaseVersionHierarchyRepository hierarchyRepository;
 
     @Mock
-    private CustomerRepository customerRepository;
+    private SiteRepository siteRepository;
 
     @Mock
     private ProjectRepository projectRepository;
@@ -82,7 +82,7 @@ class ReleaseVersionServiceTest {
 
     private Project testProject;
     private Account testAccount;
-    private Customer testCustomer;
+    private Site testSite;
     private ReleaseVersion testVersion;
     private ReleaseVersionDto.CreateRequest createRequest;
     private ReleaseVersionDto.DetailResponse detailResponse;
@@ -100,10 +100,10 @@ class ReleaseVersionServiceTest {
                 .accountName("이재훈")
                 .build();
 
-        testCustomer = Customer.builder()
-                .customerId(1L)
-                .customerCode("company_a")
-                .customerName("A회사")
+        testSite = Site.builder()
+                .siteId(1L)
+                .siteCode("company_a")
+                .siteName("A회사")
                 .isActive(true)
                 .build();
 
@@ -205,7 +205,7 @@ class ReleaseVersionServiceTest {
                 .version("1.0.0")
                 .createdByEmail("admin@tscientific")
                 .comment("커스텀 버전")
-                .customerId(1L)
+                .siteId(1L)
                 .customMajorVersion(1)
                 .customMinorVersion(0)
                 .customPatchVersion(0)
@@ -215,7 +215,7 @@ class ReleaseVersionServiceTest {
                 .releaseVersionId(2L)
                 .project(testProject)
                 .releaseType("CUSTOM")
-                .customer(testCustomer)
+                .site(testSite)
                 .version("1.0.0")
                 .majorVersion(1)
                 .minorVersion(0)
@@ -226,7 +226,7 @@ class ReleaseVersionServiceTest {
                 .releaseFiles(new ArrayList<>())
                 .build();
 
-        given(customerRepository.findById(anyLong())).willReturn(Optional.of(testCustomer));
+        given(siteRepository.findById(anyLong())).willReturn(Optional.of(testSite));
         given(projectRepository.findById(PROJECT_ID)).willReturn(Optional.of(testProject));
         given(accountLookupService.findByEmail(anyString())).willReturn(testAccount);
         given(releaseVersionRepository.existsByProject_ProjectIdAndVersionAndHotfixVersionAndBuildVersion(
@@ -241,26 +241,26 @@ class ReleaseVersionServiceTest {
 
         // then
         assertThat(result).isNotNull();
-        then(customerRepository).should(times(1)).findById(1L);
+        then(siteRepository).should(times(1)).findById(1L);
         then(releaseVersionRepository).should(times(1)).save(any(ReleaseVersion.class));
     }
 
     @Test
-    @DisplayName("커스텀 릴리즈 버전 생성 - 고객사 ID 없음")
-    void createCustomVersion_MissingCustomerId() {
+    @DisplayName("커스텀 릴리즈 버전 생성 - 사이트 ID 없음")
+    void createCustomVersion_MissingSiteId() {
         // given
         ReleaseVersionDto.CreateRequest invalidRequest = ReleaseVersionDto.CreateRequest.builder()
                 .projectId(PROJECT_ID)
                 .version("1.0.0")
                 .createdByEmail("admin@tscientific")
                 .comment("커스텀 버전")
-                .customerId(null)
+                .siteId(null)
                 .build();
 
         // when & then
         assertThatThrownBy(() -> releaseVersionService.createCustomVersion(invalidRequest))
                 .isInstanceOf(BusinessException.class)
-                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.CUSTOMER_ID_REQUIRED);
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.SITE_ID_REQUIRED);
     }
 
     @Test
@@ -380,7 +380,7 @@ class ReleaseVersionServiceTest {
                 PROJECT_ID,          // projectId
                 "Infraeye 2",        // projectName
                 "STANDARD",          // releaseType
-                null,                // customerCode
+                null,                // siteCode
                 version,             // version
                 major,               // majorVersion
                 minor,               // minorVersion
@@ -422,7 +422,7 @@ class ReleaseVersionServiceTest {
                 id,                  // releaseVersionId
                 PROJECT_ID,          // projectId
                 "STANDARD",          // releaseType
-                null,                // customerCode
+                null,                // siteCode
                 version,             // version
                 0,                   // hotfixVersion
                 false,               // isHotfix

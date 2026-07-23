@@ -61,7 +61,7 @@ public class PatchController implements PatchControllerDocs {
             PatchGenerationService.GenerateResult result = patchService.generatePatchByVersion(
                     request.projectId(),
                     request.type(),
-                    request.customerId(),
+                    request.siteId(),
                     request.fromVersion(),
                     request.toVersion(),
                     request.createdByEmail(),
@@ -109,16 +109,16 @@ public class PatchController implements PatchControllerDocs {
     public ApiResponse<Page<PatchDto.ListResponse>> listPatches(
             @RequestParam(required = false) String projectId,
             @RequestParam(required = false) String releaseType,
-            @RequestParam(required = false) String customerCode,
+            @RequestParam(required = false) String siteCode,
             @ParameterObject Pageable pageable) {
 
-        log.info("패치 목록 조회 요청 - projectId: {}, releaseType: {}, customerCode: {}, page: {}, size: {}",
-                projectId, releaseType, customerCode, pageable.getPageNumber(), pageable.getPageSize());
+        log.info("패치 목록 조회 요청 - projectId: {}, releaseType: {}, siteCode: {}, page: {}, size: {}",
+                projectId, releaseType, siteCode, pageable.getPageNumber(), pageable.getPageSize());
 
         // API 정렬 필드를 엔티티 경로로 매핑
         Pageable mappedPageable = com.ts.rm.global.querydsl.SortFieldMapper.mapPatchSortFields(pageable);
 
-        Page<PatchDto.ListResponse> response = patchService.listPatchesWithPaging(projectId, releaseType, customerCode, mappedPageable);
+        Page<PatchDto.ListResponse> response = patchService.listPatchesWithPaging(projectId, releaseType, siteCode, mappedPageable);
 
         return ApiResponse.success(response);
     }
@@ -195,7 +195,7 @@ public class PatchController implements PatchControllerDocs {
     /**
      * 패치 완료 처리 (적용 완료)
      *
-     * <p>패치 이력 저장 → CustomerProject 갱신 → 디스크 삭제 → row 삭제 순으로 처리합니다.
+     * <p>패치 이력 저장 → SiteProject 갱신 → 디스크 삭제 → row 삭제 순으로 처리합니다.
      */
     @Override
     @PostMapping("/{id}/complete")
@@ -223,16 +223,16 @@ public class PatchController implements PatchControllerDocs {
     }
 
     /**
-     * 자동 생성될 패치명 미리보기 — 패치 생성 폼에서 customer 선택 후 실제 확정될
+     * 자동 생성될 패치명 미리보기 — 패치 생성 폼에서 site 선택 후 실제 확정될
      * 이름을 사용자에게 그대로 보여주기 위함.
      *
-     * @param customerCode 고객사 코드 (생략 가능 — "없음" 케이스는 undefined prefix)
-     * @return {@code {customerCode|undefined}_{yyMMdd}}, 충돌 시 {@code -N} suffix 부여된 이름
+     * @param siteCode 사이트 코드 (생략 가능 — "없음" 케이스는 undefined prefix)
+     * @return {@code {siteCode|undefined}_{yyMMdd}}, 충돌 시 {@code -N} suffix 부여된 이름
      */
     @GetMapping("/preview-name")
     public ApiResponse<PatchDto.PreviewNameResponse> previewPatchName(
-            @RequestParam(required = false) String customerCode) {
-        String patchName = patchService.previewAutoPatchName(customerCode);
+            @RequestParam(required = false) String siteCode) {
+        String patchName = patchService.previewAutoPatchName(siteCode);
         return ApiResponse.success(new PatchDto.PreviewNameResponse(patchName));
     }
 
@@ -257,32 +257,32 @@ public class PatchController implements PatchControllerDocs {
     // ========================================
 
     /**
-     * 커스텀 버전 보유 고객사 목록 조회
+     * 커스텀 버전 보유 사이트 목록 조회
      */
     @Override
-    @GetMapping("/custom/customers")
-    public ApiResponse<List<PatchDto.CustomerWithCustomVersions>> getCustomersWithCustomVersions(
+    @GetMapping("/custom/sites")
+    public ApiResponse<List<PatchDto.SiteWithCustomVersions>> getSitesWithCustomVersions(
             @RequestParam String projectId) {
 
-        log.info("커스텀 버전 보유 고객사 목록 조회 요청 - projectId: {}", projectId);
+        log.info("커스텀 버전 보유 사이트 목록 조회 요청 - projectId: {}", projectId);
 
-        List<PatchDto.CustomerWithCustomVersions> customers = patchService.getCustomersWithCustomVersions(projectId);
+        List<PatchDto.SiteWithCustomVersions> sites = patchService.getSitesWithCustomVersions(projectId);
 
-        return ApiResponse.success(customers);
+        return ApiResponse.success(sites);
     }
 
     /**
-     * 고객사별 커스텀 버전 목록 조회
+     * 사이트별 커스텀 버전 목록 조회
      */
     @Override
-    @GetMapping("/custom/customers/{customerId}/versions")
-    public ApiResponse<List<PatchDto.CustomVersionSelectOption>> getCustomVersionsByCustomer(
+    @GetMapping("/custom/sites/{siteId}/versions")
+    public ApiResponse<List<PatchDto.CustomVersionSelectOption>> getCustomVersionsBySite(
             @RequestParam String projectId,
-            @PathVariable Long customerId) {
+            @PathVariable Long siteId) {
 
-        log.info("고객사별 커스텀 버전 목록 조회 요청 - projectId: {}, customerId: {}", projectId, customerId);
+        log.info("사이트별 커스텀 버전 목록 조회 요청 - projectId: {}, siteId: {}", projectId, siteId);
 
-        List<PatchDto.CustomVersionSelectOption> versions = patchService.getCustomVersionsByCustomer(projectId, customerId);
+        List<PatchDto.CustomVersionSelectOption> versions = patchService.getCustomVersionsBySite(projectId, siteId);
 
         return ApiResponse.success(versions);
     }
@@ -297,14 +297,14 @@ public class PatchController implements PatchControllerDocs {
             @org.springframework.web.bind.annotation.RequestHeader(value = "X-Progress-Id", required = false)
             String progressId) {
 
-        log.info("커스텀 패치 생성 요청 - Project: {}, Customer: {}, From: {}, To: {}, ProgressId: {}",
-                request.projectId(), request.customerId(), request.fromVersion(), request.toVersion(), progressId);
+        log.info("커스텀 패치 생성 요청 - Project: {}, Site: {}, From: {}, To: {}, ProgressId: {}",
+                request.projectId(), request.siteId(), request.fromVersion(), request.toVersion(), progressId);
 
         progressService.start(progressId);
         try {
             Patch patch = patchService.generateCustomPatchByVersion(
                     request.projectId(),
-                    request.customerId(),
+                    request.siteId(),
                     request.fromVersion(),
                     request.toVersion(),
                     request.createdByEmail(),

@@ -71,12 +71,12 @@ public interface ReleaseVersionRepository extends JpaRepository<ReleaseVersion, 
             String projectId, String releaseType);
 
     /**
-     * 고객사별 커스텀 버전 목록 조회 (최신순)
+     * 사이트별 커스텀 버전 목록 조회 (최신순)
      *
-     * @param customerId 고객사 ID
+     * @param siteId 사이트 ID
      * @return 버전 목록
      */
-    List<ReleaseVersion> findAllByCustomer_CustomerIdOrderByCreatedAtDesc(Long customerId);
+    List<ReleaseVersion> findAllBySite_SiteIdOrderByCreatedAtDesc(Long siteId);
 
     /**
      * Major, Minor 버전으로 버전 목록 조회
@@ -117,36 +117,36 @@ public interface ReleaseVersionRepository extends JpaRepository<ReleaseVersion, 
             String projectId, String releaseType, String version);
 
     /**
-     * 프로젝트, 릴리즈 타입, 고객사, 버전으로 존재 여부 확인
+     * 프로젝트, 릴리즈 타입, 사이트, 버전으로 존재 여부 확인
      *
      * @param projectId    프로젝트 ID
      * @param releaseType  릴리즈 타입 (standard/custom)
-     * @param customerCode 고객사 코드
+     * @param siteCode 사이트 코드
      * @param version      버전
      * @return 존재 여부
      */
-    boolean existsByProject_ProjectIdAndReleaseTypeAndCustomer_CustomerCodeAndVersion(
-            String projectId, String releaseType, String customerCode, String version);
+    boolean existsByProject_ProjectIdAndReleaseTypeAndSite_SiteCodeAndVersion(
+            String projectId, String releaseType, String siteCode, String version);
 
     /**
-     * 고객사별 커스텀 버전 존재 여부 확인 (중복 검증용)
+     * 사이트별 커스텀 버전 존재 여부 확인 (중복 검증용)
      *
-     * @param customerId         고객사 ID
+     * @param siteId         사이트 ID
      * @param customMajorVersion 커스텀 메이저 버전
      * @param customMinorVersion 커스텀 마이너 버전
      * @param customPatchVersion 커스텀 패치 버전
      * @return 존재 여부
      */
-    boolean existsByCustomer_CustomerIdAndCustomMajorVersionAndCustomMinorVersionAndCustomPatchVersion(
-            Long customerId, Integer customMajorVersion, Integer customMinorVersion, Integer customPatchVersion);
+    boolean existsBySite_SiteIdAndCustomMajorVersionAndCustomMinorVersionAndCustomPatchVersion(
+            Long siteId, Integer customMajorVersion, Integer customMinorVersion, Integer customPatchVersion);
 
     /**
-     * 고객사에 커스텀 버전이 존재하는지 확인
+     * 사이트에 커스텀 버전이 존재하는지 확인
      *
-     * @param customerId 고객사 ID
+     * @param siteId 사이트 ID
      * @return 커스텀 버전 존재 여부
      */
-    boolean existsByCustomer_CustomerId(Long customerId);
+    boolean existsBySite_SiteId(Long siteId);
 
     /**
      * 프로젝트, 릴리즈 타입 내 미승인 버전 존재 여부 확인
@@ -171,22 +171,22 @@ public interface ReleaseVersionRepository extends JpaRepository<ReleaseVersion, 
             String projectId, String releaseType, boolean isApproved);
 
     /**
-     * 고객사 내 미승인 커스텀 버전 존재 여부 확인
+     * 사이트 내 미승인 커스텀 버전 존재 여부 확인
      *
-     * @param customerId 고객사 ID
+     * @param siteId 사이트 ID
      * @param isApproved 승인 여부
      * @return 미승인 버전 존재 여부
      */
-    boolean existsByCustomer_CustomerIdAndIsApproved(Long customerId, boolean isApproved);
+    boolean existsBySite_SiteIdAndIsApproved(Long siteId, boolean isApproved);
 
     /**
-     * 고객사 내 미승인 커스텀 버전 목록 조회
+     * 사이트 내 미승인 커스텀 버전 목록 조회
      *
-     * @param customerId 고객사 ID
+     * @param siteId 사이트 ID
      * @param isApproved 승인 여부
      * @return 미승인 버전 목록
      */
-    List<ReleaseVersion> findAllByCustomer_CustomerIdAndIsApproved(Long customerId, boolean isApproved);
+    List<ReleaseVersion> findAllBySite_SiteIdAndIsApproved(Long siteId, boolean isApproved);
 
     // ========================================
     // Hotfix 관련 메서드

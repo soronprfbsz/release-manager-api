@@ -154,7 +154,7 @@ public class CumulativePatchGenerationScenarioTest {
         System.out.println("\n[Step 2] 누적 패치 생성 (1.2.0 → 1.3.1)");
         PatchDto.GenerateRequest patchRequest = PatchDto.GenerateRequest.builder()
                 .type("STANDARD")
-                .customerId(null)
+                .siteId(null)
                 .fromVersion("1.2.0")
                 .toVersion("1.3.1")
                 .createdByEmail(CREATED_BY)

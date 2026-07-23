@@ -34,8 +34,8 @@ public final class PatchDto {
             @NotBlank(message = "릴리즈 타입은 필수입니다")
             String type,
 
-            @Schema(description = "고객사 ID (커스텀인 경우)", example = "1")
-            Long customerId,
+            @Schema(description = "사이트 ID (커스텀인 경우)", example = "1")
+            Long siteId,
 
             @Schema(description = "시작 버전", example = "1.0.0")
             @NotBlank(message = "시작 버전은 필수입니다")
@@ -195,11 +195,11 @@ public final class PatchDto {
             @Schema(description = "릴리즈 타입", example = "standard")
             String releaseType,
 
-            @Schema(description = "고객사 코드", example = "company_a")
-            String customerCode,
+            @Schema(description = "사이트 코드", example = "company_a")
+            String siteCode,
 
-            @Schema(description = "고객사명", example = "A 회사")
-            String customerName,
+            @Schema(description = "사이트명", example = "A 회사")
+            String siteName,
 
             @Schema(description = "시작 버전", example = "1.0.0")
             String fromVersion,
@@ -281,11 +281,11 @@ public final class PatchDto {
             @Schema(description = "릴리즈 타입", example = "standard")
             String releaseType,
 
-            @Schema(description = "고객사 코드", example = "company_a")
-            String customerCode,
+            @Schema(description = "사이트 코드", example = "company_a")
+            String siteCode,
 
-            @Schema(description = "고객사명", example = "A 회사")
-            String customerName,
+            @Schema(description = "사이트명", example = "A 회사")
+            String siteName,
 
             @Schema(description = "시작 버전", example = "1.0.0")
             String fromVersion,
@@ -343,11 +343,11 @@ public final class PatchDto {
             @Schema(description = "릴리즈 타입", example = "standard")
             String releaseType,
 
-            @Schema(description = "고객사 코드", example = "company_a")
-            String customerCode,
+            @Schema(description = "사이트 코드", example = "company_a")
+            String siteCode,
 
-            @Schema(description = "고객사명", example = "A 회사")
-            String customerName,
+            @Schema(description = "사이트명", example = "A 회사")
+            String siteName,
 
             @Schema(description = "시작 버전", example = "1.0.0")
             String fromVersion,
@@ -526,9 +526,9 @@ public final class PatchDto {
             @Size(max = 50, message = "프로젝트 ID는 50자 이하여야 합니다")
             String projectId,
 
-            @Schema(description = "고객사 ID", example = "1")
-            @jakarta.validation.constraints.NotNull(message = "고객사 ID는 필수입니다")
-            Long customerId,
+            @Schema(description = "사이트 ID", example = "1")
+            @jakarta.validation.constraints.NotNull(message = "사이트 ID는 필수입니다")
+            Long siteId,
 
             @Schema(description = "시작 버전 (베이스 버전 또는 커스텀 버전)", example = "1.1.0-companyA.1.0.0")
             @NotBlank(message = "시작 버전은 필수입니다")
@@ -564,18 +564,18 @@ public final class PatchDto {
     }
 
     /**
-     * 커스텀 버전 보유 고객사 응답
+     * 커스텀 버전 보유 사이트 응답
      */
-    @Schema(description = "커스텀 버전 보유 고객사")
-    public record CustomerWithCustomVersions(
-            @Schema(description = "고객사 ID", example = "1")
-            Long customerId,
+    @Schema(description = "커스텀 버전 보유 사이트")
+    public record SiteWithCustomVersions(
+            @Schema(description = "사이트 ID", example = "1")
+            Long siteId,
 
-            @Schema(description = "고객사 코드", example = "companyA")
-            String customerCode,
+            @Schema(description = "사이트 코드", example = "companyA")
+            String siteCode,
 
-            @Schema(description = "고객사명", example = "A 회사")
-            String customerName
+            @Schema(description = "사이트명", example = "A 회사")
+            String siteName
     ) {
 
     }
@@ -604,7 +604,7 @@ public final class PatchDto {
      * 자동 생성될 패치명 미리보기 응답.
      */
     public record PreviewNameResponse(
-            @Schema(description = "충돌 검사까지 적용된 실제 확정 패치명", example = "customerA_260512-2")
+            @Schema(description = "충돌 검사까지 적용된 실제 확정 패치명", example = "siteA_260512-2")
             String patchName
     ) {}
 

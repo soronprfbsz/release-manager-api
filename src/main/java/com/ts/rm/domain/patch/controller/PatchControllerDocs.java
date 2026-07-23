@@ -64,10 +64,10 @@ public interface PatchControllerDocs {
 
     @Operation(
             summary = "패치 목록 조회",
-            description = "패치 목록을 페이징하여 조회합니다. projectId, releaseType, customerId로 필터링 가능. page, size, sort 파라미터 사용 가능\n\n"
+            description = "패치 목록을 페이징하여 조회합니다. projectId, releaseType, siteId로 필터링 가능. page, size, sort 파라미터 사용 가능\n\n"
                     + "정렬 가능 필드:\n"
                     + "- patchName: 패치명\n"
-                    + "- customerName: 고객사명\n"
+                    + "- siteName: 사이트명\n"
                     + "- engineerName: 담당 엔지니어명\n"
                     + "- createdByEmail: 생성자\n"
                     + "- createdAt: 생성일시",
@@ -87,8 +87,8 @@ public interface PatchControllerDocs {
             @Parameter(description = "릴리즈 타입 (STANDARD/CUSTOM)")
             @RequestParam(required = false) String releaseType,
 
-            @Parameter(description = "고객사 코드 (특정 고객사의 패치만 조회)")
-            @RequestParam(required = false) String customerCode,
+            @Parameter(description = "사이트 코드 (특정 사이트의 패치만 조회)")
+            @RequestParam(required = false) String siteCode,
 
             @ParameterObject Pageable pageable
     );
@@ -250,7 +250,7 @@ public interface PatchControllerDocs {
             description = "패치를 완료(적용) 처리합니다.\n\n"
                     + "**처리 순서**:\n"
                     + "1. 패치 이력(patch_history) 영구 저장 — 완료 일시 / 완료자 이메일 기록\n"
-                    + "2. 고객사 지정 패치인 경우 customer_project.last_patched_* 갱신\n"
+                    + "2. 사이트 지정 패치인 경우 customer_project.last_patched_* 갱신\n"
                     + "3. 디스크 패치 디렉토리 삭제\n"
                     + "4. patch_file row 삭제\n\n"
                     + "**주의사항**:\n"
@@ -340,26 +340,26 @@ public interface PatchControllerDocs {
     // ========================================
 
     @Operation(
-            summary = "커스텀 버전 보유 고객사 목록 조회",
-            description = "프로젝트 내에서 커스텀 버전이 존재하는 고객사 목록을 조회합니다.\n\n"
-                    + "커스텀 패치 생성 시 고객사 선택 드롭다운에 사용됩니다.",
+            summary = "커스텀 버전 보유 사이트 목록 조회",
+            description = "프로젝트 내에서 커스텀 버전이 존재하는 사이트 목록을 조회합니다.\n\n"
+                    + "커스텀 패치 생성 시 사이트 선택 드롭다운에 사용됩니다.",
             responses = @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "200",
                     description = "성공",
                     content = @Content(
                             mediaType = "application/json",
-                            schema = @Schema(implementation = CustomerListApiResponse.class)
+                            schema = @Schema(implementation = SiteListApiResponse.class)
                     )
             )
     )
-    ApiResponse<List<PatchDto.CustomerWithCustomVersions>> getCustomersWithCustomVersions(
+    ApiResponse<List<PatchDto.SiteWithCustomVersions>> getSitesWithCustomVersions(
             @Parameter(description = "프로젝트 ID", example = "infraeye2", required = true)
             @RequestParam String projectId
     );
 
     @Operation(
-            summary = "고객사별 커스텀 버전 목록 조회",
-            description = "특정 고객사의 베이스 버전과 커스텀 버전 목록을 조회합니다.\n\n"
+            summary = "사이트별 커스텀 버전 목록 조회",
+            description = "특정 사이트의 베이스 버전과 커스텀 버전 목록을 조회합니다.\n\n"
                     + "**응답 구조**:\n"
                     + "- 첫 번째 항목: 베이스 버전 (표준본, isBaseVersion=true)\n"
                     + "- 이후 항목들: 커스텀 버전들 (최신순, isBaseVersion=false)\n\n"
@@ -375,20 +375,20 @@ public interface PatchControllerDocs {
                     )
             )
     )
-    ApiResponse<List<PatchDto.CustomVersionSelectOption>> getCustomVersionsByCustomer(
+    ApiResponse<List<PatchDto.CustomVersionSelectOption>> getCustomVersionsBySite(
             @Parameter(description = "프로젝트 ID", example = "infraeye2", required = true)
             @RequestParam String projectId,
 
-            @Parameter(description = "고객사 ID", example = "1", required = true)
-            @PathVariable Long customerId
+            @Parameter(description = "사이트 ID", example = "1", required = true)
+            @PathVariable Long siteId
     );
 
     @Operation(
             summary = "커스텀 패치 생성",
-            description = "고객사의 커스텀 버전 범위에 대한 누적 패치를 생성합니다.\n\n"
+            description = "사이트의 커스텀 버전 범위에 대한 누적 패치를 생성합니다.\n\n"
                     + "**프로세스**:\n"
                     + "1. From ~ To 커스텀 버전 사이의 파일을 수집\n"
-                    + "2. 누적 패치 디렉토리 생성 (patches/{projectId}/custom/{customerCode}/{patchName})\n"
+                    + "2. 누적 패치 디렉토리 생성 (patches/{projectId}/custom/{siteCode}/{patchName})\n"
                     + "3. 패치 스크립트 및 README 생성\n"
                     + "4. DB에 패치 정보 저장",
             responses = @io.swagger.v3.oas.annotations.responses.ApiResponse(
@@ -485,15 +485,15 @@ public interface PatchControllerDocs {
     }
 
     /**
-     * Swagger 스키마용 wrapper 클래스 - 커스텀 버전 보유 고객사 목록 응답
+     * Swagger 스키마용 wrapper 클래스 - 커스텀 버전 보유 사이트 목록 응답
      */
-    @Schema(description = "커스텀 버전 보유 고객사 목록 API 응답")
-    class CustomerListApiResponse {
+    @Schema(description = "커스텀 버전 보유 사이트 목록 API 응답")
+    class SiteListApiResponse {
         @Schema(description = "응답 상태", example = "success")
         public String status;
 
-        @Schema(description = "고객사 목록")
-        public List<PatchDto.CustomerWithCustomVersions> data;
+        @Schema(description = "사이트 목록")
+        public List<PatchDto.SiteWithCustomVersions> data;
     }
 
     /**

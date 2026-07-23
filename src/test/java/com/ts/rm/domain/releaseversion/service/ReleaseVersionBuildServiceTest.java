@@ -47,7 +47,7 @@ class ReleaseVersionBuildServiceTest {
     private ReleaseVersionHierarchyRepository hierarchyRepository;
 
     @Mock
-    private com.ts.rm.domain.customer.repository.CustomerRepository customerRepository;
+    private com.ts.rm.domain.site.repository.SiteRepository siteRepository;
 
     @Mock
     private com.ts.rm.domain.project.repository.ProjectRepository projectRepository;

@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
-import com.ts.rm.domain.customer.entity.Customer;
+import com.ts.rm.domain.site.entity.Site;
 import com.ts.rm.domain.project.entity.Project;
 import com.ts.rm.domain.releaseversion.entity.ReleaseVersion;
 import java.io.IOException;
@@ -48,15 +48,15 @@ class ReleaseVersionFileSystemServiceTest {
     }
 
     /**
-     * 커스텀 base 버전 엔티티. 베이스=1.1.0, 고객사=customerA, 커스텀=1.0.0.
+     * 커스텀 base 버전 엔티티. 베이스=1.1.0, 사이트=siteA, 커스텀=1.0.0.
      * <p>version 컬럼에는 ZIP 생성 경로가 저장하는 풀버전 문자열이 들어간다.
      */
     private ReleaseVersion customVersion() {
         Project project = Project.builder().projectId("infraeye2").projectName("InfraEye 2.0").build();
-        Customer customer = Customer.builder().customerId(1L).customerCode("customerA").customerName("고객사A").build();
+        Site site = Site.builder().siteId(1L).siteCode("siteA").siteName("사이트A").build();
         return ReleaseVersion.builder()
-                .releaseVersionId(5L).project(project).releaseType("CUSTOM").customer(customer)
-                .version("1.1.0-customerA.1.0.0")
+                .releaseVersionId(5L).project(project).releaseType("CUSTOM").site(site)
+                .version("1.1.0-siteA.1.0.0")
                 .majorVersion(1).minorVersion(1).patchVersion(0)   // 베이스 버전 숫자
                 .customMajorVersion(1).customMinorVersion(0).customPatchVersion(0)  // 커스텀 버전 숫자
                 .build();
@@ -68,8 +68,8 @@ class ReleaseVersionFileSystemServiceTest {
         ReleaseVersionFileSystemService svc = newService(tempDir);
         ReleaseVersion version = customVersion();
         // 운영의 ZIP 생성 경로와 동일하게 custom majorMinor("1.0.x") 아래에 디렉토리 생성
-        Path created = svc.createCustomVersionDirectory("infraeye2", "customerA", "1.0.x",
-                "1.1.0-customerA.1.0.0");
+        Path created = svc.createCustomVersionDirectory("infraeye2", "siteA", "1.0.x",
+                "1.1.0-siteA.1.0.0");
         Files.writeString(created.resolve("engine.bin"), "x");
         assertThat(Files.exists(created)).isTrue();
 
@@ -85,8 +85,8 @@ class ReleaseVersionFileSystemServiceTest {
         ReleaseVersionFileSystemService svc = newService(tempDir);
         ReleaseVersion version = customVersion();
         // 레거시 비-ZIP 생성 경로(createDirectoryStructure)는 base majorMinor("1.1.x")를 쓴다
-        Path created = svc.createCustomVersionDirectory("infraeye2", "customerA", "1.1.x",
-                "1.1.0-customerA.1.0.0");
+        Path created = svc.createCustomVersionDirectory("infraeye2", "siteA", "1.1.x",
+                "1.1.0-siteA.1.0.0");
         Files.writeString(created.resolve("engine.bin"), "x");
 
         svc.deleteVersionDirectory(version);
@@ -100,7 +100,7 @@ class ReleaseVersionFileSystemServiceTest {
         ReleaseVersionFileSystemService svc = newService(tempDir);
         ReleaseVersion base = customVersion();
         ReleaseVersion hotfix = ReleaseVersion.builder()
-                .releaseVersionId(7L).project(base.getProject()).releaseType("CUSTOM").customer(base.getCustomer())
+                .releaseVersionId(7L).project(base.getProject()).releaseType("CUSTOM").site(base.getSite())
                 .version(base.getVersion())
                 .majorVersion(1).minorVersion(1).patchVersion(0)
                 .customMajorVersion(1).customMinorVersion(0).customPatchVersion(0)
@@ -108,7 +108,7 @@ class ReleaseVersionFileSystemServiceTest {
                 .build();
         // 운영과 동일하게 서비스의 생성 메서드로 디렉토리를 만든다
         svc.createHotfixDirectoryStructure(hotfix, base);
-        Path hotfixDir = tempDir.resolve("versions/infraeye2/custom/customerA/1.1.x/1.1.0-customerA.1.0.0/hotfix/1");
+        Path hotfixDir = tempDir.resolve("versions/infraeye2/custom/siteA/1.1.x/1.1.0-siteA.1.0.0/hotfix/1");
         assertThat(Files.exists(hotfixDir)).isTrue();
 
         svc.deleteHotfixDirectory(hotfix);

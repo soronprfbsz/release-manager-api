@@ -5,10 +5,10 @@ import com.querydsl.core.types.dsl.Expressions;
 import com.querydsl.core.types.dsl.StringTemplate;
 import com.querydsl.jpa.JPAExpressions;
 import com.querydsl.jpa.impl.JPAQueryFactory;
-import com.ts.rm.domain.analytics.dto.AnalyticsDto.CustomerPatchCount;
-import com.ts.rm.domain.analytics.dto.AnalyticsDto.MonthlyCustomerPatchRaw;
-import com.ts.rm.domain.analytics.dto.AnalyticsDto.VersionCustomerRaw;
-import com.ts.rm.domain.customer.entity.QCustomer;
+import com.ts.rm.domain.analytics.dto.AnalyticsDto.SitePatchCount;
+import com.ts.rm.domain.analytics.dto.AnalyticsDto.MonthlySitePatchRaw;
+import com.ts.rm.domain.analytics.dto.AnalyticsDto.VersionSiteRaw;
+import com.ts.rm.domain.site.entity.QSite;
 import com.ts.rm.domain.patch.entity.QPatchHistory;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -28,40 +28,40 @@ public class PatchAnalyticsRepositoryImpl implements PatchAnalyticsRepository {
     private final JPAQueryFactory queryFactory;
 
     /**
-     * 프로젝트별 기간 내 고객사별 패치 건수 Top-N 조회
+     * 프로젝트별 기간 내 사이트별 패치 건수 Top-N 조회
      *
-     * <p>CUSTOM 타입 패치만 집계 (STANDARD는 고객사가 없음)
+     * <p>CUSTOM 타입 패치만 집계 (STANDARD는 사이트가 없음)
      *
      * @param projectId 프로젝트 ID
      * @param startDate 시작일시
      * @param topN      상위 N개
-     * @return 고객사별 패치 건수 목록 (내림차순)
+     * @return 사이트별 패치 건수 목록 (내림차순)
      */
     @Override
-    public List<CustomerPatchCount> findTopCustomersByPatchCount(String projectId,
+    public List<SitePatchCount> findTopSitesByPatchCount(String projectId,
             LocalDateTime startDate, int topN) {
         QPatchHistory patchHistory = QPatchHistory.patchHistory;
-        QCustomer customer = QCustomer.customer;
+        QSite site = QSite.site;
 
         return queryFactory
-                .select(Projections.constructor(CustomerPatchCount.class,
-                        customer.customerId,
-                        customer.customerCode,
-                        customer.customerName,
+                .select(Projections.constructor(SitePatchCount.class,
+                        site.siteId,
+                        site.siteCode,
+                        site.siteName,
                         patchHistory.count()))
                 .from(patchHistory)
-                .join(patchHistory.customer, customer)
+                .join(patchHistory.site, site)
                 .where(
                         patchHistory.project.projectId.eq(projectId),
                         patchHistory.createdAt.goe(startDate),
-                        patchHistory.customer.isNotNull()
+                        patchHistory.site.isNotNull()
                 )
                 .groupBy(
-                        customer.customerId,
-                        customer.customerCode,
-                        customer.customerName
+                        site.siteId,
+                        site.siteCode,
+                        site.siteName
                 )
-                .orderBy(patchHistory.count().desc(), customer.customerName.asc())
+                .orderBy(patchHistory.count().desc(), site.siteName.asc())
                 .limit(topN)
                 .fetch();
     }
@@ -69,17 +69,17 @@ public class PatchAnalyticsRepositoryImpl implements PatchAnalyticsRepository {
     /**
      * 프로젝트별 기간 내 월별+고객별 패치 건수 조회
      *
-     * <p>CUSTOM 타입 패치만 집계 (고객사별 통계이므로)
+     * <p>CUSTOM 타입 패치만 집계 (사이트별 통계이므로)
      *
      * @param projectId 프로젝트 ID
      * @param startDate 시작일시
      * @return 월별+고객별 패치 건수 목록 (연월 오름차순, 고객명 오름차순)
      */
     @Override
-    public List<MonthlyCustomerPatchRaw> findMonthlyCustomerPatchCounts(String projectId,
+    public List<MonthlySitePatchRaw> findMonthlySitePatchCounts(String projectId,
             LocalDateTime startDate) {
         QPatchHistory patchHistory = QPatchHistory.patchHistory;
-        QCustomer customer = QCustomer.customer;
+        QSite site = QSite.site;
 
         // DATE_FORMAT(created_at, '%Y-%m') 형식으로 월별 그룹화
         StringTemplate yearMonthTemplate = Expressions.stringTemplate(
@@ -88,53 +88,53 @@ public class PatchAnalyticsRepositoryImpl implements PatchAnalyticsRepository {
         );
 
         return queryFactory
-                .select(Projections.constructor(MonthlyCustomerPatchRaw.class,
+                .select(Projections.constructor(MonthlySitePatchRaw.class,
                         yearMonthTemplate,
-                        customer.customerName,
+                        site.siteName,
                         patchHistory.count()))
                 .from(patchHistory)
-                .join(patchHistory.customer, customer)
+                .join(patchHistory.site, site)
                 .where(
                         patchHistory.project.projectId.eq(projectId),
                         patchHistory.createdAt.goe(startDate),
-                        patchHistory.customer.isNotNull()
+                        patchHistory.site.isNotNull()
                 )
-                .groupBy(yearMonthTemplate, customer.customerName)
-                .orderBy(yearMonthTemplate.asc(), customer.customerName.asc())
+                .groupBy(yearMonthTemplate, site.siteName)
+                .orderBy(yearMonthTemplate.asc(), site.siteName.asc())
                 .fetch();
     }
 
     /**
-     * 프로젝트별 각 고객사의 최신 완료 patch_history.to_version 조회.
+     * 프로젝트별 각 사이트의 최신 완료 patch_history.to_version 조회.
      *
-     * <p>서브쿼리로 각 customer 의 MAX(completed_at) 인 row 만 선택.
+     * <p>서브쿼리로 각 site 의 MAX(completed_at) 인 row 만 선택.
      */
     @Override
-    public List<VersionCustomerRaw> findLatestVersionByCustomer(String projectId) {
+    public List<VersionSiteRaw> findLatestVersionBySite(String projectId) {
         QPatchHistory ph = QPatchHistory.patchHistory;
         QPatchHistory ph2 = new QPatchHistory("ph2");
-        QCustomer customer = QCustomer.customer;
+        QSite site = QSite.site;
 
         return queryFactory
-                .select(Projections.constructor(VersionCustomerRaw.class,
+                .select(Projections.constructor(VersionSiteRaw.class,
                         ph.toVersion,
-                        customer.customerId,
-                        customer.customerCode,
-                        customer.customerName))
+                        site.siteId,
+                        site.siteCode,
+                        site.siteName))
                 .from(ph)
-                .join(ph.customer, customer)
+                .join(ph.site, site)
                 .where(
                         ph.project.projectId.eq(projectId),
-                        ph.customer.isNotNull(),
+                        ph.site.isNotNull(),
                         ph.completedAt.eq(
                                 JPAExpressions
                                         .select(ph2.completedAt.max())
                                         .from(ph2)
-                                        .where(ph2.customer.eq(ph.customer)
+                                        .where(ph2.site.eq(ph.site)
                                                 .and(ph2.project.projectId.eq(projectId)))
                         )
                 )
-                .orderBy(customer.customerName.asc())
+                .orderBy(site.siteName.asc())
                 .fetch();
     }
 }

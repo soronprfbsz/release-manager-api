@@ -3,8 +3,8 @@ package com.ts.rm.domain.releaseversion.service;
 import com.ts.rm.domain.account.entity.Account;
 import com.ts.rm.domain.account.repository.AccountRepository;
 import com.ts.rm.domain.common.service.FileStorageService;
-import com.ts.rm.domain.customer.entity.Customer;
-import com.ts.rm.domain.customer.repository.CustomerRepository;
+import com.ts.rm.domain.site.entity.Site;
+import com.ts.rm.domain.site.repository.SiteRepository;
 import com.ts.rm.domain.patch.util.ScriptGenerator;
 import com.ts.rm.domain.project.entity.Project;
 import com.ts.rm.domain.project.repository.ProjectRepository;
@@ -52,7 +52,7 @@ public class ReleaseVersionUploadService {
     private final ReleaseVersionRepository releaseVersionRepository;
     private final ReleaseFileRepository releaseFileRepository;
     private final ProjectRepository projectRepository;
-    private final CustomerRepository customerRepository;
+    private final SiteRepository siteRepository;
     private final AccountRepository accountRepository;
     private final AccountLookupService accountLookupService;
     private final FileStorageService fileStorageService;
@@ -259,8 +259,8 @@ public class ReleaseVersionUploadService {
             ReleaseVersionDto.CreateCustomVersionRequest request, MultipartFile zipFile, String createdByEmail,
             ServerProgressService progress) {
 
-        log.info("ZIP 파일로 커스텀 릴리즈 버전 생성 시작 - projectId: {}, customerId: {}, customBaseVersionId: {}, customVersion: {}, createdByEmail: {}, isApproved: {}",
-                request.projectId(), request.customerId(), request.customBaseVersionId(), request.customVersion(),
+        log.info("ZIP 파일로 커스텀 릴리즈 버전 생성 시작 - projectId: {}, siteId: {}, customBaseVersionId: {}, customVersion: {}, createdByEmail: {}, isApproved: {}",
+                request.projectId(), request.siteId(), request.customBaseVersionId(), request.customVersion(),
                 createdByEmail, request.isApproved());
 
         final int TOTAL_STEPS = 5;
@@ -270,21 +270,21 @@ public class ReleaseVersionUploadService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.PROJECT_NOT_FOUND,
                         "프로젝트를 찾을 수 없습니다: " + request.projectId()));
 
-        // 1. 고객사 조회
-        Customer customer = customerRepository.findById(request.customerId())
-                .orElseThrow(() -> new BusinessException(ErrorCode.CUSTOMER_NOT_FOUND,
-                        "고객사를 찾을 수 없습니다: " + request.customerId()));
+        // 1. 사이트 조회
+        Site site = siteRepository.findById(request.siteId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.SITE_NOT_FOUND,
+                        "사이트를 찾을 수 없습니다: " + request.siteId()));
 
-        // 2. 해당 고객사의 기존 커스텀 버전 존재 여부 확인 (핫픽스 제외)
+        // 2. 해당 사이트의 기존 커스텀 버전 존재 여부 확인 (핫픽스 제외)
         List<ReleaseVersion> existingCustomVersions = releaseVersionRepository
-                .findAllByCustomer_CustomerIdOrderByCreatedAtDesc(request.customerId())
+                .findAllBySite_SiteIdOrderByCreatedAtDesc(request.siteId())
                 .stream()
                 .filter(v -> !v.isHotfix())  // 핫픽스 제외, 기본 커스텀 버전만
                 .toList();
         boolean isFirstCustomVersion = existingCustomVersions.isEmpty();
 
         // 2-1. 미승인 커스텀 버전 존재 여부 확인 (미승인 버전이 있으면 새 버전 생성 불가)
-        validateNoUnapprovedCustomVersionExists(request.customerId());
+        validateNoUnapprovedCustomVersionExists(request.siteId());
 
         // 3. 기준 표준 버전 조회 및 검증
         ReleaseVersion customBaseVersion = null;
@@ -300,7 +300,7 @@ public class ReleaseVersionUploadService {
         } else if (isFirstCustomVersion) {
             // 최초 커스텀 버전 생성 시 customBaseVersionId 필수
             throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
-                    "해당 고객사의 최초 커스텀 버전 생성 시 기준 표준 버전 ID(customBaseVersionId)는 필수입니다.");
+                    "해당 사이트의 최초 커스텀 버전 생성 시 기준 표준 버전 ID(customBaseVersionId)는 필수입니다.");
         } else {
             // 최초가 아닌 경우: 기존 커스텀 버전의 customBaseVersion을 상속
             customBaseVersion = existingCustomVersions.get(0).getCustomBaseVersion();
@@ -321,12 +321,12 @@ public class ReleaseVersionUploadService {
         int customPatchVersion = customVersionInfo.getPatchVersion();
 
         // 시멘틱 버저닝 형식의 전체 버전 문자열 생성
-        // 형식: {베이스버전}-{고객사코드}.{커스텀버전}
+        // 형식: {베이스버전}-{사이트코드}.{커스텀버전}
         // 예: 1.1.0-companyA.1.0.0
-        String fullVersion = customBaseVersion.getVersion() + "-" + customer.getCustomerCode() + "." + customVersionStr;
+        String fullVersion = customBaseVersion.getVersion() + "-" + site.getSiteCode() + "." + customVersionStr;
 
-        // 5. 커스텀 버전 중복 검증 (같은 고객사 내에서)
-        validateCustomVersionUnique(request.customerId(), customMajorVersion, customMinorVersion, customPatchVersion);
+        // 5. 커스텀 버전 중복 검증 (같은 사이트 내에서)
+        validateCustomVersionUnique(request.siteId(), customMajorVersion, customMinorVersion, customPatchVersion);
 
         // 6. ZIP 파일 검증
         validateZipFile(zipFile);
@@ -346,17 +346,17 @@ public class ReleaseVersionUploadService {
             // 3/5 커스텀 버전 디렉토리 생성
             progress.update(3, TOTAL_STEPS, "버전 디렉토리 생성 중");
             versionPath = fileSystemService.createCustomVersionDirectory(
-                    request.projectId(), customer.getCustomerCode(), customMajorMinor, fullVersion);
+                    request.projectId(), site.getSiteCode(), customMajorMinor, fullVersion);
 
             // 4/5 파일 복사 및 DB 저장
             progress.update(4, TOTAL_STEPS, "파일 복사 및 DB 저장 중");
             ReleaseVersion savedVersion = copyFilesAndSaveToDbForCustomVersion(
-                    project, customer, customBaseVersion, tempDir, versionPath,
+                    project, site, customBaseVersion, tempDir, versionPath,
                     customMajorVersion, customMinorVersion, customPatchVersion,
                     request.comment(), createdByEmail, request.isApproved());
 
-            log.info("ZIP 파일로 커스텀 릴리즈 버전 생성 완료 - projectId: {}, customerId: {}, version: {}, ID: {}, isApproved: {}",
-                    request.projectId(), request.customerId(), fullVersion, savedVersion.getReleaseVersionId(), savedVersion.getIsApproved());
+            log.info("ZIP 파일로 커스텀 릴리즈 버전 생성 완료 - projectId: {}, siteId: {}, version: {}, ID: {}, isApproved: {}",
+                    request.projectId(), request.siteId(), fullVersion, savedVersion.getReleaseVersionId(), savedVersion.getIsApproved());
 
             // 5/5 마무리 정리
             progress.update(5, TOTAL_STEPS, "마무리 정리 중");
@@ -366,8 +366,8 @@ public class ReleaseVersionUploadService {
             return new ReleaseVersionDto.CreateCustomVersionResponse(
                     savedVersion.getReleaseVersionId(),
                     request.projectId(),
-                    customer.getCustomerCode(),
-                    customer.getCustomerName(),
+                    site.getSiteCode(),
+                    site.getSiteName(),
                     customBaseVersion != null ? customBaseVersion.getReleaseVersionId() : null,
                     customBaseVersion != null ? customBaseVersion.getVersion() : null,
                     customMajorVersion,
@@ -406,11 +406,11 @@ public class ReleaseVersionUploadService {
     }
 
     /**
-     * 커스텀 버전 중복 검증 (같은 고객사 내에서 동일 버전이 있는지 확인)
+     * 커스텀 버전 중복 검증 (같은 사이트 내에서 동일 버전이 있는지 확인)
      */
-    private void validateCustomVersionUnique(Long customerId, Integer major, Integer minor, Integer patch) {
-        boolean exists = releaseVersionRepository.existsByCustomer_CustomerIdAndCustomMajorVersionAndCustomMinorVersionAndCustomPatchVersion(
-                customerId, major, minor, patch);
+    private void validateCustomVersionUnique(Long siteId, Integer major, Integer minor, Integer patch) {
+        boolean exists = releaseVersionRepository.existsBySite_SiteIdAndCustomMajorVersionAndCustomMinorVersionAndCustomPatchVersion(
+                siteId, major, minor, patch);
         if (exists) {
             throw new BusinessException(ErrorCode.RELEASE_VERSION_CONFLICT,
                     String.format("이미 존재하는 커스텀 버전입니다: %d.%d.%d", major, minor, patch));
@@ -423,7 +423,7 @@ public class ReleaseVersionUploadService {
      * @return 저장된 ReleaseVersion 엔티티
      */
     private ReleaseVersion copyFilesAndSaveToDbForCustomVersion(
-            Project project, Customer customer, ReleaseVersion customBaseVersion,
+            Project project, Site site, ReleaseVersion customBaseVersion,
             Path tempDir, Path versionPath,
             int customMajorVersion, int customMinorVersion, int customPatchVersion,
             String comment, String createdByEmail,
@@ -432,9 +432,9 @@ public class ReleaseVersionUploadService {
         String customVersionStr = customMajorVersion + "." + customMinorVersion + "." + customPatchVersion;
 
         // 시멘틱 버저닝 형식의 전체 버전 문자열 생성
-        // 형식: {베이스버전}-{고객사코드}.{커스텀버전}
+        // 형식: {베이스버전}-{사이트코드}.{커스텀버전}
         // 예: 1.1.0-companyA.1.0.0
-        String fullVersion = customBaseVersion.getVersion() + "-" + customer.getCustomerCode() + "." + customVersionStr;
+        String fullVersion = customBaseVersion.getVersion() + "-" + site.getSiteCode() + "." + customVersionStr;
 
         // 생성자(Account) 조회 - 이메일로 조회
         Account creator = accountLookupService.findByEmail(createdByEmail);
@@ -449,7 +449,7 @@ public class ReleaseVersionUploadService {
         ReleaseVersion.ReleaseVersionBuilder builder = ReleaseVersion.builder()
                 .project(project)
                 .releaseType("CUSTOM")
-                .customer(customer)
+                .site(site)
                 .customBaseVersion(customBaseVersion)
                 .version(fullVersion)  // 시멘틱 버저닝 형식: 1.1.0-companyA.1.0.0
                 .majorVersion(customBaseVersion.getMajorVersion())    // 베이스 버전 기준
@@ -1093,19 +1093,19 @@ public class ReleaseVersionUploadService {
     /**
      * 미승인 커스텀 버전 존재 여부 검증
      *
-     * <p>해당 고객사의 커스텀 버전 중 미승인 버전이 존재하면 새 버전 생성 불가
+     * <p>해당 사이트의 커스텀 버전 중 미승인 버전이 존재하면 새 버전 생성 불가
      *
-     * @param customerId 고객사 ID
+     * @param siteId 사이트 ID
      * @throws BusinessException 미승인 버전이 존재하는 경우
      */
-    private void validateNoUnapprovedCustomVersionExists(Long customerId) {
-        boolean hasUnapproved = releaseVersionRepository.existsByCustomer_CustomerIdAndIsApproved(
-                customerId, false);
+    private void validateNoUnapprovedCustomVersionExists(Long siteId) {
+        boolean hasUnapproved = releaseVersionRepository.existsBySite_SiteIdAndIsApproved(
+                siteId, false);
 
         if (hasUnapproved) {
             // 미승인 버전 목록 조회 (에러 메시지용)
             List<ReleaseVersion> unapprovedVersions = releaseVersionRepository
-                    .findAllByCustomer_CustomerIdAndIsApproved(customerId, false);
+                    .findAllBySite_SiteIdAndIsApproved(siteId, false);
 
             String unapprovedVersionList = unapprovedVersions.stream()
                     .map(ReleaseVersion::getVersion)
@@ -1266,7 +1266,7 @@ public class ReleaseVersionUploadService {
         ReleaseVersion.ReleaseVersionBuilder builder = ReleaseVersion.builder()
                 .project(hotfixBaseVersion.getProject())
                 .releaseType(hotfixBaseVersion.getReleaseType())
-                .customer(hotfixBaseVersion.getCustomer())
+                .site(hotfixBaseVersion.getSite())
                 .version(hotfixBaseVersion.getVersion())
                 .majorVersion(hotfixBaseVersion.getMajorVersion())
                 .minorVersion(hotfixBaseVersion.getMinorVersion())
@@ -1317,13 +1317,13 @@ public class ReleaseVersionUploadService {
                     hotfixBaseVersion.getVersion(),
                     hotfixVersion.getHotfixVersion());
         } else {
-            // CUSTOM인 경우 고객사 코드 사용
-            String customerCode = hotfixBaseVersion.getCustomer() != null
-                    ? hotfixBaseVersion.getCustomer().getCustomerCode()
+            // CUSTOM인 경우 사이트 코드 사용
+            String siteCode = hotfixBaseVersion.getSite() != null
+                    ? hotfixBaseVersion.getSite().getSiteCode()
                     : "unknown";
             basePath = String.format("versions/%s/custom/%s/%s/%s/hotfix/%d",
                     projectId,
-                    customerCode,
+                    siteCode,
                     hotfixBaseVersion.getMajorMinor(),
                     hotfixBaseVersion.getVersion(),
                     hotfixVersion.getHotfixVersion());

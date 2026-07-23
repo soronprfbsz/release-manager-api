@@ -1032,8 +1032,8 @@ public class FileSyncService {
             if (item.getEngineerId() != null) {
                 additionalData.put("engineerId", item.getEngineerId());
             }
-            if (item.getCustomerCode() != null) {
-                additionalData.put("customerCode", item.getCustomerCode());
+            if (item.getSiteCode() != null) {
+                additionalData.put("siteCode", item.getSiteCode());
             }
             if (item.getDescription() != null) {
                 additionalData.put("description", item.getDescription());

@@ -13,14 +13,14 @@ import org.springframework.data.domain.Pageable;
 public interface PatchHistoryRepositoryCustom {
 
     /**
-     * 프로젝트/고객사별 패치 이력 조회 (필터링 + 페이징)
+     * 프로젝트/사이트별 패치 이력 조회 (필터링 + 페이징)
      *
      * @param projectId  프로젝트 ID (null이면 전체)
-     * @param customerId 고객사 ID (null이면 전체)
+     * @param siteId 사이트 ID (null이면 전체)
      * @param pageable   페이징 정보
      * @return 패치 이력 페이지
      */
-    Page<PatchHistory> findAllWithFilters(String projectId, Long customerId, Pageable pageable);
+    Page<PatchHistory> findAllWithFilters(String projectId, Long siteId, Pageable pageable);
 
     /**
      * 프로젝트별 최근 패치 이력 조회 (대시보드용)

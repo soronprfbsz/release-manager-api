@@ -28,11 +28,11 @@ public interface PatchRepositoryCustom {
      *
      * @param projectId    프로젝트 ID (null이면 전체)
      * @param releaseType  릴리즈 타입 (STANDARD/CUSTOM, null이면 전체)
-     * @param customerCode 고객사 코드 (null이면 전체)
+     * @param siteCode 사이트 코드 (null이면 전체)
      * @param pageable     페이징 정보
      * @return 패치 목록 페이지
      */
-    Page<Patch> findAllWithFilters(String projectId, String releaseType, String customerCode, Pageable pageable);
+    Page<Patch> findAllWithFilters(String projectId, String releaseType, String siteCode, Pageable pageable);
 
     /**
      * 주어진 패치명 목록 중 실제 존재하는 패치명 조회

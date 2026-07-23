@@ -1,7 +1,7 @@
 package com.ts.rm.domain.dashboard.service;
 
 import com.ts.rm.domain.account.entity.Account;
-import com.ts.rm.domain.customer.entity.Customer;
+import com.ts.rm.domain.site.entity.Site;
 import com.ts.rm.domain.dashboard.dto.DashboardDto;
 import com.ts.rm.domain.dashboard.dto.DashboardDto.RecentBuildVersion;
 import com.ts.rm.domain.dashboard.dto.DashboardDto.RecentPatch;
@@ -106,11 +106,11 @@ public class DashboardService {
 
         // 3. 패치 완료 버튼(=completePatch)으로 처리된 항목만 RecentPatch 변환
         //    - completedBy IS NOT NULL : 패치 완료 버튼으로 처리한 것 (직접 insert 등 비정상 row 제외)
-        //    - customer IS NOT NULL    : 고객사 지정 패치
+        //    - site IS NOT NULL    : 사이트 지정 패치
         //    - patch_file row 삭제됨   : 정상 완료 흐름 통과 (파일이 정리됨)
         List<RecentPatch> patches = patchHistories.stream()
                 .filter(ph -> ph.getCompletedBy() != null && !ph.getCompletedBy().isBlank())
-                .filter(ph -> ph.getCustomer() != null)
+                .filter(ph -> ph.getSite() != null)
                 .filter(ph -> !existingPatchNames.contains(ph.getPatchName()))
                 .map(this::toRecentPatch)
                 .toList();
@@ -156,10 +156,10 @@ public class DashboardService {
         // 빌드 디렉토리(.../builds/{ver-iter}/web | engine) 의 실제 존재 여부로 카테고리를 채운다.
         List<String> fileCategories = resolveBuildFileCategories(rv);
 
-        Customer customer = rv.getCustomer();
-        Long customerId = customer != null ? customer.getCustomerId() : null;
-        String customerCode = customer != null ? customer.getCustomerCode() : null;
-        String customerName = customer != null ? customer.getCustomerName() : null;
+        Site site = rv.getSite();
+        Long siteId = site != null ? site.getSiteId() : null;
+        String siteCode = site != null ? site.getSiteCode() : null;
+        String siteName = site != null ? site.getSiteName() : null;
 
         return new RecentBuildVersion(
                 rv.getReleaseVersionId(),
@@ -168,9 +168,9 @@ public class DashboardService {
                 rv.getCreatedAt(),
                 rv.getComment(),
                 fileCategories,
-                customerId,
-                customerCode,
-                customerName,
+                siteId,
+                siteCode,
+                siteName,
                 rv.getCreatedByName(),
                 rv.getCreatedByEmail(),
                 rv.getCreatedByAvatarStyle(),
@@ -182,10 +182,10 @@ public class DashboardService {
      * PatchHistory -> RecentPatch 변환
      */
     private RecentPatch toRecentPatch(PatchHistory patchHistory) {
-        Customer customer = patchHistory.getCustomer();
-        Long customerId = customer != null ? customer.getCustomerId() : null;
-        String customerCode = customer != null ? customer.getCustomerCode() : null;
-        String customerName = customer != null ? customer.getCustomerName() : null;
+        Site site = patchHistory.getSite();
+        Long siteId = site != null ? site.getSiteId() : null;
+        String siteCode = site != null ? site.getSiteCode() : null;
+        String siteName = site != null ? site.getSiteName() : null;
 
         Account assignee = patchHistory.getAssignee();
         String assigneeAvatarStyle = assignee != null ? assignee.getAvatarStyle() : null;
@@ -203,9 +203,9 @@ public class DashboardService {
                 patchHistory.getReleaseType(),
                 patchHistory.getCreatedAt(),
                 patchHistory.getDescription(),
-                customerId,
-                customerCode,
-                customerName,
+                siteId,
+                siteCode,
+                siteName,
                 patchHistory.getAssigneeName(),
                 patchHistory.getAssigneeEmail(),
                 assigneeAvatarStyle,

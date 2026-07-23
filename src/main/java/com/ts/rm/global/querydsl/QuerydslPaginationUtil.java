@@ -23,19 +23,19 @@ import org.springframework.data.domain.Sort;
  * <pre>{@code
  * // 1. 정렬 매핑 정의
  * Map<String, com.querydsl.core.types.Expression<?>> sortMapping = Map.of(
- *     "customerId", customer.customerId,
- *     "customerName", customer.customerName,
- *     "lastPatchedVersion", customerProject.lastPatchedVersion
+ *     "siteId", site.siteId,
+ *     "siteName", site.siteName,
+ *     "lastPatchedVersion", siteProject.lastPatchedVersion
  * );
  *
  * // 2. 페이징 적용
- * JPAQuery<Customer> query = queryFactory.selectFrom(customer);
- * Page<Customer> result = QuerydslPaginationUtil.applyPagination(
+ * JPAQuery<Site> query = queryFactory.selectFrom(site);
+ * Page<Site> result = QuerydslPaginationUtil.applyPagination(
  *     query,
  *     query, // count 쿼리 (동일 쿼리 재사용)
  *     pageable,
  *     sortMapping,
- *     customer.createdAt.desc() // 기본 정렬
+ *     site.createdAt.desc() // 기본 정렬
  * );
  * }</pre>
  */

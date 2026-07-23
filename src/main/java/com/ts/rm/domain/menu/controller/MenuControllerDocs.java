@@ -70,8 +70,8 @@ public interface MenuControllerDocs {
                                                   "menuName": "운영 관리",
                                                   "children": [
                                                     {
-                                                      "menuId": "operation_customer",
-                                                      "menuName": "고객사",
+                                                      "menuId": "operation_site",
+                                                      "menuName": "사이트",
                                                       "children": []
                                                     },
                                                     {

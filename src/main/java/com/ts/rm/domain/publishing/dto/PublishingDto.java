@@ -40,8 +40,8 @@ public final class PublishingDto {
                     example = "DASHBOARD")
             String subCategory,
 
-            @Schema(description = "고객사 ID (커스터마이징인 경우)", example = "1")
-            Long customerId,
+            @Schema(description = "사이트 ID (커스터마이징인 경우)", example = "1")
+            Long siteId,
 
             @Schema(description = "카드 글리프 텍스트 (1~3자)", example = "UI")
             @Size(max = 3, message = "글리프 텍스트는 3자 이하여야 합니다")
@@ -78,8 +78,8 @@ public final class PublishingDto {
             @Schema(description = "서브 카테고리", example = "DASHBOARD")
             String subCategory,
 
-            @Schema(description = "고객사 ID (커스터마이징인 경우)", example = "1")
-            Long customerId,
+            @Schema(description = "사이트 ID (커스터마이징인 경우)", example = "1")
+            Long siteId,
 
             @Schema(description = "카드 글리프 텍스트 (1~3자, 빈 문자열이면 제거)", example = "UI")
             @Size(max = 3, message = "글리프 텍스트는 3자 이하여야 합니다")
@@ -114,11 +114,11 @@ public final class PublishingDto {
             @Schema(description = "서브 카테고리", example = "DASHBOARD")
             String subCategory,
 
-            @Schema(description = "고객사 ID", example = "1")
-            Long customerId,
+            @Schema(description = "사이트 ID", example = "1")
+            Long siteId,
 
-            @Schema(description = "고객사명", example = "A회사")
-            String customerName,
+            @Schema(description = "사이트명", example = "A회사")
+            String siteName,
 
             @Schema(description = "정렬 순서", example = "1")
             Integer sortOrder,
@@ -200,8 +200,8 @@ public final class PublishingDto {
             @Schema(description = "서브 카테고리", example = "DASHBOARD")
             String subCategory,
 
-            @Schema(description = "고객사명", example = "A회사")
-            String customerName,
+            @Schema(description = "사이트명", example = "A회사")
+            String siteName,
 
             @Schema(description = "정렬 순서", example = "1")
             Integer sortOrder,

@@ -57,7 +57,7 @@ public class PublishingController implements PublishingControllerDocs {
             @RequestParam String publishingCategory,
             @RequestParam(required = false) String subCategory,
             @RequestParam(required = false) String description,
-            @RequestParam(required = false) Long customerId,
+            @RequestParam(required = false) Long siteId,
             @RequestParam(required = false) String glyphText,
             @RequestParam(required = false) String glyphBackgroundColor) {
 
@@ -66,7 +66,7 @@ public class PublishingController implements PublishingControllerDocs {
         String createdBy = SecurityUtil.getTokenInfo().email();
 
         PublishingDto.CreateRequest request = new PublishingDto.CreateRequest(
-                publishingName, description, publishingCategory, subCategory, customerId,
+                publishingName, description, publishingCategory, subCategory, siteId,
                 glyphText, glyphBackgroundColor,
                 createdBy
         );
@@ -106,7 +106,7 @@ public class PublishingController implements PublishingControllerDocs {
                 request.description(),
                 request.publishingCategory(),
                 request.subCategory(),
-                request.customerId(),
+                request.siteId(),
                 request.glyphText(),
                 request.glyphBackgroundColor(),
                 updatedBy
@@ -135,14 +135,14 @@ public class PublishingController implements PublishingControllerDocs {
     public ApiResponse<List<PublishingDto.SimpleResponse>> listPublishings(
             @RequestParam(required = false) String publishingCategory,
             @RequestParam(required = false) String subCategory,
-            @RequestParam(required = false) Long customerId,
+            @RequestParam(required = false) Long siteId,
             @RequestParam(required = false) String keyword) {
 
-        log.info("퍼블리싱 목록 조회 요청 - 카테고리: {}, 서브카테고리: {}, 고객사ID: {}, 키워드: {}",
-                publishingCategory, subCategory, customerId, keyword);
+        log.info("퍼블리싱 목록 조회 요청 - 카테고리: {}, 서브카테고리: {}, 사이트ID: {}, 키워드: {}",
+                publishingCategory, subCategory, siteId, keyword);
 
         List<PublishingDto.SimpleResponse> response = publishingService.listPublishings(
-                publishingCategory, subCategory, customerId, keyword);
+                publishingCategory, subCategory, siteId, keyword);
         return ApiResponse.success(response);
     }
 
