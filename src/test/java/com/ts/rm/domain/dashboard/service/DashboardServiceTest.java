@@ -2,84 +2,79 @@ package com.ts.rm.domain.dashboard.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.ts.rm.config.AbstractTestBase;
+import com.ts.rm.config.TestQueryDslConfig;
 import com.ts.rm.domain.dashboard.dto.DashboardDto;
-import com.ts.rm.domain.dashboard.dto.DashboardDto.LatestInstallVersion;
-import com.ts.rm.domain.dashboard.dto.DashboardDto.RecentPatch;
-import com.ts.rm.domain.dashboard.dto.DashboardDto.RecentVersion;
-import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.jdbc.Sql;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * DashboardService 테스트
+ *
+ * <p>대시보드는 단일 getRecentData 에서 표준/빌드/패치 3개 조회로 분리되었다.
  */
-@SpringBootTest
+@Import(TestQueryDslConfig.class)
 @Transactional
-class DashboardServiceTest {
+class DashboardServiceTest extends AbstractTestBase {
 
     @Autowired
     private DashboardService dashboardService;
 
     @Test
-    @DisplayName("대시보드 최근 데이터 조회 - 성공")
+    @DisplayName("최근 표준 버전 조회 - 성공 (limit 이내, STANDARD)")
     @Sql("/test-data/release-version-tree-test-data.sql")
-    void getRecentData_Success() {
+    void getRecentStandardVersions_Success() {
         // when
-        DashboardDto.Response response = dashboardService.getRecentData("infraeye2", 4, 3);
+        DashboardDto.RecentStandardResponse response =
+                dashboardService.getRecentStandardVersions("test-project", 4);
 
         // then
         assertThat(response).isNotNull();
-
-        // 최신 설치본 검증 - 테스트 데이터에는 INSTALL이 없으므로 null일 수 있음
-        LatestInstallVersion latestInstall = response.latestInstall();
-        // latestInstall은 null이거나 INSTALL 카테고리여야 함
-        if (latestInstall != null) {
-            assertThat(latestInstall.releaseCategory()).isEqualTo("INSTALL");
-            assertThat(latestInstall.releaseType()).isEqualTo("STANDARD");
-        }
-
-        // 최근 릴리즈 버전 검증 (최대 4개)
-        List<RecentVersion> recentVersions = response.recentVersions();
-        assertThat(recentVersions).isNotNull();
-        assertThat(recentVersions.size()).isLessThanOrEqualTo(4);
-        // 테스트 데이터에는 PATCH만 있음
-        recentVersions.forEach(version -> {
-            assertThat(version.releaseCategory()).isEqualTo("PATCH");
+        assertThat(response.versions()).isNotNull();
+        assertThat(response.versions().size()).isLessThanOrEqualTo(4);
+        response.versions().forEach(version -> {
             assertThat(version.releaseType()).isEqualTo("STANDARD");
             assertThat(version.version()).isNotBlank();
-            assertThat(version.fileCategories()).isNotNull(); // fileCategories 필드 검증
+            assertThat(version.fileCategories()).isNotNull();
         });
-
-        // 최근 생성 패치 검증 (최대 3개) - 테스트 데이터에는 patch가 없을 수 있음
-        List<RecentPatch> recentPatches = response.recentPatches();
-        assertThat(recentPatches).isNotNull();
-        assertThat(recentPatches.size()).isLessThanOrEqualTo(3);
     }
 
     @Test
-    @DisplayName("대시보드 최근 데이터 조회 - 데이터가 없어도 에러 없이 응답")
-    @Sql(statements = {
-            "DELETE FROM patch_file",
-            "DELETE FROM release_file",
-            "DELETE FROM release_version_hierarchy",
-            "DELETE FROM release_version",
-            "DELETE FROM site"
-    })
-    void getRecentData_EmptyData() {
-        // given - 테스트 데이터 없는 상태
-
+    @DisplayName("최근 패치 조회 - 성공 (limit 이내)")
+    @Sql("/test-data/release-version-tree-test-data.sql")
+    void getRecentPatches_Success() {
         // when
-        DashboardDto.Response response = dashboardService.getRecentData("infraeye2", 4, 3);
+        DashboardDto.RecentPatchResponse response =
+                dashboardService.getRecentPatches("test-project", 3);
 
         // then
         assertThat(response).isNotNull();
-        // latestInstall은 null일 수 있음
-        // recentVersions와 recentPatches는 빈 리스트여야 함
-        assertThat(response.recentVersions()).isNotNull().isEmpty();
-        assertThat(response.recentPatches()).isNotNull().isEmpty();
+        assertThat(response.patches()).isNotNull();
+        assertThat(response.patches().size()).isLessThanOrEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("데이터가 없어도 에러 없이 빈 응답")
+    void getRecent_EmptyData() {
+        // @Sql 로 데이터를 적재하지 않으므로 H2(create-drop) 는 빈 상태다.
+        // when
+        DashboardDto.RecentStandardResponse standard =
+                dashboardService.getRecentStandardVersions("test-project", 4);
+        DashboardDto.RecentBuildResponse build =
+                dashboardService.getRecentBuildVersions("test-project", 4);
+        DashboardDto.RecentPatchResponse patches =
+                dashboardService.getRecentPatches("test-project", 3);
+
+        // then
+        assertThat(standard).isNotNull();
+        assertThat(standard.versions()).isNotNull().isEmpty();
+        assertThat(build).isNotNull();
+        assertThat(build.versions()).isNotNull().isEmpty();
+        assertThat(patches).isNotNull();
+        assertThat(patches.patches()).isNotNull().isEmpty();
     }
 }
