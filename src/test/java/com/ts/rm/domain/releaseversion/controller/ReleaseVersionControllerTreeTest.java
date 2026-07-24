@@ -35,7 +35,7 @@ class ReleaseVersionControllerTreeTest {
     @DisplayName("Standard 릴리즈 트리 조회 성공")
     void getStandardReleaseTree_Success() throws Exception {
         // when & then
-        mockMvc.perform(get("/api/releases/standard/tree")
+        mockMvc.perform(get("/api/releases/projects/test-project/standard/tree")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andDo(print())
                 .andExpect(status().isOk())
@@ -47,7 +47,7 @@ class ReleaseVersionControllerTreeTest {
                 .andExpect(jsonPath("$.data.majorMinorGroups[0].versions").isArray())
                 .andExpect(jsonPath("$.data.majorMinorGroups[0].versions[0].version").exists())
                 .andExpect(jsonPath("$.data.majorMinorGroups[0].versions[0].createdAt").exists())
-                .andExpect(jsonPath("$.data.majorMinorGroups[0].versions[0].createdBy").exists())
+                .andExpect(jsonPath("$.data.majorMinorGroups[0].versions[0].createdByEmail").exists())
                 .andExpect(jsonPath("$.data.majorMinorGroups[0].versions[0].comment").exists())
                 .andExpect(jsonPath("$.data.majorMinorGroups[0].versions[0].fileCategories").isArray());
     }
@@ -56,7 +56,7 @@ class ReleaseVersionControllerTreeTest {
     @DisplayName("Standard 릴리즈 트리 - 메이저.마이너 그룹 확인")
     void getStandardReleaseTree_CheckMajorMinorGroups() throws Exception {
         // when & then
-        mockMvc.perform(get("/api/releases/standard/tree")
+        mockMvc.perform(get("/api/releases/projects/test-project/standard/tree")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andDo(print())
                 .andExpect(status().isOk())
@@ -79,7 +79,7 @@ class ReleaseVersionControllerTreeTest {
     @DisplayName("Standard 릴리즈 트리 - 버전 내림차순 정렬 확인")
     void getStandardReleaseTree_VersionDescendingOrder() throws Exception {
         // when & then
-        mockMvc.perform(get("/api/releases/standard/tree")
+        mockMvc.perform(get("/api/releases/projects/test-project/standard/tree")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andDo(print())
                 .andExpect(status().isOk())
@@ -103,7 +103,7 @@ class ReleaseVersionControllerTreeTest {
     @DisplayName("Standard 릴리즈 트리 - 데이터베이스 파일 목록 확인")
     void getStandardReleaseTree_CheckDatabaseFiles() throws Exception {
         // when & then
-        mockMvc.perform(get("/api/releases/standard/tree")
+        mockMvc.perform(get("/api/releases/projects/test-project/standard/tree")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andDo(print())
                 .andExpect(status().isOk())
@@ -120,7 +120,7 @@ class ReleaseVersionControllerTreeTest {
         // 실제로는 별도의 테스트 메서드에서 데이터 없이 시작
 
         // when & then
-        mockMvc.perform(get("/api/releases/standard/tree")
+        mockMvc.perform(get("/api/releases/projects/test-project/standard/tree")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andDo(print())
                 .andExpect(status().isOk())
@@ -133,7 +133,7 @@ class ReleaseVersionControllerTreeTest {
     @DisplayName("Standard 릴리즈 트리 - versionId 포함 확인")
     void getStandardReleaseTree_IncludesVersionId() throws Exception {
         // when & then
-        mockMvc.perform(get("/api/releases/standard/tree")
+        mockMvc.perform(get("/api/releases/projects/test-project/standard/tree")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andDo(print())
                 .andExpect(status().isOk())
@@ -149,7 +149,7 @@ class ReleaseVersionControllerTreeTest {
     @DisplayName("Standard 릴리즈 트리 - DB 기반 조회로 versionId와 파일 정보 동시 제공")
     void getStandardReleaseTree_ProvidesVersionIdAndFileInfo() throws Exception {
         // when & then
-        mockMvc.perform(get("/api/releases/standard/tree")
+        mockMvc.perform(get("/api/releases/projects/test-project/standard/tree")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andDo(print())
                 .andExpect(status().isOk())
@@ -158,7 +158,7 @@ class ReleaseVersionControllerTreeTest {
                 .andExpect(jsonPath("$.data.majorMinorGroups[0].versions[0].versionId").exists())
                 .andExpect(jsonPath("$.data.majorMinorGroups[0].versions[0].version").exists())
                 .andExpect(jsonPath("$.data.majorMinorGroups[0].versions[0].createdAt").exists())
-                .andExpect(jsonPath("$.data.majorMinorGroups[0].versions[0].createdBy").exists())
+                .andExpect(jsonPath("$.data.majorMinorGroups[0].versions[0].createdByEmail").exists())
                 .andExpect(jsonPath("$.data.majorMinorGroups[0].versions[0].fileCategories").isArray());
     }
 }

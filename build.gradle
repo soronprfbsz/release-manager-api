@@ -62,10 +62,9 @@ sourceSets {
 			// --- releaseversion 빌드 서비스 — repository 메서드 부재 ---
 
 			// --- releaseversion 트리 컨트롤러 — H2 multi-row INSERT 호환 문제 ---
-			exclude '**/domain/releaseversion/controller/ReleaseVersionControllerTreeTest.java' // H2 multi-row INSERT 에서 test-data SQL 실행 실패 (기존 부채)
+			exclude '**/scenario/CumulativePatchGenerationScenarioTest.java'         // 컴파일은 복구했으나 런타임 재작성 필요: 버전 엔드포인트(/versions/standard)·파라미터·인증컨텍스트, 패치(/standard/generate)·응답DTO 전면 갱신 + 파일/DB 단언 재설계
 
 			// --- 통합 시나리오 — 다중 원인 ---
-			exclude '**/scenario/CumulativePatchGenerationScenarioTest.java'         // JwtTokenProvider.getEmail / Patch.getCreatedBy / 엔지니어 빌더 시그니처 모두 변경
 		}
 	}
 }

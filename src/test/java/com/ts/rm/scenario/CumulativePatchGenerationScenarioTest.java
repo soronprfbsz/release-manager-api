@@ -1,8 +1,6 @@
 package com.ts.rm.scenario;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -99,9 +97,8 @@ public class CumulativePatchGenerationScenarioTest {
     void setUp() {
         // DB 정리는 @Transactional에 의해 자동 롤백됨
         System.out.println("\n[테스트 준비] 트랜잭션 시작 - 테스트 후 자동 롤백됨");
-
-        // JwtTokenProvider Mock 설정
-        when(jwtTokenProvider.getEmail(anyString())).thenReturn(CREATED_BY);
+        // 보안 필터 비활성(addFilters=false)이며 생성자 이메일은 요청 본문(createdByEmail)로
+        // 전달되므로 JwtTokenProvider 스텁은 불필요하다.
     }
 
     /**
@@ -159,7 +156,6 @@ public class CumulativePatchGenerationScenarioTest {
                 .toVersion("1.3.1")
                 .createdByEmail(CREATED_BY)
                 .description("1.2.0에서 1.3.1로 업그레이드용 누적 패치")
-                .engineerId(null) // 엔지니어 미지정
                 .patchName(null) // 자동 생성
                 .build();
 
@@ -192,7 +188,7 @@ public class CumulativePatchGenerationScenarioTest {
         var savedPatch = patchRepository.findById(response.patchId()).orElseThrow();
         assertThat(savedPatch.getFromVersion()).isEqualTo("1.2.0");
         assertThat(savedPatch.getToVersion()).isEqualTo("1.3.1");
-        assertThat(savedPatch.getCreatedBy()).isEqualTo(CREATED_BY);
+        assertThat(savedPatch.getCreatedByEmail()).isEqualTo(CREATED_BY);
         System.out.println("  ✅ patch 레코드 저장 확인");
 
         // Then: 파일 시스템 검증
