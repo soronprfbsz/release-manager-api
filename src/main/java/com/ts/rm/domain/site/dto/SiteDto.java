@@ -3,6 +3,7 @@ package com.ts.rm.domain.site.dto;
 import com.ts.rm.domain.site.enums.SiteCategory;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.time.LocalDateTime;
 import lombok.Builder;
@@ -25,7 +26,7 @@ public final class SiteDto {
     @Builder
     @Schema(description = "사이트 생성 요청")
     public record CreateRequest(
-            @Schema(description = "사이트 코드", example = "company_a") @NotBlank(message = "사이트 코드는 필수입니다") @Size(max = 50, message = "사이트 코드는 50자 이하여야 합니다")
+            @Schema(description = "사이트 코드 (소문자·숫자·-·_)", example = "company_a") @NotBlank(message = "사이트 코드는 필수입니다") @Size(max = 50, message = "사이트 코드는 50자 이하여야 합니다") @Pattern(regexp = "^[a-z0-9_-]+$", message = "사이트 코드는 소문자·숫자·하이픈(-)·언더스코어(_)만 사용할 수 있습니다")
             String siteCode,
 
             @Schema(description = "사이트명", example = "A회사") @NotBlank(message = "사이트명은 필수입니다") @Size(max = 100, message = "사이트명은 100자 이하여야 합니다")

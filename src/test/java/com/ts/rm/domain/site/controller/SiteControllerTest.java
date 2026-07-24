@@ -187,6 +187,24 @@ class SiteControllerTest {
     }
 
     @Test
+    @DisplayName("사이트 생성 - 코드에 대문자/허용외 문자 포함 시 400")
+    void createSite_InvalidCode_BadRequest() throws Exception {
+        // given: 대문자·공백 등 허용되지 않는 문자가 포함된 코드
+        SiteDto.CreateRequest request = SiteDto.CreateRequest.builder()
+                .siteCode("Company A")
+                .siteName("A회사")
+                .isActive(true)
+                .build();
+
+        // when & then
+        mockMvc.perform(post("/api/sites")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andDo(print())
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     @DisplayName("사이트 조회 (ID) - 성공")
     void getSiteById_Success() throws Exception {
         // given
