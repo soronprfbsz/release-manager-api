@@ -55,7 +55,6 @@ sourceSets {
 // --- DTO record / 서비스 메서드 시그니처 변경 ---
 
 			// --- 엔티티 빌더/메서드 부재 ---
-			exclude '**/domain/service/ServicePasswordEncryptionTest.java'           // ServiceComponent.getPassword/getSshPassword/builder.password()/isActive()/accountId() 부재
 
 			// --- releaseversion 빌드 서비스 — repository 메서드 부재 ---
 
