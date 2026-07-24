@@ -438,7 +438,8 @@ public class PatchService {
                         .map(site -> new PatchDto.SiteWithCustomVersions(
                                 site.getSiteId(),
                                 site.getSiteCode(),
-                                site.getSiteName()
+                                site.getSiteName(),
+                                site.getSiteCategory()
                         ))
                         .orElse(null))
                 .filter(dto -> dto != null)

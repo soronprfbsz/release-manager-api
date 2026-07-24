@@ -1,5 +1,6 @@
 package com.ts.rm.domain.patch.dto;
 
+import com.ts.rm.domain.site.enums.SiteCategory;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -575,7 +576,10 @@ public final class PatchDto {
             String siteCode,
 
             @Schema(description = "사이트명", example = "A 회사")
-            String siteName
+            String siteName,
+
+            @Schema(description = "사이트 구분 (CUSTOMER=고객사 / INTERNAL_TEST=내부 테스트)", example = "CUSTOMER")
+            SiteCategory siteCategory
     ) {
 
     }
