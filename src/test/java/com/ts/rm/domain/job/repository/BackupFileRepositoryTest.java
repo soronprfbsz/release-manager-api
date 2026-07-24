@@ -1,10 +1,12 @@
 package com.ts.rm.domain.job.repository;
 
 import com.ts.rm.config.AbstractTestBase;
+import com.ts.rm.config.TestQueryDslConfig;
 import com.ts.rm.domain.job.entity.BackupFile;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -13,6 +15,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * BackupFileRepository 테스트
  */
+@Import(TestQueryDslConfig.class)
 class BackupFileRepositoryTest extends AbstractTestBase {
 
     @Autowired
