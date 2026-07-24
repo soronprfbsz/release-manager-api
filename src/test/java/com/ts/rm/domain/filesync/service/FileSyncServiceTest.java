@@ -4,8 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 
+import com.ts.rm.domain.common.service.CodeService;
 import com.ts.rm.domain.common.service.FileStorageService;
 import com.ts.rm.domain.filesync.adapter.FileSyncAdapter;
 import com.ts.rm.domain.filesync.dto.FileSyncDiscrepancy;
@@ -20,6 +22,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -27,11 +33,17 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
 /**
  * FileSyncService 단위 테스트
+ *
+ * <p>테스트별로 분석 대상·파일 시나리오가 달라 목 스텁이 조건부로 사용된다.
+ * 이에 LENIENT 설정으로 미사용 스텁 예외를 허용한다.
  */
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 @DisplayName("FileSyncService 테스트")
 class FileSyncServiceTest {
 
@@ -40,6 +52,9 @@ class FileSyncServiceTest {
 
     @Mock
     private FileSyncIgnoreRepository fileSyncIgnoreRepository;
+
+    @Mock
+    private CodeService codeService;
 
     @Mock
     private FileSyncAdapter releaseAdapter;
@@ -56,13 +71,20 @@ class FileSyncServiceTest {
     void setUp() {
         // 어댑터 목록으로 서비스 생성
         List<FileSyncAdapter> adapters = List.of(releaseAdapter, resourceAdapter);
-        fileSyncService = new FileSyncService(fileStorageService, fileSyncIgnoreRepository, adapters);
+        fileSyncService = new FileSyncService(fileStorageService, fileSyncIgnoreRepository, codeService, adapters);
+
+        // 코드 테이블 기반 동적 메시지 — 테스트에선 빈 맵(getOrDefault 기본값 사용)
+        lenient().when(codeService.getCodeDescriptionMap(anyString())).thenReturn(Map.of());
+        lenient().when(codeService.getCodeNameMap(anyString())).thenReturn(Map.of());
 
         // 기본 어댑터 설정
         given(releaseAdapter.getTarget()).willReturn(FileSyncTarget.RELEASE_FILE);
         given(releaseAdapter.getBaseScanPath()).willReturn("versions");
         given(resourceAdapter.getTarget()).willReturn(FileSyncTarget.RESOURCE_FILE);
         given(resourceAdapter.getBaseScanPath()).willReturn("resource");
+        // FS 전용 파일의 UNREGISTERED 판정에 필요 (기본 mock 은 false 반환)
+        given(releaseAdapter.isValidSyncPath(anyString())).willReturn(true);
+        given(resourceAdapter.isValidSyncPath(anyString())).willReturn(true);
     }
 
     @Test
@@ -304,13 +326,22 @@ class FileSyncServiceTest {
                 ))
                 .build();
 
-        FileSyncDto.ApplyResponse applyResponse = fileSyncService.apply(applyRequest);
+        // IGNORE 처리는 SecurityUtil.getTokenInfo().email() 로 등록자를 조회한다
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(
+                        "admin@tscientific", null,
+                        List.of(new SimpleGrantedAuthority("ROLE_USER"))));
+        try {
+            FileSyncDto.ApplyResponse applyResponse = fileSyncService.apply(applyRequest);
 
-        // then
-        assertThat(applyResponse).isNotNull();
-        assertThat(applyResponse.getSummary().getTotal()).isEqualTo(1);
-        assertThat(applyResponse.getSummary().getSuccess()).isEqualTo(1);
-        assertThat(applyResponse.getResults().get(0).getMessage()).isEqualTo("무시됨");
+            // then
+            assertThat(applyResponse).isNotNull();
+            assertThat(applyResponse.getSummary().getTotal()).isEqualTo(1);
+            assertThat(applyResponse.getSummary().getSuccess()).isEqualTo(1);
+            assertThat(applyResponse.getResults().get(0).getMessage()).isEqualTo("무시 목록에 등록됨");
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
     }
 
     @Test
