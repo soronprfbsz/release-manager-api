@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -1048,7 +1049,9 @@ class PatchGenerationServiceTest {
         //  1) 1.1.2 가 betweenVersions 에 포함되어 copySqlFiles 가 1.1.2 의 DB 파일을 조회한다.
         //     (과거엔 from==to 가 build-only 로 collapse 되어 betweenVersions 가 비었고,
         //      따라서 이 조회 자체가 일어나지 않았다 — 이 verify 가 회귀를 정확히 잡는다)
-        verify(releaseFileRepository)
+        //     ※ 생성 정합성 가드(87fcfa2)가 같은 조회를 한 번 더 수행하므로 호출 횟수는
+        //       구현 세부사항이다. "조회가 일어난다"는 회귀 신호만 atLeastOnce 로 검증한다.
+        verify(releaseFileRepository, atLeastOnce())
                 .findAllByReleaseVersion_ReleaseVersionIdOrderByExecutionOrderAsc(1L);
         //  2) 빌드 전용 개념 폐지 — isBuildOnly=false
         assertThat(result.isBuildOnly()).isFalse();
