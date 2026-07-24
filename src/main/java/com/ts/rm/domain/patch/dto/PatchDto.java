@@ -3,6 +3,7 @@ package com.ts.rm.domain.patch.dto;
 import com.ts.rm.domain.site.enums.SiteCategory;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.time.LocalDateTime;
@@ -35,7 +36,8 @@ public final class PatchDto {
             @NotBlank(message = "릴리즈 타입은 필수입니다")
             String type,
 
-            @Schema(description = "사이트 ID (커스텀인 경우)", example = "1")
+            @Schema(description = "사이트 ID (필수)", example = "1")
+            @NotNull(message = "사이트는 필수입니다")
             Long siteId,
 
             @Schema(description = "시작 버전", example = "1.0.0")
