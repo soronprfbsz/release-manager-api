@@ -1,5 +1,6 @@
 package com.ts.rm.domain.site.dto;
 
+import com.ts.rm.domain.site.enums.SiteCategory;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -30,6 +31,9 @@ public final class SiteDto {
             @Schema(description = "사이트명", example = "A회사") @NotBlank(message = "사이트명은 필수입니다") @Size(max = 100, message = "사이트명은 100자 이하여야 합니다")
             String siteName,
 
+            @Schema(description = "사이트 구분 (CUSTOMER=고객사 / INTERNAL_TEST=내부 테스트)", example = "CUSTOMER", defaultValue = "CUSTOMER")
+            SiteCategory siteCategory,
+
             @Schema(description = "설명", example = "사이트 설명")
             String description,
 
@@ -50,6 +54,9 @@ public final class SiteDto {
             if (isActive == null) {
                 isActive = true;
             }
+            if (siteCategory == null) {
+                siteCategory = SiteCategory.CUSTOMER;
+            }
         }
     }
 
@@ -63,6 +70,9 @@ public final class SiteDto {
     public record UpdateRequest(
             @Schema(description = "사이트명", example = "A회사") @Size(max = 100, message = "사이트명은 100자 이하여야 합니다")
             String siteName,
+
+            @Schema(description = "사이트 구분 (CUSTOMER=고객사 / INTERNAL_TEST=내부 테스트, null=미변경)", example = "CUSTOMER")
+            SiteCategory siteCategory,
 
             @Schema(description = "설명", example = "사이트 설명")
             String description,
@@ -116,6 +126,9 @@ public final class SiteDto {
 
             @Schema(description = "사이트명", example = "A회사")
             String siteName,
+
+            @Schema(description = "사이트 구분 (CUSTOMER=고객사 / INTERNAL_TEST=내부 테스트)", example = "CUSTOMER")
+            SiteCategory siteCategory,
 
             @Schema(description = "설명", example = "사이트 설명")
             String description,
@@ -204,6 +217,9 @@ public final class SiteDto {
 
             @Schema(description = "사이트명", example = "A회사")
             String siteName,
+
+            @Schema(description = "사이트 구분 (CUSTOMER=고객사 / INTERNAL_TEST=내부 테스트)", example = "CUSTOMER")
+            SiteCategory siteCategory,
 
             @Schema(description = "설명", example = "사이트 설명")
             String description,

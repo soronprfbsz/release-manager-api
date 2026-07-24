@@ -161,6 +161,7 @@ public class SiteService {
                     site.getSiteId(),
                     site.getSiteCode(),
                     site.getSiteName(),
+                    site.getSiteCategory(),
                     site.getDescription(),
                     site.getIsActive(),
                     hasCustomVersion,
@@ -196,6 +197,9 @@ public class SiteService {
         // Setter를 통한 수정 (JPA Dirty Checking)
         if (request.siteName() != null) {
             site.setSiteName(request.siteName());
+        }
+        if (request.siteCategory() != null) {
+            site.setSiteCategory(request.siteCategory());
         }
         if (request.description() != null) {
             site.setDescription(request.description());
@@ -330,6 +334,7 @@ public class SiteService {
                 site.getSiteId(),
                 site.getSiteCode(),
                 site.getSiteName(),
+                site.getSiteCategory(),
                 site.getDescription(),
                 site.getIsActive(),
                 hasCustomVersion,
