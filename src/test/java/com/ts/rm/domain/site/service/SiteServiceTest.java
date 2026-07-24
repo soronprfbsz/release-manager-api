@@ -7,18 +7,21 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 
+import com.ts.rm.domain.account.entity.Account;
 import com.ts.rm.domain.site.dto.SiteDto;
 import com.ts.rm.domain.site.entity.Site;
 import com.ts.rm.domain.site.mapper.SiteDtoMapper;
 import com.ts.rm.domain.site.repository.SiteProjectRepository;
 import com.ts.rm.domain.site.repository.SiteRepository;
 import com.ts.rm.domain.project.repository.ProjectRepository;
+import com.ts.rm.domain.releaseversion.repository.ReleaseVersionRepository;
+import com.ts.rm.global.account.AccountLookupService;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,13 +53,17 @@ class SiteServiceTest {
     @Mock
     private SiteDtoMapper mapper;
 
+    @Mock
+    private ReleaseVersionRepository releaseVersionRepository;
+
+    @Mock
+    private AccountLookupService accountLookupService;
+
     @InjectMocks
     private SiteService siteService;
 
     private Site testSite;
     private SiteDto.CreateRequest createRequest;
-    private SiteDto.DetailResponse detailResponse;
-    private SiteDto.SimpleResponse simpleResponse;
 
     @BeforeEach
     void setUp() {
@@ -66,8 +73,8 @@ class SiteServiceTest {
                 .siteName("A회사")
                 .description("A회사 설명")
                 .isActive(true)
-                .createdBy("admin@tscientific")
-                .updatedBy("admin@tscientific")
+                .createdByEmail("admin@tscientific")
+                .updatedByEmail("admin@tscientific")
                 .build();
 
         createRequest = SiteDto.CreateRequest.builder()
@@ -77,25 +84,11 @@ class SiteServiceTest {
                 .isActive(true)
                 .build();
 
-        detailResponse = new SiteDto.DetailResponse(
-                1L,
-                "company_a",
-                "A회사",
-                "A회사 설명",
-                true,
-                null,
-                LocalDateTime.now(),
-                "admin@tscientific",
-                LocalDateTime.now(),
-                "admin@tscientific"
-        );
-
-        simpleResponse = new SiteDto.SimpleResponse(
-                1L,
-                "company_a",
-                "A회사",
-                true
-        );
+        // 상세/목록 응답 생성 시 커스텀 버전 존재 여부 조회 — 기본 false
+        lenient().when(releaseVersionRepository.existsBySite_SiteId(anyLong())).thenReturn(false);
+        // 생성/수정자 Account 조회
+        Account actor = Account.builder().email("admin@tscientific").accountName("관리자").build();
+        lenient().when(accountLookupService.findByEmail(anyString())).thenReturn(actor);
     }
 
     @Test
@@ -237,34 +230,6 @@ class SiteServiceTest {
 
         // then
         assertThat(result).isNotNull();
-        // JPA Dirty Checking 사용 - 엔티티 조회만 검증
-        then(siteRepository).should(times(1)).findById(1L);
-    }
-
-    @Test
-    @DisplayName("사이트 활성화 - 성공")
-    void activateSite_Success() {
-        // given
-        given(siteRepository.findById(anyLong())).willReturn(Optional.of(testSite));
-
-        // when
-        siteService.updateSiteStatus(1L, true);
-
-        // then
-        // JPA Dirty Checking 사용 - 엔티티 조회만 검증
-        then(siteRepository).should(times(1)).findById(1L);
-    }
-
-    @Test
-    @DisplayName("사이트 비활성화 - 성공")
-    void deactivateSite_Success() {
-        // given
-        given(siteRepository.findById(anyLong())).willReturn(Optional.of(testSite));
-
-        // when
-        siteService.updateSiteStatus(1L, false);
-
-        // then
         // JPA Dirty Checking 사용 - 엔티티 조회만 검증
         then(siteRepository).should(times(1)).findById(1L);
     }

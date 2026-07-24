@@ -37,8 +37,8 @@ class SiteRepositoryTest {
                 .siteName("A회사")
                 .description("A회사 설명")
                 .isActive(true)
-                .createdBy("admin@tscientific")
-                .updatedBy("admin@tscientific")
+                .createdByEmail("admin@tscientific")
+                .updatedByEmail("admin@tscientific")
                 .build();
     }
 
@@ -91,8 +91,8 @@ class SiteRepositoryTest {
                 .siteName("B회사")
                 .description("B회사 설명")
                 .isActive(false)
-                .createdBy("admin@tscientific")
-                .updatedBy("admin@tscientific")
+                .createdByEmail("admin@tscientific")
+                .updatedByEmail("admin@tscientific")
                 .build();
         siteRepository.save(inactiveSite);
 
@@ -138,8 +138,8 @@ class SiteRepositoryTest {
                 .siteName("홍길동회사")
                 .description("설명")
                 .isActive(true)
-                .createdBy("admin@tscientific")
-                .updatedBy("admin@tscientific")
+                .createdByEmail("admin@tscientific")
+                .updatedByEmail("admin@tscientific")
                 .build();
         siteRepository.save(anotherSite);
 

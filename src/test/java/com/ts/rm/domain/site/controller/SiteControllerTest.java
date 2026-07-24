@@ -7,7 +7,6 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willDoNothing;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
@@ -17,17 +16,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ts.rm.domain.account.repository.AccountRepository;
 import com.ts.rm.domain.site.dto.SiteDto;
+import com.ts.rm.domain.site.enums.SiteCategory;
 import com.ts.rm.domain.site.service.SiteService;
 import com.ts.rm.global.config.MessageConfig;
 import com.ts.rm.global.exception.GlobalExceptionHandler;
+import com.ts.rm.global.logging.service.ApiLogService;
 import com.ts.rm.global.security.jwt.JwtTokenProvider;
 import com.ts.rm.domain.common.service.CustomUserDetailsService;
 import com.ts.rm.global.filter.JwtAuthenticationFilter;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.User;
-import org.springframework.security.core.userdetails.UserDetails;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.data.domain.Page;
@@ -85,6 +84,9 @@ class SiteControllerTest {
     @MockitoBean
     private PasswordEncoder passwordEncoder;
 
+    @MockitoBean
+    private ApiLogService apiLogService;
+
     private SiteDto.DetailResponse detailResponse;
     private SiteDto.ListResponse listResponse;
     private SiteDto.SimpleResponse simpleResponse;
@@ -96,13 +98,10 @@ class SiteControllerTest {
         // SecurityContextHolder 모킹 설정
         SecurityContext securityContext = org.mockito.Mockito.mock(SecurityContext.class);
         Authentication authentication = org.mockito.Mockito.mock(Authentication.class);
-        UserDetails userDetails = User.builder()
-                .username("admin@tscientific")
-                .password("password")
-                .roles("USER")
-                .build();
 
-        given(authentication.getPrincipal()).willReturn(userDetails);
+        // SecurityUtil.getTokenInfo() 는 principal 이 AccountUserDetails 또는 String(이메일)일 때
+        // 동작한다 — 여기서는 레거시 String principal 로 인증 이메일을 제공한다.
+        given(authentication.getPrincipal()).willReturn("admin@tscientific");
         given(authentication.isAuthenticated()).willReturn(true);
         given(securityContext.getAuthentication()).willReturn(authentication);
 
@@ -114,13 +113,23 @@ class SiteControllerTest {
                 1L,
                 "company_a",
                 "A회사",
+                SiteCategory.CUSTOMER,
                 "A회사 설명",
                 true,
+                false,
                 null,
                 now,
                 "admin@tscientific",
+                null,
+                null,
+                false,
                 now,
-                "admin@tscientific"
+                "admin@tscientific",
+                null,
+                null,
+                false,
+                null,
+                null
         );
 
         listResponse = new SiteDto.ListResponse(
@@ -128,10 +137,14 @@ class SiteControllerTest {
                 1L,
                 "company_a",
                 "A회사",
+                SiteCategory.CUSTOMER,
                 "A회사 설명",
                 true,
+                false,
                 null,
-                now
+                now,
+                null,
+                null
         );
 
         simpleResponse = new SiteDto.SimpleResponse(
@@ -193,7 +206,7 @@ class SiteControllerTest {
     void getActiveSites_Success() throws Exception {
         // given
         Page<SiteDto.ListResponse> page = new PageImpl<>(List.of(listResponse));
-        given(siteService.getSitesWithPaging(eq(true), isNull(), any(Pageable.class)))
+        given(siteService.getSitesWithPaging(isNull(), eq(true), isNull(), any(Pageable.class)))
                 .willReturn(page);
 
         // when & then
@@ -210,7 +223,7 @@ class SiteControllerTest {
     void getAllSites_Success() throws Exception {
         // given
         Page<SiteDto.ListResponse> page = new PageImpl<>(List.of(listResponse));
-        given(siteService.getSitesWithPaging(isNull(), isNull(), any(Pageable.class)))
+        given(siteService.getSitesWithPaging(isNull(), isNull(), isNull(), any(Pageable.class)))
                 .willReturn(page);
 
         // when & then
@@ -235,13 +248,23 @@ class SiteControllerTest {
                 1L,
                 "company_a",
                 "수정된회사",
+                SiteCategory.CUSTOMER,
                 "수정된설명",
                 true,
+                false,
                 null,
                 detailResponse.createdAt(),
                 "admin@tscientific",
+                null,
+                null,
+                false,
                 LocalDateTime.now(),
-                "admin@tscientific"
+                "admin@tscientific",
+                null,
+                null,
+                false,
+                null,
+                null
         );
 
         given(siteService.updateSite(eq(1L), any(), eq("admin@tscientific"))).willReturn(updatedResponse);
@@ -264,34 +287,6 @@ class SiteControllerTest {
 
         // when & then
         mockMvc.perform(delete("/api/sites/{id}", 1L))
-                .andDo(print())
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("success"));
-    }
-
-    @Test
-    @DisplayName("사이트 활성화 - 성공")
-    void activateSite_Success() throws Exception {
-        // given
-        willDoNothing().given(siteService).updateSiteStatus(eq(1L), eq(true));
-
-        // when & then
-        mockMvc.perform(patch("/api/sites/{id}/status", 1L)
-                        .param("isActive", "true"))
-                .andDo(print())
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("success"));
-    }
-
-    @Test
-    @DisplayName("사이트 비활성화 - 성공")
-    void deactivateSite_Success() throws Exception {
-        // given
-        willDoNothing().given(siteService).updateSiteStatus(eq(1L), eq(false));
-
-        // when & then
-        mockMvc.perform(patch("/api/sites/{id}/status", 1L)
-                        .param("isActive", "false"))
                 .andDo(print())
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("success"));
