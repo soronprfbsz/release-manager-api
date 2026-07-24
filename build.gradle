@@ -60,7 +60,6 @@ sourceSets {
 			exclude '**/domain/service/ServicePasswordEncryptionTest.java'           // ServiceComponent.getPassword/getSshPassword/builder.password()/isActive()/accountId() 부재
 
 			// --- releaseversion 빌드 서비스 — repository 메서드 부재 ---
-			exclude '**/domain/releaseversion/service/ReleaseVersionBuildServiceTest.java' // existsByBuildBaseVersion_ReleaseVersionIdAndBuildVersion / createBuildDirectoryStructure 메서드 자체 삭제 — main 의 buildVersion 자동 결정 정책 변경으로 test 시나리오 재설계 필요
 
 			// --- releaseversion 트리 컨트롤러 — H2 multi-row INSERT 호환 문제 ---
 			exclude '**/domain/releaseversion/controller/ReleaseVersionControllerTreeTest.java' // H2 multi-row INSERT 에서 test-data SQL 실행 실패 (기존 부채)

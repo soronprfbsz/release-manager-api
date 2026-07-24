@@ -3,6 +3,8 @@ package com.ts.rm.domain.releaseversion.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
@@ -87,20 +89,22 @@ class ReleaseVersionBuildServiceTest {
     }
 
     @Test
-    @DisplayName("빌드 생성 - 명시된 buildVersion 으로 정상 생성 (즉시 활성)")
-    void createBuild_explicitBuildVersion_success() {
+    @DisplayName("빌드 생성 - buildVersion 은 오늘(yyMMdd) 자동 결정, 첫 iteration=1")
+    void createBuild_autoBuildVersion_firstIteration() {
         ReleaseVersion base = buildBaseStandard();
         Account c = creator();
+        int today = ReleaseVersionService.todayYyMmDd();
         ReleaseVersionDto.CreateBuildRequest req = ReleaseVersionDto.CreateBuildRequest.builder()
                 .comment("WEB 빌드")
-                .buildVersion(260427)
                 .build();
 
         given(releaseVersionRepository.findById(10L)).willReturn(Optional.of(base));
         given(accountLookupService.findByEmail("jhlee@tscientific")).willReturn(c);
+        // 같은 base+buildVersion 의 기존 빌드 없음 → iteration 1
         given(releaseVersionRepository
-                .existsByBuildBaseVersion_ReleaseVersionIdAndBuildVersion(10L, 260427))
-                .willReturn(false);
+                .findTopByBuildBaseVersion_ReleaseVersionIdAndBuildVersionOrderByBuildIterationDesc(
+                        eq(10L), anyInt()))
+                .willReturn(Optional.empty());
         given(releaseVersionRepository.saveAndFlush(any(ReleaseVersion.class)))
                 .willAnswer(inv -> {
                     ReleaseVersion v = inv.getArgument(0);
@@ -113,33 +117,38 @@ class ReleaseVersionBuildServiceTest {
 
         assertThat(result).isNotNull();
         assertThat(result.buildVersionId()).isEqualTo(99L);
-        assertThat(result.buildVersion()).isEqualTo(260427);
+        assertThat(result.buildVersion()).isEqualTo(today);
         assertThat(result.version()).isEqualTo("1.1.0");
-        assertThat(result.fullVersion()).isEqualTo("1.1.0.260427");
+        assertThat(result.fullVersion()).isEqualTo("1.1.0." + today + "-1");
         then(releaseVersionRepository).should(times(1)).saveAndFlush(any(ReleaseVersion.class));
-        then(fileSystemService).should(times(1))
-                .createBuildDirectoryStructure(any(ReleaseVersion.class), any(ReleaseVersion.class));
     }
 
     @Test
-    @DisplayName("빌드 생성 - 같은 build_version 이미 있으면 +1 자동 증가하여 생성")
-    void createBuild_collisionRetry_incrementsBuildVersion() {
+    @DisplayName("빌드 생성 - 같은 날 기존 iteration 이 있으면 +1 로 생성")
+    void createBuild_existingIteration_incrementsIteration() {
         ReleaseVersion base = buildBaseStandard();
         Account c = creator();
+        int today = ReleaseVersionService.todayYyMmDd();
+
+        // 같은 base+오늘 buildVersion 에 iteration 2 가 이미 존재
+        ReleaseVersion existing = ReleaseVersion.builder()
+                .releaseVersionId(50L)
+                .releaseType("STANDARD")
+                .version("1.1.0")
+                .majorVersion(1).minorVersion(1).patchVersion(0)
+                .hotfixVersion(0).buildVersion(today).buildIteration(2)
+                .build();
+
         ReleaseVersionDto.CreateBuildRequest req = ReleaseVersionDto.CreateBuildRequest.builder()
                 .comment("WEB 빌드")
-                .buildVersion(260427)
                 .build();
 
         given(releaseVersionRepository.findById(10L)).willReturn(Optional.of(base));
         given(accountLookupService.findByEmail("jhlee@tscientific")).willReturn(c);
-        // 260427 충돌, 260428 가능
         given(releaseVersionRepository
-                .existsByBuildBaseVersion_ReleaseVersionIdAndBuildVersion(10L, 260427))
-                .willReturn(true);
-        given(releaseVersionRepository
-                .existsByBuildBaseVersion_ReleaseVersionIdAndBuildVersion(10L, 260428))
-                .willReturn(false);
+                .findTopByBuildBaseVersion_ReleaseVersionIdAndBuildVersionOrderByBuildIterationDesc(
+                        eq(10L), anyInt()))
+                .willReturn(Optional.of(existing));
         given(releaseVersionRepository.saveAndFlush(any(ReleaseVersion.class)))
                 .willAnswer(inv -> {
                     ReleaseVersion v = inv.getArgument(0);
@@ -150,9 +159,9 @@ class ReleaseVersionBuildServiceTest {
         ReleaseVersionDto.CreateBuildResponse result = releaseVersionService
                 .createBuild(10L, req, "jhlee@tscientific");
 
-        // 260427 → 260428 로 자동 증가
-        assertThat(result.buildVersion()).isEqualTo(260428);
-        assertThat(result.fullVersion()).isEqualTo("1.1.0.260428");
+        // 기존 iteration 2 → 3
+        assertThat(result.buildVersion()).isEqualTo(today);
+        assertThat(result.fullVersion()).isEqualTo("1.1.0." + today + "-3");
     }
 
     @Test
