@@ -19,6 +19,7 @@ import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MultipartException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import java.io.EOFException;
 import org.apache.catalina.connector.ClientAbortException;
 
@@ -93,6 +94,23 @@ public class GlobalExceptionHandler {
 
     return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
         .body(ApiResponse.fail(ErrorCode.METHOD_NOT_ALLOWED.getCode(), message));
+  }
+
+  // 매핑되지 않은 API 경로 (클라이언트 에러, 국제화 지원)
+  // 핸들러가 없으면 Spring 이 정적 리소스 조회로 넘겨 NoResourceFoundException 을 던진다.
+  // 이를 잡지 않으면 handleInternalError 로 떨어져 500 이 되고, 프론트/백엔드 경로 불일치가
+  // '서버 오류' 로 위장된다(실제로 /site-versions ↔ /versions 불일치를 8일간 못 찾은 원인).
+  @ExceptionHandler(NoResourceFoundException.class)
+  public ResponseEntity<ApiResponse<ApiResponse.FailDetail>> handleNoResourceFound(
+      NoResourceFoundException e, Locale locale) {
+    String message =
+        messageSource.getMessage(ErrorCode.ENDPOINT_NOT_FOUND.getMessageKey(), null, locale);
+
+    log.warn("No endpoint found: [{}] {} {}", ErrorCode.ENDPOINT_NOT_FOUND.getCode(),
+        e.getHttpMethod(), e.getResourcePath());
+
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(ApiResponse.fail(ErrorCode.ENDPOINT_NOT_FOUND.getCode(), message));
   }
 
   // 인증 실패 (잘못된 인증 정보)
