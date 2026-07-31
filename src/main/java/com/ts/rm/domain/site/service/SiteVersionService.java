@@ -186,7 +186,8 @@ public class SiteVersionService {
      * <ol>
      *   <li>customer_project.last_patched_version 에서 base 추출 → currentVersion</li>
      *   <li>프로젝트의 승인된 표준 base 버전 목록을 semver 오름차순 정렬</li>
-     *   <li>suggestedFrom: currentVersion 직후 버전. 없으면(최신 상태) null</li>
+     *   <li>suggestedFrom: currentVersion 자신(inclusive). 사이트가 이미 최신이면 suggestedTo 와 같아진다.
+     *       이미 적용된 버전에 사후 추가된 빌드/파일을 다음 패치가 회수하도록 하한을 포함시킨다.</li>
      *   <li>suggestedTo: 목록의 가장 최신 버전. 없으면 null</li>
      * </ol>
      *
@@ -228,9 +229,9 @@ public class SiteVersionService {
         if (currentBase != null) {
             // currentBase 보다 큰 가장 작은 버전
             fromCandidate = baseVersions.stream()
-                    .filter(v -> compareBase(v.getVersion(), currentBase) > 0)
+                    .filter(v -> compareBase(v.getVersion(), currentBase) >= 0)
                     .findFirst()
-                    .orElse(null); // 이미 최신 → null
+                    .orElse(null); // currentBase 가 승인 목록에 없고 그보다 큰 버전도 없음
         } else {
             // 아직 패치 이력 없음 → 가장 오래된 버전을 from 으로 제안
             fromCandidate = baseVersions.get(0);
