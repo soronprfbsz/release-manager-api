@@ -9,6 +9,7 @@ import com.ts.rm.domain.analytics.dto.AnalyticsDto.SitePatchCount;
 import com.ts.rm.domain.analytics.dto.AnalyticsDto.MonthlySitePatchRaw;
 import com.ts.rm.domain.analytics.dto.AnalyticsDto.VersionSiteRaw;
 import com.ts.rm.domain.site.entity.QSite;
+import com.ts.rm.domain.site.enums.SiteCategory;
 import com.ts.rm.domain.patch.entity.QPatchHistory;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -70,6 +71,7 @@ public class PatchAnalyticsRepositoryImpl implements PatchAnalyticsRepository {
      * 프로젝트별 기간 내 월별+고객별 패치 건수 조회
      *
      * <p>CUSTOM 타입 패치만 집계 (사이트별 통계이므로)
+     * <p>고객사(CUSTOMER) 사이트만 집계 — 내부 테스트 사이트는 통계에서 제외
      *
      * @param projectId 프로젝트 ID
      * @param startDate 시작일시
@@ -97,7 +99,8 @@ public class PatchAnalyticsRepositoryImpl implements PatchAnalyticsRepository {
                 .where(
                         patchHistory.project.projectId.eq(projectId),
                         patchHistory.createdAt.goe(startDate),
-                        patchHistory.site.isNotNull()
+                        patchHistory.site.isNotNull(),
+                        site.siteCategory.eq(SiteCategory.CUSTOMER)
                 )
                 .groupBy(yearMonthTemplate, site.siteName)
                 .orderBy(yearMonthTemplate.asc(), site.siteName.asc())
@@ -108,6 +111,7 @@ public class PatchAnalyticsRepositoryImpl implements PatchAnalyticsRepository {
      * 프로젝트별 각 사이트의 최신 완료 patch_history.to_version 조회.
      *
      * <p>서브쿼리로 각 site 의 MAX(completed_at) 인 row 만 선택.
+     * <p>고객사(CUSTOMER) 사이트만 집계 — 내부 테스트 사이트는 통계에서 제외
      */
     @Override
     public List<VersionSiteRaw> findLatestVersionBySite(String projectId) {
@@ -126,6 +130,7 @@ public class PatchAnalyticsRepositoryImpl implements PatchAnalyticsRepository {
                 .where(
                         ph.project.projectId.eq(projectId),
                         ph.site.isNotNull(),
+                        site.siteCategory.eq(SiteCategory.CUSTOMER),
                         ph.completedAt.eq(
                                 JPAExpressions
                                         .select(ph2.completedAt.max())
