@@ -64,6 +64,10 @@ docker-compose.override.yml
 ### AI ###
 /claudedocs/
 CLAUDE.local.md
+# 하니스 로컬 설정 / 작업공간 — .claude/agent-memory 는 계속 추적한다
+/.claude/settings.json
+/.claude/worktrees/
+/.serena/
 
 ### Windows Reserved Names (prevent git errors) ###
 nul
