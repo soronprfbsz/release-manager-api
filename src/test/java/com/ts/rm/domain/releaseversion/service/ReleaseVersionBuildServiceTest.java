@@ -165,6 +165,65 @@ class ReleaseVersionBuildServiceTest {
     }
 
     @Test
+    @DisplayName("빌드 생성 - 삭제된 동번호 빌드의 잔존 디렉토리를 먼저 정리한다 (#잔존물병합)")
+    void createBuild_ensuresCleanBuildDirectory() {
+        ReleaseVersion base = buildBaseStandard();
+        Account c = creator();
+        ReleaseVersionDto.CreateBuildRequest req = ReleaseVersionDto.CreateBuildRequest.builder()
+                .comment("WEB 빌드")
+                .build();
+
+        given(releaseVersionRepository.findById(10L)).willReturn(Optional.of(base));
+        given(accountLookupService.findByEmail("jhlee@tscientific")).willReturn(c);
+        given(releaseVersionRepository
+                .findTopByBuildBaseVersion_ReleaseVersionIdAndBuildVersionOrderByBuildIterationDesc(
+                        eq(10L), anyInt()))
+                .willReturn(Optional.empty());
+        given(releaseVersionRepository.saveAndFlush(any(ReleaseVersion.class)))
+                .willAnswer(inv -> {
+                    ReleaseVersion v = inv.getArgument(0);
+                    v.setReleaseVersionId(99L);
+                    return v;
+                });
+
+        releaseVersionService.createBuild(10L, req, "jhlee@tscientific");
+
+        // 잔존물 위에 ZIP 이 풀리면 패치(Files.walk)에 낡은 파일이 유입된다 — 생성 시 반드시 정리
+        then(fileSystemService).should(times(1)).ensureCleanBuildDirectory(any(ReleaseVersion.class));
+    }
+
+    @Test
+    @DisplayName("빌드 생성 - 잔존 디렉토리 정리 불가 시(핸들 점유) 생성이 거부된다")
+    void createBuild_rejectedWhenLeftoverUndeletable() {
+        ReleaseVersion base = buildBaseStandard();
+        Account c = creator();
+        ReleaseVersionDto.CreateBuildRequest req = ReleaseVersionDto.CreateBuildRequest.builder()
+                .comment("WEB 빌드")
+                .build();
+
+        given(releaseVersionRepository.findById(10L)).willReturn(Optional.of(base));
+        given(accountLookupService.findByEmail("jhlee@tscientific")).willReturn(c);
+        given(releaseVersionRepository
+                .findTopByBuildBaseVersion_ReleaseVersionIdAndBuildVersionOrderByBuildIterationDesc(
+                        eq(10L), anyInt()))
+                .willReturn(Optional.empty());
+        given(releaseVersionRepository.saveAndFlush(any(ReleaseVersion.class)))
+                .willAnswer(inv -> {
+                    ReleaseVersion v = inv.getArgument(0);
+                    v.setReleaseVersionId(99L);
+                    return v;
+                });
+        org.mockito.BDDMockito.willThrow(new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                "이전 삭제의 잔존 파일이 아직 정리되지 않아 생성할 수 없습니다."))
+                .given(fileSystemService).ensureCleanBuildDirectory(any(ReleaseVersion.class));
+
+        // UNIQUE 충돌 retry 루프에 삼켜지지 않고 그대로 전파되어야 한다
+        assertThatThrownBy(() -> releaseVersionService.createBuild(10L, req, "jhlee@tscientific"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("잔존");
+    }
+
+    @Test
     @DisplayName("빌드 생성 - 핫픽스 버전 위에는 빌드 생성 거부")
     void createBuild_onHotfix_rejected() {
         ReleaseVersion hotfixBase = ReleaseVersion.builder()

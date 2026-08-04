@@ -2,11 +2,14 @@ package com.ts.rm.domain.releaseversion.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import com.ts.rm.domain.site.entity.Site;
 import com.ts.rm.domain.project.entity.Project;
 import com.ts.rm.domain.releaseversion.entity.ReleaseVersion;
+import com.ts.rm.domain.releaseversion.util.VersionParser;
+import com.ts.rm.global.exception.BusinessException;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -129,6 +132,122 @@ class ReleaseVersionFileSystemServiceTest {
         svc.deleteBuildDirectory(build);
 
         assertThat(Files.exists(dir)).isFalse();
+    }
+
+    @Test
+    @DisplayName("재생성 가드: 표준 버전 생성 시 이전 삭제의 잔존물을 먼저 제거한다 (#잔존물병합)")
+    void createVersionDirectory_cleansLeftoverResidue(@TempDir Path tempDir) throws IOException {
+        ReleaseVersionFileSystemService svc = newService(tempDir);
+        Path target = tempDir.resolve("versions/infraeye2/standard/1.1.x/1.1.7");
+        Files.createDirectories(target.resolve("web"));
+        Files.writeString(target.resolve("web/stale.js"), "old");
+
+        VersionParser.VersionInfo info = new VersionParser.VersionInfo(1, 1, 7, "1.1.x");
+        svc.createVersionDirectory(info, "infraeye2");
+
+        // 잔존 파일이 새 버전과 합쳐지면 패치에 낡은 파일이 유입된다 — 반드시 제거돼야 한다
+        assertThat(Files.exists(target.resolve("web/stale.js"))).isFalse();
+        assertThat(Files.isDirectory(target)).isTrue();
+    }
+
+    @Test
+    @DisplayName("재생성 가드: 커스텀 버전 생성 시 이전 삭제의 잔존물을 먼저 제거한다 (#잔존물병합)")
+    void createCustomVersionDirectory_cleansLeftoverResidue(@TempDir Path tempDir) throws IOException {
+        ReleaseVersionFileSystemService svc = newService(tempDir);
+        Path target = tempDir.resolve("versions/infraeye2/custom/siteA/1.0.x/1.1.0-siteA.1.0.0");
+        Files.createDirectories(target);
+        Files.writeString(target.resolve("stale.sql"), "old");
+
+        svc.createCustomVersionDirectory("infraeye2", "siteA", "1.0.x", "1.1.0-siteA.1.0.0");
+
+        assertThat(Files.exists(target.resolve("stale.sql"))).isFalse();
+        assertThat(Files.isDirectory(target)).isTrue();
+    }
+
+    @Test
+    @DisplayName("재생성 가드: 레거시 생성(createDirectoryStructure)도 잔존물을 먼저 제거한다 (#잔존물병합)")
+    void createDirectoryStructure_cleansLeftoverResidue(@TempDir Path tempDir) throws IOException {
+        ReleaseVersionFileSystemService svc = newService(tempDir);
+        Project project = Project.builder().projectId("infraeye2").projectName("InfraEye 2.0").build();
+        ReleaseVersion version = ReleaseVersion.builder()
+                .releaseVersionId(61L).project(project).releaseType("STANDARD")
+                .version("1.1.1")
+                .majorVersion(1).minorVersion(1).patchVersion(1)
+                .build();
+        Path target = tempDir.resolve("versions/infraeye2/standard/1.1.x/1.1.1");
+        Files.createDirectories(target.resolve("web"));
+        Files.writeString(target.resolve("web/stale.js"), "old");
+
+        svc.createDirectoryStructure(version, null);
+
+        assertThat(Files.exists(target.resolve("web/stale.js"))).isFalse();
+        assertThat(Files.isDirectory(target.resolve("mariadb"))).isTrue();
+    }
+
+    @Test
+    @DisplayName("재생성 가드: 핫픽스 생성 시 해당 핫픽스 디렉토리 잔존물만 제거, 버전의 다른 내용은 보존")
+    void createHotfixDirectoryStructure_cleansOnlyHotfixResidue(@TempDir Path tempDir) throws IOException {
+        ReleaseVersionFileSystemService svc = newService(tempDir);
+        ReleaseVersion base = customVersion();
+        ReleaseVersion hotfix = ReleaseVersion.builder()
+                .releaseVersionId(7L).project(base.getProject()).releaseType("CUSTOM").site(base.getSite())
+                .version(base.getVersion())
+                .majorVersion(1).minorVersion(1).patchVersion(0)
+                .customMajorVersion(1).customMinorVersion(0).customPatchVersion(0)
+                .hotfixVersion(1).hotfixBaseVersion(base)
+                .build();
+        Path versionDir = tempDir.resolve("versions/infraeye2/custom/siteA/1.1.x/1.1.0-siteA.1.0.0");
+        Path hotfixDir = versionDir.resolve("hotfix/1");
+        Files.createDirectories(hotfixDir);
+        Files.writeString(hotfixDir.resolve("stale.sql"), "old");
+        // 같은 버전의 다른 콘텐츠는 건드리면 안 된다
+        Files.createDirectories(versionDir.resolve("database"));
+        Files.writeString(versionDir.resolve("database/keep.sql"), "keep");
+
+        svc.createHotfixDirectoryStructure(hotfix, base);
+
+        assertThat(Files.exists(hotfixDir.resolve("stale.sql"))).isFalse();
+        assertThat(Files.isDirectory(hotfixDir.resolve("mariadb"))).isTrue();
+        assertThat(Files.exists(versionDir.resolve("database/keep.sql"))).isTrue();
+    }
+
+    @Test
+    @DisplayName("재생성 가드: 빌드 생성 시 동번호 빌드의 잔존 디렉토리를 제거한다 (#잔존물병합)")
+    void ensureCleanBuildDirectory_removesLeftoverResidue(@TempDir Path tempDir) throws IOException {
+        ReleaseVersionFileSystemService svc = newService(tempDir);
+        ReleaseVersion build = buildVersion();
+        Path dir = svc.resolveBuildBasePath(build);
+        Files.createDirectories(dir.resolve("web"));
+        Files.writeString(dir.resolve("web/stale.js"), "old");
+
+        svc.ensureCleanBuildDirectory(build);
+
+        // 잔존물이 남은 채 ZIP 이 풀리면 Files.walk 기반 패치에 낡은 파일이 유입된다
+        assertThat(Files.exists(dir)).isFalse();
+    }
+
+    @Test
+    @DisplayName("재생성 가드: 잔존물이 지워지지 않으면(핸들 점유) 생성을 거부한다 — 잘못된 패치보다 안전")
+    void createVersionDirectory_rejectsWhenResidueUndeletable(@TempDir Path tempDir) throws IOException {
+        assumeFalse("root".equals(System.getProperty("user.name")),
+                "root 는 권한을 무시해 삭제가 항상 성공 — 삭제 불가 모사 불가");
+        ReleaseVersionFileSystemService svc = newService(tempDir);
+        Path target = tempDir.resolve("versions/infraeye2/standard/1.1.x/1.1.7");
+        Path locked = target.resolve("locked");
+        Files.createDirectories(locked);
+        Files.writeString(locked.resolve("stuck.bin"), "z");
+        Files.setPosixFilePermissions(locked, Set.of(
+                PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_EXECUTE));
+
+        try {
+            VersionParser.VersionInfo info = new VersionParser.VersionInfo(1, 1, 7, "1.1.x");
+            assertThatThrownBy(() -> svc.createVersionDirectory(info, "infraeye2"))
+                    .isInstanceOf(BusinessException.class);
+        } finally {
+            Files.setPosixFilePermissions(locked, Set.of(
+                    PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE,
+                    PosixFilePermission.OWNER_EXECUTE));
+        }
     }
 
     @Test

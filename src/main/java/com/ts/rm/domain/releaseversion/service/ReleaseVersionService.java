@@ -674,6 +674,11 @@ public class ReleaseVersionService {
                 ReleaseVersion saved = saveBuildEntity(baseVersion, creator, buildVersion, candidateIteration,
                         request.comment(), createdByEmail);
 
+                // 삭제된 동번호 빌드의 잔존 디렉토리 제거 (#잔존물병합) — 잔존물 위에 ZIP 이
+                // 풀리면 패치(Files.walk)에 낡은 파일이 유입된다. 정리 불가 시 BusinessException
+                // → 트랜잭션 롤백으로 생성 자체를 거부한다.
+                fileSystemService.ensureCleanBuildDirectory(saved);
+
                 // 클로저 테이블에 self-row(depth=0) 등록.
                 // 트리 조회(findAllByProjectIdAndReleaseTypeWithHierarchy)는 hierarchy 와의
                 // INNER JOIN 으로 결과를 추리므로 이 호출이 빠지면 빌드가 트리에 표시되지 않는다.

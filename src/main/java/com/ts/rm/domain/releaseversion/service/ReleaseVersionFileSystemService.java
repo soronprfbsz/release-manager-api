@@ -58,7 +58,9 @@ public class ReleaseVersionFileSystemService {
                         version.getVersion());
             }
 
-            // 디렉토리 생성
+            // 이전 삭제의 잔존물 제거 후 디렉토리 생성 (#잔존물병합)
+            ensureCleanDirectory(Paths.get(baseReleasePath, basePath));
+
             Path mariadbPath = Paths.get(baseReleasePath, basePath, "mariadb");
             Path cratedbPath = Paths.get(baseReleasePath, basePath, "cratedb");
 
@@ -89,6 +91,8 @@ public class ReleaseVersionFileSystemService {
         Path versionPath = Paths.get(baseReleasePath, "versions", projectId, "standard",
                 majorMinor, version);
 
+        // 이전 삭제의 잔존물 제거 후 생성 (#잔존물병합)
+        ensureCleanDirectory(versionPath);
         Files.createDirectories(versionPath);
         log.info("표준 버전 디렉토리 생성: {}", versionPath);
 
@@ -110,6 +114,8 @@ public class ReleaseVersionFileSystemService {
         Path versionPath = Paths.get(baseReleasePath, "versions", projectId, "custom",
                 siteCode, customMajorMinor, customVersion);
 
+        // 이전 삭제의 잔존물 제거 후 생성 (#잔존물병합)
+        ensureCleanDirectory(versionPath);
         Files.createDirectories(versionPath);
         log.info("커스텀 버전 디렉토리 생성: {}", versionPath);
 
@@ -341,7 +347,9 @@ public class ReleaseVersionFileSystemService {
                         hotfixVersion.getHotfixVersion());
             }
 
-            // 디렉토리 생성
+            // 이전 삭제의 잔존물 제거 후 디렉토리 생성 (#잔존물병합)
+            ensureCleanDirectory(Paths.get(baseReleasePath, basePath));
+
             Path mariadbPath = Paths.get(baseReleasePath, basePath, "mariadb");
             Path cratedbPath = Paths.get(baseReleasePath, basePath, "cratedb");
 
@@ -473,6 +481,40 @@ public class ReleaseVersionFileSystemService {
             throw new IllegalArgumentException("빌드 카테고리는 web, engine 중 하나여야 합니다: " + category);
         }
         return resolveBuildBasePath(buildVersionEntity).resolve(category);
+    }
+
+    /**
+     * 빌드 생성 시 동번호 빌드의 잔존 디렉토리를 정리한다.
+     *
+     * <p>빌드 삭제는 best-effort 라 잔존물이 남을 수 있고, buildIteration 은 DB max+1 로
+     * 채번되므로 삭제된 빌드와 같은 번호가 재사용될 수 있다. 잔존물 위에 새 ZIP 이 풀리면
+     * 패치 생성(Files.walk)에 낡은 파일이 유입된다 (#잔존물병합) — 생성 시점에 차단한다.
+     *
+     * @param buildVersion 빌드 버전 엔티티 (buildBaseVersion 이 채워져 있어야 함)
+     */
+    public void ensureCleanBuildDirectory(ReleaseVersion buildVersion) {
+        ensureCleanDirectory(resolveBuildBasePath(buildVersion));
+    }
+
+    /**
+     * 새로 생성할 디렉토리 경로에 이전 삭제의 잔존물이 있으면 제거한다.
+     *
+     * <p>NAS(SMB) 핸들 지연으로 best-effort 삭제가 잔존물을 남긴 상태에서 같은 버전/빌드를
+     * 재생성하면 잔존 파일이 새 콘텐츠와 합쳐진다 (#잔존물병합). 잔존물이 지워지지 않으면
+     * (핸들이 아직 열려 있으면) 생성 자체를 거부한다 — 잘못된 패치가 나가는 것보다
+     * 생성 실패가 안전하다.
+     */
+    private void ensureCleanDirectory(Path dir) {
+        if (!Files.exists(dir)) {
+            return;
+        }
+        log.warn("생성 대상 경로에 이전 삭제의 잔존물 발견 — 정리 후 진행: {}", dir);
+        deleteDirectory(dir);
+        if (Files.exists(dir)) {
+            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                    "이전 삭제의 잔존 파일이 아직 정리되지 않아 생성할 수 없습니다. "
+                            + "공유폴더를 열어둔 PC(탐색기 등)를 닫고 잠시 후 다시 시도해주세요: " + dir);
+        }
     }
 
     /**
