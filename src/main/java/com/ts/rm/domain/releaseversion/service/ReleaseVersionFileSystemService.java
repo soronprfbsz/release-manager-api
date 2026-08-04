@@ -122,13 +122,17 @@ public class ReleaseVersionFileSystemService {
      * @param version 릴리즈 버전 엔티티
      */
     public void deleteVersionDirectory(ReleaseVersion version) {
-        String projectId = version.getProject() != null ? version.getProject().getProjectId() : "infraeye2";
-        Path versionPath = resolveExistingVersionDirectory(version, projectId);
+        Path versionPath = resolveExistingVersionDirectory(version);
 
         log.info("버전 디렉토리 삭제 시도: {} (exists: {})", versionPath, Files.exists(versionPath));
         if (Files.exists(versionPath)) {
-            deleteDirectoryStrict(versionPath);
-            log.info("버전 디렉토리 삭제 완료: {}", versionPath);
+            // NAS(SMB)에서 다른 클라이언트(Windows 탐색기 등)가 파일 핸들을 열고 있으면
+            // 파일 unlink 는 성공 응답 후 지연되고(delete-on-close) 부모 rmdir 이
+            // DirectoryNotEmptyException 으로 실패한다. strict 로 두면 트랜잭션 롤백으로
+            // 파일만 지워지고 DB 행이 남는 반파 상태가 반복된다 (#SMB핸들). best-effort 로
+            // 지우고 DB 삭제는 진행시킨다 — 잔존 디렉토리는 orphan 정리 스케줄이 청소한다.
+            deleteDirectory(versionPath);
+            log.info("버전 디렉토리 삭제(best-effort) 완료: {}", versionPath);
 
             // 빈 major.minor 디렉토리도 정리
             try {
@@ -148,72 +152,63 @@ public class ReleaseVersionFileSystemService {
     }
 
     /**
-     * 삭제 대상 버전 디렉토리 경로를 해석한다.
+     * 버전 디렉토리 후보 경로 목록을 반환한다 (존재 여부 무관).
      *
      * <p>STANDARD 는 base majorMinor 경로 하나뿐이다. CUSTOM 은 생성 경로에 따라 두 갈래로 나뉜다:
      * ZIP 생성({@link #createCustomVersionDirectory})은 <b>custom</b> majorMinor("1.0.x")를,
      * 레거시 비-ZIP 생성({@link #createDirectoryStructure})은 <b>base</b> majorMinor("1.1.x")를
      * 쓴다. 과거 삭제는 base majorMinor 만 보고 ZIP 레이아웃의 디렉토리를 놓쳐, DB 만 삭제되고
-     * NAS 파일이 orphan 으로 남았다(#커스텀삭제). 두 후보 중 실제 존재하는 쪽을 반환해 어느
-     * 경로로 생성됐든 삭제가 누락되지 않게 한다.
+     * NAS 파일이 orphan 으로 남았다(#커스텀삭제). orphan 정리(reaper)도 이 후보 목록을 보호
+     * 대상(live)으로 사용한다 — 레이아웃 판단은 반드시 이 메서드 하나로 모은다.
      */
-    private Path resolveExistingVersionDirectory(ReleaseVersion version, String projectId) {
+    public List<Path> resolveVersionDirectoryCandidates(ReleaseVersion version) {
+        String projectId = version.getProject() != null ? version.getProject().getProjectId() : "infraeye2";
         if ("STANDARD".equals(version.getReleaseType())) {
-            return Paths.get(baseReleasePath, "versions", projectId, "standard",
-                    version.getMajorMinor(), version.getVersion());
+            return List.of(Paths.get(baseReleasePath, "versions", projectId, "standard",
+                    version.getMajorMinor(), version.getVersion()));
         }
 
         String siteCode = version.getSite() != null
                 ? version.getSite().getSiteCode()
                 : "unknown";
 
+        List<Path> candidates = new ArrayList<>();
         // 운영 ZIP 생성 레이아웃 (custom majorMinor) — getCustomMajorMinor 는 커스텀 버전 숫자가
         // 모두 있을 때만 값을 주므로 null 가드.
-        Path customLayout = version.getCustomMajorMinor() != null
-                ? Paths.get(baseReleasePath, "versions", projectId, "custom",
-                        siteCode, version.getCustomMajorMinor(), version.getVersion())
-                : null;
+        if (version.getCustomMajorMinor() != null) {
+            candidates.add(Paths.get(baseReleasePath, "versions", projectId, "custom",
+                    siteCode, version.getCustomMajorMinor(), version.getVersion()));
+        }
         // 레거시 비-ZIP 생성 레이아웃 (base majorMinor)
-        Path legacyLayout = Paths.get(baseReleasePath, "versions", projectId, "custom",
-                siteCode, version.getMajorMinor(), version.getVersion());
+        candidates.add(Paths.get(baseReleasePath, "versions", projectId, "custom",
+                siteCode, version.getMajorMinor(), version.getVersion()));
+        return candidates;
+    }
 
-        if (customLayout != null && Files.exists(customLayout)) {
-            return customLayout;
-        }
-        if (Files.exists(legacyLayout)) {
-            return legacyLayout;
-        }
-        // 둘 다 없으면 정식(custom) 레이아웃을 대표 경로로 반환 → 존재하지 않으므로 no-op + WARN
-        return customLayout != null ? customLayout : legacyLayout;
+    /**
+     * 삭제 대상 버전 디렉토리 경로를 해석한다 — 후보 중 실제 존재하는 첫 경로,
+     * 없으면 대표 경로(첫 후보)를 반환해 no-op + WARN 으로 이어지게 한다.
+     */
+    private Path resolveExistingVersionDirectory(ReleaseVersion version) {
+        List<Path> candidates = resolveVersionDirectoryCandidates(version);
+        return candidates.stream()
+                .filter(Files::exists)
+                .findFirst()
+                .orElse(candidates.get(0));
     }
 
     /**
      * 디렉토리 재귀 삭제 (best-effort).
      *
-     * <p>롤백 / 임시 디렉토리 정리처럼 실패해도 호출자가 진행해야 하는 경로에서 사용한다.
-     * IOException 은 로그만 남기고 swallow 한다.
+     * <p>실패해도 호출자가 진행해야 하는 모든 삭제 경로에서 사용한다. NAS(SMB) 환경에서는
+     * 다른 클라이언트의 열린 핸들 때문에 부분 실패가 정상 상황이므로, IOException 은 로그만
+     * 남기고 swallow 한다. 잔존물은 orphan 정리 스케줄이 나중에 청소한다.
      */
     public void deleteDirectory(Path directory) {
         try {
             walkAndDelete(directory);
         } catch (IOException e) {
             log.error("디렉토리 삭제 실패 (best-effort): {}", directory, e);
-        }
-    }
-
-    /**
-     * 디렉토리 재귀 삭제 (strict).
-     *
-     * <p>사용자가 명시적으로 요청한 삭제 경로에서 사용한다. IOException 발생 시
-     * {@link BusinessException} 으로 변환하여 트랜잭션 롤백 + 명시적 에러 응답을 유도한다.
-     */
-    public void deleteDirectoryStrict(Path directory) {
-        try {
-            walkAndDelete(directory);
-        } catch (IOException e) {
-            log.error("디렉토리 삭제 실패: {}", directory, e);
-            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
-                    "디렉토리 삭제에 실패했습니다: " + directory + " - " + e.getMessage());
         }
     }
 
@@ -373,27 +368,13 @@ public class ReleaseVersionFileSystemService {
             return;
         }
 
-        ReleaseVersion hotfixBaseVersion = hotfixVersion.getHotfixBaseVersion();
-        String projectId = hotfixBaseVersion.getProject() != null ? hotfixBaseVersion.getProject().getProjectId() : "infraeye2";
-        Path hotfixPath;
-
-        if ("STANDARD".equals(hotfixBaseVersion.getReleaseType())) {
-            hotfixPath = Paths.get(baseReleasePath, "versions", projectId, "standard",
-                    hotfixBaseVersion.getMajorMinor(), hotfixBaseVersion.getVersion(),
-                    "hotfix", String.valueOf(hotfixVersion.getHotfixVersion()));
-        } else {
-            String siteCode = hotfixBaseVersion.getSite() != null
-                    ? hotfixBaseVersion.getSite().getSiteCode()
-                    : "unknown";
-            hotfixPath = Paths.get(baseReleasePath, "versions", projectId, "custom",
-                    siteCode, hotfixBaseVersion.getMajorMinor(), hotfixBaseVersion.getVersion(),
-                    "hotfix", String.valueOf(hotfixVersion.getHotfixVersion()));
-        }
+        Path hotfixPath = resolveHotfixDirectory(hotfixVersion);
 
         log.info("핫픽스 디렉토리 삭제 시도: {} (exists: {})", hotfixPath, Files.exists(hotfixPath));
         if (Files.exists(hotfixPath)) {
-            deleteDirectoryStrict(hotfixPath);
-            log.info("핫픽스 디렉토리 삭제 완료: {}", hotfixPath);
+            // deleteVersionDirectory 와 동일 — SMB 핸들 지연으로 strict 는 반파 상태를 만든다 (#SMB핸들)
+            deleteDirectory(hotfixPath);
+            log.info("핫픽스 디렉토리 삭제(best-effort) 완료: {}", hotfixPath);
 
             // 빈 hotfix 디렉토리도 정리
             try {
@@ -409,6 +390,38 @@ public class ReleaseVersionFileSystemService {
             // deleteVersionDirectory / deleteBuildDirectory 와 동일하게 silent-skip 을 흔적으로 남긴다.
             log.warn("삭제할 핫픽스 디렉토리를 찾지 못했습니다 (이미 삭제되었거나 경로 mismatch): {}", hotfixPath);
         }
+    }
+
+    /**
+     * 핫픽스 디렉토리 경로 계산 (생성하지 않음).
+     *
+     * <pre>
+     * STANDARD: versions/{projectId}/standard/{majorMinor}/{version}/hotfix/{hotfixVersion}
+     * CUSTOM:   versions/{projectId}/custom/{siteCode}/{majorMinor}/{version}/hotfix/{hotfixVersion}
+     * </pre>
+     *
+     * @param hotfixVersion 핫픽스 버전 엔티티 (hotfixBaseVersion 이 채워져 있어야 함)
+     */
+    public Path resolveHotfixDirectory(ReleaseVersion hotfixVersion) {
+        ReleaseVersion hotfixBaseVersion = hotfixVersion.getHotfixBaseVersion();
+        if (hotfixBaseVersion == null) {
+            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                    "핫픽스의 원본 버전이 비어있어 경로를 계산할 수 없습니다 (hotfixVersionId: "
+                            + hotfixVersion.getReleaseVersionId() + ")");
+        }
+        String projectId = hotfixBaseVersion.getProject() != null ? hotfixBaseVersion.getProject().getProjectId() : "infraeye2";
+
+        if ("STANDARD".equals(hotfixBaseVersion.getReleaseType())) {
+            return Paths.get(baseReleasePath, "versions", projectId, "standard",
+                    hotfixBaseVersion.getMajorMinor(), hotfixBaseVersion.getVersion(),
+                    "hotfix", String.valueOf(hotfixVersion.getHotfixVersion()));
+        }
+        String siteCode = hotfixBaseVersion.getSite() != null
+                ? hotfixBaseVersion.getSite().getSiteCode()
+                : "unknown";
+        return Paths.get(baseReleasePath, "versions", projectId, "custom",
+                siteCode, hotfixBaseVersion.getMajorMinor(), hotfixBaseVersion.getVersion(),
+                "hotfix", String.valueOf(hotfixVersion.getHotfixVersion()));
     }
 
     /**

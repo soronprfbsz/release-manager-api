@@ -132,6 +132,64 @@ class ReleaseVersionFileSystemServiceTest {
     }
 
     @Test
+    @DisplayName("버전 디렉토리 삭제는 best-effort — 일부 항목 실패해도 예외를 던지지 않는다 (SMB 핸들 지연 대응)")
+    void bestEffort_versionDirectory_doesNotThrowOnPartialFailure(@TempDir Path tempDir) throws IOException {
+        assumeFalse("root".equals(System.getProperty("user.name")),
+                "root 는 권한을 무시해 삭제가 항상 성공 — 부분 실패 모사 불가");
+        ReleaseVersionFileSystemService svc = newService(tempDir);
+        ReleaseVersion version = customVersion();
+        Path created = svc.createCustomVersionDirectory("infraeye2", "siteA", "1.0.x",
+                "1.1.0-siteA.1.0.0");
+        Files.writeString(created.resolve("deletable.sql"), "x");
+        Path locked = created.resolve("locked");
+        Files.createDirectories(locked);
+        Files.writeString(locked.resolve("stuck.bin"), "z");
+        Files.setPosixFilePermissions(locked, Set.of(
+                PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_EXECUTE));
+
+        try {
+            // strict 라면 BusinessException → 트랜잭션 롤백 → DB 행 잔존(반파 상태) — best-effort 여야 한다
+            assertThatCode(() -> svc.deleteVersionDirectory(version)).doesNotThrowAnyException();
+            assertThat(Files.exists(created.resolve("deletable.sql"))).isFalse();
+        } finally {
+            Files.setPosixFilePermissions(locked, Set.of(
+                    PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE,
+                    PosixFilePermission.OWNER_EXECUTE));
+        }
+    }
+
+    @Test
+    @DisplayName("핫픽스 디렉토리 삭제는 best-effort — 일부 항목 실패해도 예외를 던지지 않는다 (SMB 핸들 지연 대응)")
+    void bestEffort_hotfixDirectory_doesNotThrowOnPartialFailure(@TempDir Path tempDir) throws IOException {
+        assumeFalse("root".equals(System.getProperty("user.name")),
+                "root 는 권한을 무시해 삭제가 항상 성공 — 부분 실패 모사 불가");
+        ReleaseVersionFileSystemService svc = newService(tempDir);
+        ReleaseVersion base = customVersion();
+        ReleaseVersion hotfix = ReleaseVersion.builder()
+                .releaseVersionId(7L).project(base.getProject()).releaseType("CUSTOM").site(base.getSite())
+                .version(base.getVersion())
+                .majorVersion(1).minorVersion(1).patchVersion(0)
+                .customMajorVersion(1).customMinorVersion(0).customPatchVersion(0)
+                .hotfixVersion(1).hotfixBaseVersion(base)
+                .build();
+        svc.createHotfixDirectoryStructure(hotfix, base);
+        Path hotfixDir = tempDir.resolve("versions/infraeye2/custom/siteA/1.1.x/1.1.0-siteA.1.0.0/hotfix/1");
+        Path locked = hotfixDir.resolve("locked");
+        Files.createDirectories(locked);
+        Files.writeString(locked.resolve("stuck.bin"), "z");
+        Files.setPosixFilePermissions(locked, Set.of(
+                PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_EXECUTE));
+
+        try {
+            assertThatCode(() -> svc.deleteHotfixDirectory(hotfix)).doesNotThrowAnyException();
+        } finally {
+            Files.setPosixFilePermissions(locked, Set.of(
+                    PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE,
+                    PosixFilePermission.OWNER_EXECUTE));
+        }
+    }
+
+    @Test
     @DisplayName("회귀: 일부 항목 삭제가 실패해도 best-effort 라 예외를 던지지 않는다 (CIFS 부분 실패 모사)")
     void bestEffort_doesNotThrowOnPartialFailure(@TempDir Path tempDir) throws IOException {
         assumeFalse("root".equals(System.getProperty("user.name")),

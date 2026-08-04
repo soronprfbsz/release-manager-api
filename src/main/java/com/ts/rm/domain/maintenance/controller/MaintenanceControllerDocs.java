@@ -37,4 +37,12 @@ public interface MaintenanceControllerDocs {
     ResponseEntity<ApiResponse<MaintenanceResultDto.CleanupResult>> cleanupPatches(
             @Parameter(description = "보관 기간 (일)", example = "30") int retentionDays,
             @Parameter(hidden = true) HttpServletRequest request);
+
+    @Operation(summary = "orphan 릴리즈 디렉토리 정리",
+            description = "DB(release_version)에 없는 버전/빌드/핫픽스 디렉토리를 정리합니다. "
+                    + "NAS(SMB) 핸들 지연으로 best-effort 삭제가 남긴 잔존물이 대상이며, "
+                    + "quiet 시간 내에 변경된 디렉토리는 건너뜁니다. 스케줄러 내부 호출 또는 인증된 사용자만 접근 가능합니다.")
+    ResponseEntity<ApiResponse<MaintenanceResultDto.CleanupResult>> cleanupOrphanDirectories(
+            @Parameter(description = "이 시간 이상 변경 없는 디렉토리만 삭제 (시간)", example = "24") int quietHours,
+            @Parameter(hidden = true) HttpServletRequest request);
 }

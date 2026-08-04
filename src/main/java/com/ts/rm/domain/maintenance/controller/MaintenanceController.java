@@ -2,6 +2,7 @@ package com.ts.rm.domain.maintenance.controller;
 
 import com.ts.rm.domain.maintenance.dto.MaintenanceResultDto;
 import com.ts.rm.domain.maintenance.service.BoardImageCleanupService;
+import com.ts.rm.domain.maintenance.service.ReleaseDirectoryCleanupService;
 import com.ts.rm.domain.patch.service.PatchService;
 import com.ts.rm.domain.scheduler.service.ScheduleJobHistoryService;
 import com.ts.rm.global.exception.BusinessException;
@@ -34,6 +35,7 @@ public class MaintenanceController implements MaintenanceControllerDocs {
     private final ScheduleJobHistoryService scheduleJobHistoryService;
     private final ApiLogService apiLogService;
     private final PatchService patchService;
+    private final ReleaseDirectoryCleanupService releaseDirectoryCleanupService;
 
     private static final String SCHEDULER_HEADER = "X-Schedule-Job";
 
@@ -127,6 +129,26 @@ public class MaintenanceController implements MaintenanceControllerDocs {
                 (int) deletedCount,
                 String.format("%d일 이상 지난 패치 %d건 삭제 완료", retentionDays, deletedCount));
 
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    /**
+     * orphan 릴리즈 디렉토리 정리
+     *
+     * <p>DB(release_version)에 없는 버전/빌드/핫픽스 디렉토리 삭제.
+     * NAS(SMB) 핸들 지연으로 best-effort 삭제가 남긴 잔존물 정리 (#SMB핸들)
+     *
+     * @param quietHours 이 시간 이상 변경이 없는 디렉토리만 삭제 (기본값: 24시간, 진행 중 업로드 보호)
+     */
+    @Override
+    @DeleteMapping("/orphan-directories")
+    public ResponseEntity<ApiResponse<MaintenanceResultDto.CleanupResult>> cleanupOrphanDirectories(
+            @RequestParam(defaultValue = "24") int quietHours,
+            HttpServletRequest request) {
+        validateMaintenanceAccess(request);
+        log.info("orphan 디렉토리 정리 API 호출 - quietHours: {}", quietHours);
+        MaintenanceResultDto.CleanupResult result =
+                releaseDirectoryCleanupService.cleanupOrphanDirectories(quietHours);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
