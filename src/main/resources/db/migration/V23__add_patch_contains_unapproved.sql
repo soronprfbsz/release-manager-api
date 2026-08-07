@@ -13,7 +13,8 @@
 -- 기존 row 는 모두 승인된 버전으로만 생성되었으므로 default false 가 정확하다.
 -- ============================================================
 
-ALTER TABLE patch
+-- 주의: Patch 엔티티의 실제 테이블명은 patch_file 이다 (@Table(name = "patch_file")).
+ALTER TABLE patch_file
     ADD COLUMN contains_unapproved BOOLEAN NOT NULL DEFAULT FALSE
         COMMENT '미승인 버전 포함 여부 (생성 시점 스냅샷)';
 
