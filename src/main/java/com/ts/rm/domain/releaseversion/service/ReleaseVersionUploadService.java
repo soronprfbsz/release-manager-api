@@ -149,17 +149,16 @@ public class ReleaseVersionUploadService {
      * @param comment         패치 노트 내용
      * @param zipFile         패치 파일이 포함된 ZIP 파일
      * @param createdByEmail       생성자 이메일
-     * @param isApproved      승인 여부 (true: 승인됨, false: 미승인, null: 미승인)
      * @return 생성된 버전 응답
      */
     @Transactional
     public ReleaseVersionDto.CreateVersionResponse createStandardVersionWithZip(
             String projectId, String version, String comment,
-            MultipartFile zipFile, String createdByEmail, Boolean isApproved,
+            MultipartFile zipFile, String createdByEmail,
             ServerProgressService progress) {
 
-        log.info("ZIP 파일로 표준 릴리즈 버전 생성 시작 - projectId: {}, version: {}, createdByEmail: {}, isApproved: {}",
-                projectId, version, createdByEmail, isApproved);
+        log.info("ZIP 파일로 표준 릴리즈 버전 생성 시작 - projectId: {}, version: {}, createdByEmail: {}",
+                projectId, version, createdByEmail);
 
         final int TOTAL_STEPS = 5;
 
@@ -196,10 +195,10 @@ public class ReleaseVersionUploadService {
 
             // 4/5 파일 복사 및 DB 저장
             progress.update(4, TOTAL_STEPS, "파일 복사 및 DB 저장 중");
-            ReleaseVersion savedVersion = copyFilesAndSaveToDb(project, tempDir, versionPath, versionInfo, createdByEmail, comment, isApproved);
+            ReleaseVersion savedVersion = copyFilesAndSaveToDb(project, tempDir, versionPath, versionInfo, createdByEmail, comment);
 
-            log.info("ZIP 파일로 표준 릴리즈 버전 생성 완료 - projectId: {}, version: {}, ID: {}, isApproved: {}",
-                    projectId, version, savedVersion.getReleaseVersionId(), savedVersion.getIsApproved());
+            log.info("ZIP 파일로 표준 릴리즈 버전 생성 완료 - projectId: {}, version: {}, ID: {}",
+                    projectId, version, savedVersion.getReleaseVersionId());
 
             // 5/5 마무리 정리
             progress.update(5, TOTAL_STEPS, "마무리 정리 중");
@@ -259,9 +258,9 @@ public class ReleaseVersionUploadService {
             ReleaseVersionDto.CreateCustomVersionRequest request, MultipartFile zipFile, String createdByEmail,
             ServerProgressService progress) {
 
-        log.info("ZIP 파일로 커스텀 릴리즈 버전 생성 시작 - projectId: {}, siteId: {}, customBaseVersionId: {}, customVersion: {}, createdByEmail: {}, isApproved: {}",
+        log.info("ZIP 파일로 커스텀 릴리즈 버전 생성 시작 - projectId: {}, siteId: {}, customBaseVersionId: {}, customVersion: {}, createdByEmail: {}",
                 request.projectId(), request.siteId(), request.customBaseVersionId(), request.customVersion(),
-                createdByEmail, request.isApproved());
+                createdByEmail);
 
         final int TOTAL_STEPS = 5;
 
@@ -353,10 +352,10 @@ public class ReleaseVersionUploadService {
             ReleaseVersion savedVersion = copyFilesAndSaveToDbForCustomVersion(
                     project, site, customBaseVersion, tempDir, versionPath,
                     customMajorVersion, customMinorVersion, customPatchVersion,
-                    request.comment(), createdByEmail, request.isApproved());
+                    request.comment(), createdByEmail);
 
-            log.info("ZIP 파일로 커스텀 릴리즈 버전 생성 완료 - projectId: {}, siteId: {}, version: {}, ID: {}, isApproved: {}",
-                    request.projectId(), request.siteId(), fullVersion, savedVersion.getReleaseVersionId(), savedVersion.getIsApproved());
+            log.info("ZIP 파일로 커스텀 릴리즈 버전 생성 완료 - projectId: {}, siteId: {}, version: {}, ID: {}",
+                    request.projectId(), request.siteId(), fullVersion, savedVersion.getReleaseVersionId());
 
             // 5/5 마무리 정리
             progress.update(5, TOTAL_STEPS, "마무리 정리 중");
@@ -426,8 +425,7 @@ public class ReleaseVersionUploadService {
             Project project, Site site, ReleaseVersion customBaseVersion,
             Path tempDir, Path versionPath,
             int customMajorVersion, int customMinorVersion, int customPatchVersion,
-            String comment, String createdByEmail,
-            Boolean isApproved) throws IOException {
+            String comment, String createdByEmail) throws IOException {
 
         String customVersionStr = customMajorVersion + "." + customMinorVersion + "." + customPatchVersion;
 
@@ -438,9 +436,6 @@ public class ReleaseVersionUploadService {
 
         // 생성자(Account) 조회 - 이메일로 조회
         Account creator = accountLookupService.findByEmail(createdByEmail);
-
-        // isApproved가 null이면 false로 처리
-        boolean approved = Boolean.TRUE.equals(isApproved);
 
         // ReleaseVersion 생성 및 저장 (커스텀 버전 전용 필드 설정)
         // version 필드: 시멘틱 버저닝 형식의 전체 버전 문자열
@@ -461,14 +456,8 @@ public class ReleaseVersionUploadService {
                 .creator(creator)
                 .createdByEmail(createdByEmail)
                 .comment(comment)
-                .isApproved(approved);
-
-        // 승인된 경우 승인자와 승인일시 설정
-        if (approved) {
-            builder.approver(creator)
-                   .approvedByEmail(createdByEmail)
-                   .approvedAt(java.time.LocalDateTime.now(java.time.ZoneOffset.UTC));
-        }
+                // 버전은 항상 미승인으로 생성된다. 승인은 별도 승인 액션으로만 이뤄진다.
+                .isApproved(false);
 
         final ReleaseVersion savedVersion = releaseVersionRepository.save(builder.build());
 
@@ -750,11 +739,8 @@ public class ReleaseVersionUploadService {
      */
     public ReleaseVersion copyFilesAndSaveToDb(Project project, Path tempDir, Path versionPath,
                                                 VersionInfo versionInfo,
-                                                String createdByEmail, String comment, Boolean isApproved) throws IOException {
+                                                String createdByEmail, String comment) throws IOException {
         String version = versionInfo.getMajorVersion() + "." + versionInfo.getMinorVersion() + "." + versionInfo.getPatchVersion();
-
-        // isApproved가 null이면 false로 처리
-        boolean approved = Boolean.TRUE.equals(isApproved);
 
         // 생성자(Account) 조회 - 이메일로 조회
         Account creator = accountLookupService.findByEmail(createdByEmail);
@@ -770,19 +756,13 @@ public class ReleaseVersionUploadService {
                 .creator(creator)
                 .createdByEmail(createdByEmail)
                 .comment(comment)
-                .isApproved(approved);
-
-        // 승인된 경우 승인자와 승인일시 설정
-        if (approved) {
-            builder.approver(creator)
-                   .approvedByEmail(createdByEmail)
-                   .approvedAt(java.time.LocalDateTime.now(java.time.ZoneOffset.UTC));
-        }
+                // 버전은 항상 미승인으로 생성된다. 승인은 별도 승인 액션으로만 이뤄진다.
+                .isApproved(false);
 
         final ReleaseVersion savedVersion = releaseVersionRepository.save(builder.build());
 
-        log.info("ReleaseVersion 저장 완료 - ID: {}, version: {}, isApproved: {}",
-                savedVersion.getReleaseVersionId(), version, savedVersion.getIsApproved());
+        log.info("ReleaseVersion 저장 완료 - ID: {}, version: {}",
+                savedVersion.getReleaseVersionId(), version);
 
         // 클로저 테이블에 계층 구조 데이터 추가
         treeService.createHierarchyForNewVersion(savedVersion, "STANDARD");
@@ -1144,13 +1124,12 @@ public class ReleaseVersionUploadService {
      * @param zipFile             패치 파일이 포함된 ZIP 파일
      * @param createdByEmail      생성자 이메일
      * @param assigneeId          담당자 ID (선택, 패치 스크립트의 기본 담당자로 사용)
-     * @param isApproved          승인 여부 (true: 생성과 동시에 승인 처리)
      * @return 생성된 핫픽스 응답
      */
     @Transactional
     public ReleaseVersionDto.CreateHotfixResponse createHotfixWithZip(
             Long hotfixBaseVersionId, String comment, MultipartFile zipFile, String createdByEmail,
-            Long assigneeId, boolean isApproved) {
+            Long assigneeId) {
 
         log.info("ZIP 파일로 핫픽스 버전 생성 시작 - hotfixBaseVersionId: {}, createdByEmail: {}", hotfixBaseVersionId,
                 createdByEmail);
@@ -1186,7 +1165,7 @@ public class ReleaseVersionUploadService {
             // 7. 핫픽스 버전 엔티티 생성 및 저장
             ReleaseVersion hotfixVersion = copyFilesAndSaveToDbForHotfix(
                     baseVersion, tempDir, nextHotfixVersion, comment,
-                    createdByEmail, isApproved);
+                    createdByEmail);
 
             // 8. 핫픽스용 디렉토리 구조 생성
             hotfixPath = createHotfixDirectory(hotfixVersion, baseVersion);
@@ -1252,12 +1231,11 @@ public class ReleaseVersionUploadService {
      * @param hotfixVersion     핫픽스 버전 번호
      * @param comment           코멘트
      * @param createdByEmail    생성자 이메일
-     * @param isApproved        승인 여부
      * @return 저장된 ReleaseVersion 엔티티
      */
     private ReleaseVersion copyFilesAndSaveToDbForHotfix(
             ReleaseVersion hotfixBaseVersion, Path tempDir, int hotfixVersion,
-            String comment, String createdByEmail, boolean isApproved) throws IOException {
+            String comment, String createdByEmail) throws IOException {
 
         // 생성자(Account) 조회 - 이메일로 조회
         Account creator = accountLookupService.findByEmail(createdByEmail);
@@ -1276,14 +1254,8 @@ public class ReleaseVersionUploadService {
                 .creator(creator)
                 .createdByEmail(createdByEmail)
                 .comment(comment)
-                .isApproved(isApproved);
-
-        // 승인된 상태로 생성 시 승인자 정보 설정
-        if (isApproved) {
-            builder.approver(creator)
-                    .approvedByEmail(createdByEmail)
-                    .approvedAt(java.time.LocalDateTime.now(java.time.ZoneOffset.UTC));
-        }
+                // 핫픽스도 항상 미승인으로 생성된다. 승인은 별도 승인 액션으로만 이뤄진다.
+                .isApproved(false);
 
         ReleaseVersion savedHotfix = releaseVersionRepository.save(builder.build());
 

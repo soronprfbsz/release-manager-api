@@ -82,7 +82,6 @@ public class ReleaseVersionController implements ReleaseVersionControllerDocs {
                     request.comment(),
                     patchFiles,
                     createdBy,
-                    request.isApproved(),
                     progressService
             );
 
@@ -324,8 +323,7 @@ public class ReleaseVersionController implements ReleaseVersionControllerDocs {
                 request.comment(),
                 patchFiles,
                 createdBy,
-                request.engineerId(),
-                request.isApprovedOrDefault()
+                request.engineerId()
         );
 
         return ResponseEntity.ok(ApiResponse.success(response));

@@ -306,7 +306,8 @@ public class ReleaseVersionService {
                 .creator(creator)
                 .createdByEmail(request.createdByEmail())
                 .comment(request.comment())
-                .isApproved(request.isApproved() != null ? request.isApproved() : false)
+                // 버전은 항상 미승인으로 생성된다. 승인은 별도 승인 액션으로만 이뤄진다.
+                .isApproved(false)
                 .customMajorVersion(request.customMajorVersion())
                 .customMinorVersion(request.customMinorVersion())
                 .customPatchVersion(request.customPatchVersion())

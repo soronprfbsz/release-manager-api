@@ -40,9 +40,6 @@ public final class ReleaseVersionDto {
             @Schema(description = "버전 코멘트", example = "새로운 기능 추가")
             String comment,
 
-            @Schema(description = "승인 여부", example = "false", defaultValue = "false")
-            Boolean isApproved,
-
             @Schema(description = "사이트 ID (커스텀 릴리즈인 경우)", example = "1")
             Long siteId,
 
@@ -639,10 +636,7 @@ public final class ReleaseVersionDto {
             @Schema(description = "패치 노트 내용", example = "새로운 기능 추가", required = true)
             @NotBlank(message = "패치 노트 내용은 필수입니다")
             @Size(max = 500, message = "패치 노트 내용은 500자 이하여야 합니다")
-            String comment,
-
-            @Schema(description = "승인 여부 (true: 승인됨, false: 미승인)", example = "false", defaultValue = "false")
-            Boolean isApproved
+            String comment
     ) {
 
     }
@@ -673,10 +667,7 @@ public final class ReleaseVersionDto {
             @Schema(description = "패치 노트 내용", example = "A사 커스텀 패치", required = true)
             @NotBlank(message = "패치 노트 내용은 필수입니다")
             @Size(max = 500, message = "패치 노트 내용은 500자 이하여야 합니다")
-            String comment,
-
-            @Schema(description = "승인 여부 (true: 승인됨, false: 미승인)", example = "false", defaultValue = "false")
-            Boolean isApproved
+            String comment
     ) {
 
     }
@@ -867,17 +858,9 @@ public final class ReleaseVersionDto {
             String comment,
 
             @Schema(description = "담당 엔지니어 ID (선택, 패치 스크립트의 기본 담당자로 사용)", example = "5")
-            Long engineerId,
-
-            @Schema(description = "승인 여부 (기본값: false)", example = "true")
-            Boolean isApproved
+            Long engineerId
     ) {
-        /**
-         * 승인 여부 반환 (null인 경우 false 반환)
-         */
-        public boolean isApprovedOrDefault() {
-            return isApproved != null && isApproved;
-        }
+
     }
 
     /**

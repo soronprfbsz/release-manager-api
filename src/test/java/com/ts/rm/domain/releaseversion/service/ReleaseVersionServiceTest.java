@@ -34,6 +34,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -156,6 +157,32 @@ class ReleaseVersionServiceTest {
         assertThat(result.majorMinor()).isEqualTo("1.1.x");
 
         then(releaseVersionRepository).should(times(1)).save(any(ReleaseVersion.class));
+    }
+
+    @Test
+    @DisplayName("표준 릴리즈 버전 생성 - 항상 미승인 상태로 저장된다 (승인은 별도 액션)")
+    void createStandardVersion_AlwaysUnapproved() {
+        // given
+        given(projectRepository.findById(PROJECT_ID)).willReturn(Optional.of(testProject));
+        given(accountLookupService.findByEmail(anyString())).willReturn(testAccount);
+        given(releaseVersionRepository.existsByProject_ProjectIdAndVersionAndHotfixVersionAndBuildVersion(
+                anyString(), anyString(), eq(0), eq(0)))
+                .willReturn(false);
+        given(releaseVersionRepository.save(any(ReleaseVersion.class))).willReturn(testVersion);
+        given(mapper.toDetailResponse(any(ReleaseVersion.class))).willReturn(detailResponse);
+
+        // when
+        releaseVersionService.createStandardVersion(createRequest);
+
+        // then: 저장되는 엔티티는 미승인이고 승인자 정보가 비어있어야 한다
+        ArgumentCaptor<ReleaseVersion> captor = ArgumentCaptor.forClass(ReleaseVersion.class);
+        then(releaseVersionRepository).should().save(captor.capture());
+
+        ReleaseVersion saved = captor.getValue();
+        assertThat(saved.getIsApproved()).isFalse();
+        assertThat(saved.getApprover()).isNull();
+        assertThat(saved.getApprovedByEmail()).isNull();
+        assertThat(saved.getApprovedAt()).isNull();
     }
 
     @Test
