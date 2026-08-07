@@ -173,7 +173,8 @@ public class PatchService {
                     base.updatedAt(),
                     patch.getIsBuildOnly(),
                     patch.getIsBuildIncluded(),
-                    summary
+                    summary,
+                    patch.getContainsUnapproved()
             );
         });
     }

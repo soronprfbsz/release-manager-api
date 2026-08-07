@@ -98,6 +98,16 @@ public class Patch extends BaseEntity {
     @Builder.Default
     private Boolean isBuildIncluded = false;
 
+    /**
+     * 미승인 버전 포함 여부 (생성 시점 스냅샷)
+     *
+     * <p>ADMIN / DEVELOPER 가 미승인 버전을 포함해 생성한 내부 검증용 패치를 식별한다.
+     * 버전이 나중에 승인되어도 이 값은 바뀌지 않는다 — 산출물은 검증 전 시점에 굳어졌기 때문.
+     */
+    @Column(name = "contains_unapproved", nullable = false)
+    @Builder.Default
+    private Boolean containsUnapproved = false;
+
     @OneToMany(
             mappedBy = "patch",
             cascade = CascadeType.ALL,

@@ -35,12 +35,14 @@ import com.ts.rm.domain.releaseversion.service.ReleaseVersionFileSystemService;
 import com.ts.rm.global.account.AccountLookupService;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.progress.ServerProgressService;
+import com.ts.rm.global.security.AccountUserDetails;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -48,6 +50,8 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -988,6 +992,168 @@ class PatchGenerationServiceTest {
         assertThat(savedPatch.getIsBuildOnly()).isFalse();
         assertThat(savedPatch.getIncludedBuilds()).isEmpty();
         assertThat(savedPatch.getHotfixesInRange()).isEmpty();
+        // 전부 승인된 범위 → 미승인 플래그 off
+        assertThat(savedPatch.getContainsUnapproved()).isFalse();
+    }
+
+    // ========================================================================
+    // 미승인 버전 포함 패치 — 롤 게이트 (ADMIN / DEVELOPER 만 허용)
+    // ========================================================================
+
+    /** SecurityContext 에 지정 롤의 인증 사용자를 심는다. */
+    private void authenticateAs(String role) {
+        AccountUserDetails userDetails = AccountUserDetails.builder()
+                .accountId(1L)
+                .email("test@tscientific")
+                .accountName("테스트 계정")
+                .password("pw")
+                .role(role)
+                .build();
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(
+                        userDetails, null, userDetails.getAuthorities()));
+    }
+
+    @AfterEach
+    void clearSecurityContext() {
+        SecurityContextHolder.clearContext();
+    }
+
+    @Test
+    @DisplayName("미승인 포함 패치 생성 실패 - OPERATOR 는 권한 없음 안내와 함께 거부")
+    void generatePatch_unapproved_deniedForOperator() {
+        // GIVEN: 범위 중간에 미승인 1.0.1, 요청자는 OPERATOR
+        String projectId = "infraeye2";
+        Project project = Project.builder().projectId(projectId).projectName("InfraEye 2.0").build();
+
+        ReleaseVersion fromVersion = ReleaseVersion.builder()
+                .releaseVersionId(1L).project(project).releaseType("STANDARD")
+                .version("1.0.0").majorVersion(1).minorVersion(0).patchVersion(0)
+                .buildVersion(0).isApproved(true)
+                .build();
+        ReleaseVersion toVersion = ReleaseVersion.builder()
+                .releaseVersionId(3L).project(project).releaseType("STANDARD")
+                .version("1.0.2").majorVersion(1).minorVersion(0).patchVersion(2)
+                .buildVersion(0).isApproved(true)
+                .build();
+        ReleaseVersion unapproved = ReleaseVersion.builder()
+                .releaseVersionId(2L).project(project).releaseType("STANDARD")
+                .version("1.0.1").majorVersion(1).minorVersion(0).patchVersion(1)
+                .buildVersion(0).isApproved(false)
+                .build();
+
+        when(projectRepository.findById(projectId)).thenReturn(Optional.of(project));
+        when(releaseVersionRepository.findById(1L)).thenReturn(Optional.of(fromVersion));
+        when(releaseVersionRepository.findById(3L)).thenReturn(Optional.of(toVersion));
+        when(releaseVersionRepository.findUnapprovedVersionsBetween(
+                anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(List.of(unapproved));
+
+        authenticateAs("OPERATOR");
+
+        // WHEN & THEN
+        assertThatThrownBy(() -> patchGenerationService.generatePatch(
+                projectId, 1L, 3L, null, "test@tscientific", null, null, null,
+                (PatchDto.BuildSelection) null))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("개발자 이상 권한이 필요합니다")
+                .hasMessageContaining("1.0.1");
+
+        // 검증에서 막혔으므로 이후 단계(중간 버전 조회)로 넘어가지 않아야 한다
+        verify(releaseVersionRepository, never())
+                .findVersionsBetween(anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("미승인 포함 패치 생성 성공 - DEVELOPER 는 통과하고 containsUnapproved=true 로 저장")
+    void generatePatch_unapproved_allowedForDeveloper(@TempDir Path tempDir) throws IOException {
+        // GIVEN: 범위 내 미승인 1.1.5, 요청자는 DEVELOPER
+        ReflectionTestUtils.setField(patchGenerationService, "releaseBasePath", tempDir.toString());
+
+        String projectId = "infraeye2";
+        String createdBy = "test@tscientific";
+        Project project = Project.builder().projectId(projectId).projectName("InfraEye 2.0").build();
+
+        ReleaseVersion fromVersion = ReleaseVersion.builder()
+                .releaseVersionId(1L).project(project).releaseType("STANDARD")
+                .version("1.1.0").majorVersion(1).minorVersion(1).patchVersion(0)
+                .buildVersion(0).isApproved(true)
+                .build();
+        ReleaseVersion toVersion = ReleaseVersion.builder()
+                .releaseVersionId(2L).project(project).releaseType("STANDARD")
+                .version("1.1.5").majorVersion(1).minorVersion(1).patchVersion(5)
+                .buildVersion(0).isApproved(false)   // to 자체가 미승인
+                .build();
+
+        when(projectRepository.findById(projectId)).thenReturn(Optional.of(project));
+        when(releaseVersionRepository.findById(1L)).thenReturn(Optional.of(fromVersion));
+        when(releaseVersionRepository.findById(2L)).thenReturn(Optional.of(toVersion));
+        when(releaseVersionRepository.findUnapprovedVersionsBetween(
+                anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(List.of(toVersion));
+        when(releaseVersionRepository.findVersionsBetween(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(List.of(toVersion));
+        when(releaseVersionRepository.findHotfixesInBaseRange(anyString(), any(), any(), any()))
+                .thenReturn(List.of());
+        when(releaseFileRepository.findAllByReleaseVersion_ReleaseVersionIdOrderByExecutionOrderAsc(2L))
+                .thenReturn(List.of());
+        Account creator = Account.builder()
+                .accountId(1L).email(createdBy).accountName("테스트 계정").password("pw")
+                .build();
+        when(accountLookupService.findByEmail(createdBy)).thenReturn(creator);
+        when(patchRepository.save(any(Patch.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(patchHistoryRepository.save(any(PatchHistory.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        authenticateAs("DEVELOPER");
+
+        // WHEN
+        patchGenerationService.generatePatch(
+                projectId, 1L, 2L, null, createdBy, null, null, "unapproved-patch", null);
+
+        // THEN: 생성되고 미승인 플래그가 스냅샷된다
+        ArgumentCaptor<Patch> patchCaptor = ArgumentCaptor.forClass(Patch.class);
+        verify(patchRepository, times(2)).save(patchCaptor.capture());
+        assertThat(patchCaptor.getAllValues().get(1).getContainsUnapproved()).isTrue();
+
+        // README 에도 경고가 남아야 한다 (산출물 밖으로 나간 뒤의 유일한 표시)
+        Path readme = tempDir.resolve(
+                patchCaptor.getAllValues().get(1).getOutputPath()).resolve("README.md");
+        assertThat(Files.readString(readme))
+                .contains("미승인 버전 포함")
+                .contains("1.1.5");
+    }
+
+    @Test
+    @DisplayName("미승인 포함 패치 생성 실패 - 인증 정보가 없으면 거부 (시스템 호출 경로 차단)")
+    void generatePatch_unapproved_deniedWithoutAuthentication() {
+        // GIVEN: SecurityContext 비어있음 (authenticateAs 호출 안 함)
+        String projectId = "infraeye2";
+        Project project = Project.builder().projectId(projectId).projectName("InfraEye 2.0").build();
+
+        ReleaseVersion fromVersion = ReleaseVersion.builder()
+                .releaseVersionId(1L).project(project).releaseType("STANDARD")
+                .version("1.0.0").majorVersion(1).minorVersion(0).patchVersion(0)
+                .buildVersion(0).isApproved(true)
+                .build();
+        ReleaseVersion toVersion = ReleaseVersion.builder()
+                .releaseVersionId(2L).project(project).releaseType("STANDARD")
+                .version("1.0.1").majorVersion(1).minorVersion(0).patchVersion(1)
+                .buildVersion(0).isApproved(false)
+                .build();
+
+        when(projectRepository.findById(projectId)).thenReturn(Optional.of(project));
+        when(releaseVersionRepository.findById(1L)).thenReturn(Optional.of(fromVersion));
+        when(releaseVersionRepository.findById(2L)).thenReturn(Optional.of(toVersion));
+        when(releaseVersionRepository.findUnapprovedVersionsBetween(
+                anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(List.of(toVersion));
+
+        // WHEN & THEN
+        assertThatThrownBy(() -> patchGenerationService.generatePatch(
+                projectId, 1L, 2L, null, "test@tscientific", null, null, null,
+                (PatchDto.BuildSelection) null))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("개발자 이상 권한이 필요합니다");
     }
 
     @Test

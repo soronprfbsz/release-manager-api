@@ -1,6 +1,7 @@
 package com.ts.rm.domain.patch.service;
 
 import com.ts.rm.domain.account.entity.Account;
+import com.ts.rm.domain.account.enums.AccountRole;
 import com.ts.rm.domain.account.repository.AccountRepository;
 import com.ts.rm.domain.site.entity.Site;
 import com.ts.rm.domain.site.entity.SiteProject;
@@ -24,6 +25,7 @@ import com.ts.rm.global.account.AccountLookupService;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
 import com.ts.rm.global.progress.ServerProgressService;
+import com.ts.rm.global.security.SecurityUtil;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -221,8 +223,8 @@ public class PatchGenerationService {
                         "핫픽스 버전은 패치 생성의 To 버전으로 사용할 수 없습니다: " + toVersion.getVersion());
             }
 
-            // 1. 버전 검증
-            validateCustomVersionRange(fromVersion, toVersion);
+            // 1. 버전 검증 (미승인 포함 시 ADMIN/DEVELOPER 만 통과)
+            List<ReleaseVersion> unapprovedVersions = validateCustomVersionRange(fromVersion, toVersion);
 
             // fromVersion이 베이스 버전인지 확인
             boolean isFromBaseVersion = isBaseVersion(fromVersion);
@@ -312,7 +314,7 @@ public class PatchGenerationService {
 
             // 8. README / 빌드 메타 생성
             progressService.update(7, TOTAL_STEPS, "README / 빌드 메타 생성 중");
-            generateCustomReadme(fromVersion, toVersion, betweenVersions, outputPath, site);
+            generateCustomReadme(fromVersion, toVersion, betweenVersions, outputPath, site, unapprovedVersions);
             generateBuildVersionFile(fromVersion, toVersion, outputPath, buildSelection, selectedBuilds);
             generateManualSetupReadmeIfNeeded(outputPath);
 
@@ -333,6 +335,7 @@ public class PatchGenerationService {
                     .createdByEmail(creator.getEmail())
                     .description(description)
                     .assignee(assignee)
+                    .containsUnapproved(!unapprovedVersions.isEmpty())
                     .build();
 
             Patch saved = patchRepository.save(patch);
@@ -360,11 +363,57 @@ public class PatchGenerationService {
     }
 
     /**
+     * 미승인 버전을 포함한 패치 생성이 허용되는 권한인지 판정.
+     *
+     * <p>ADMIN / DEVELOPER 는 승인 전 버전으로 내부 검증용 패치를 만들 수 있다.
+     * SecurityContext 가 없으면(테스트 / 시스템 호출) 허용하지 않는다 — 미승인 산출물이
+     * 사람의 판단 없이 만들어지는 경로를 열지 않기 위함.
+     */
+    private boolean canIncludeUnapproved() {
+        String role;
+        try {
+            role = SecurityUtil.getCurrentRole();
+        } catch (BusinessException e) {
+            return false;
+        }
+        return AccountRole.ADMIN.getCodeId().equals(role)
+                || AccountRole.DEVELOPER.getCodeId().equals(role);
+    }
+
+    /**
+     * 미승인 버전 검증 공통 처리.
+     *
+     * <p>권한이 있으면 통과시키고 목록을 그대로 돌려준다 (호출자가 containsUnapproved 플래그와
+     * README 경고에 사용). 권한이 없으면 사유를 담아 거부한다.
+     */
+    private List<ReleaseVersion> checkUnapprovedVersions(List<ReleaseVersion> unapprovedVersions) {
+        if (unapprovedVersions.isEmpty()) {
+            return unapprovedVersions;
+        }
+
+        String unapprovedVersionList = unapprovedVersions.stream()
+                .map(ReleaseVersion::getVersion)
+                .reduce((v1, v2) -> v1 + ", " + v2)
+                .orElse("");
+
+        if (!canIncludeUnapproved()) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
+                    String.format("버전 범위 내에 미승인 버전이 존재합니다. 미승인 버전이 포함된 패치 생성은 "
+                            + "개발자 이상 권한이 필요합니다. (미승인 버전: %s)", unapprovedVersionList));
+        }
+
+        log.warn("미승인 버전을 포함한 패치 생성 - 미승인 버전: {}", unapprovedVersionList);
+        return unapprovedVersions;
+    }
+
+    /**
      * 커스텀 버전 범위 검증
      *
      * <p>fromVersion이 베이스 버전(STANDARD)인 경우와 커스텀 버전인 경우를 구분하여 처리합니다.
+     *
+     * @return 범위 내 미승인 버전 목록 (빈 목록이면 전부 승인됨)
      */
-    private void validateCustomVersionRange(ReleaseVersion fromVersion, ReleaseVersion toVersion) {
+    private List<ReleaseVersion> validateCustomVersionRange(ReleaseVersion fromVersion, ReleaseVersion toVersion) {
         boolean isFromBaseVersion = isBaseVersion(fromVersion);
 
         if (isFromBaseVersion) {
@@ -397,22 +446,11 @@ public class PatchGenerationService {
         // 미승인 버전 검증 (커스텀 버전 범위 내)
         // 베이스 버전에서 시작하는 경우 fromCustomVersion은 "0.0.0" 이전이므로 모든 커스텀 버전 포함
         String fromCustomVersion = isFromBaseVersion ? "0.0.-1" : fromVersion.getCustomVersion();
-        List<ReleaseVersion> unapprovedVersions = releaseVersionRepository.findUnapprovedCustomVersionsBetween(
+        return checkUnapprovedVersions(releaseVersionRepository.findUnapprovedCustomVersionsBetween(
                 toVersion.getSite().getSiteId(),
                 fromCustomVersion,
                 toVersion.getCustomVersion()
-        );
-
-        if (!unapprovedVersions.isEmpty()) {
-            String unapprovedVersionList = unapprovedVersions.stream()
-                    .map(ReleaseVersion::getVersion)
-                    .reduce((v1, v2) -> v1 + ", " + v2)
-                    .orElse("");
-
-            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
-                    String.format("버전 범위 내에 미승인 버전이 존재합니다. 패치를 생성할 수 없습니다. (미승인 버전: %s)",
-                            unapprovedVersionList));
-        }
+        ));
     }
 
     /**
@@ -471,12 +509,36 @@ public class PatchGenerationService {
     }
 
     /**
+     * README 최상단 미승인 경고 블록.
+     *
+     * <p>패치 파일이 시스템 밖으로 나간 뒤에도 남는 유일한 표시이므로, 고객사 배포용이 아님을
+     * 산출물 자체에 명시한다. 미승인 버전이 없으면 아무것도 쓰지 않는다.
+     */
+    private void appendUnapprovedWarning(StringBuilder content, List<ReleaseVersion> unapprovedVersions) {
+        if (unapprovedVersions == null || unapprovedVersions.isEmpty()) {
+            return;
+        }
+        String versions = unapprovedVersions.stream()
+                .map(ReleaseVersion::getVersion)
+                .distinct()
+                .reduce((a, b) -> a + ", " + b)
+                .orElse("");
+
+        content.append("> ⚠ **미승인 버전 포함 — 내부 검증용 패치입니다.**\n");
+        content.append(String.format("> 승인되지 않은 버전(%s)이 포함되어 있어 고객사 배포용이 아닙니다.\n", versions));
+        content.append("> 검증 완료 후 해당 버전을 승인하고, 패치를 다시 생성하여 배포하세요.\n\n");
+    }
+
+    /**
      * 커스텀 패치 README.md 생성
      *
      * <p>fromVersion이 베이스 버전(STANDARD)인 경우와 커스텀 버전인 경우를 모두 지원합니다.
+     *
+     * @param unapprovedVersions 범위 내 미승인 버전 (비어있지 않으면 최상단에 경고 블록 출력)
      */
     private void generateCustomReadme(ReleaseVersion fromVersion, ReleaseVersion toVersion,
-            List<ReleaseVersion> includedVersions, String outputPath, Site site) {
+            List<ReleaseVersion> includedVersions, String outputPath, Site site,
+            List<ReleaseVersion> unapprovedVersions) {
         try {
             Path readmePath = Paths.get(releaseBasePath, outputPath, "README.md");
 
@@ -491,6 +553,7 @@ public class PatchGenerationService {
                     .orElse("");
 
             StringBuilder content = new StringBuilder();
+            appendUnapprovedWarning(content, unapprovedVersions);
             content.append("# 생성 정보\n");
             // 운영자가 README 로 보는 시각이라 KST 명시
             content.append(String.format("- 패치 생성일시: %s (KST)\n",
@@ -582,7 +645,8 @@ public class PatchGenerationService {
                         "핫픽스 버전은 패치 생성의 To 버전으로 사용할 수 없습니다: " + toVersion.getVersion());
             }
 
-            validateVersionRange(fromVersion, toVersion);
+            // 미승인 포함 시 ADMIN/DEVELOPER 만 통과
+            List<ReleaseVersion> unapprovedVersions = validateVersionRange(fromVersion, toVersion);
 
             // 2. 중간 버전 목록 조회 (fromVersion <= version <= toVersion, 빌드 인식)
             List<ReleaseVersion> betweenVersions = collectBetweenVersionsWithBuild(
@@ -662,7 +726,8 @@ public class PatchGenerationService {
             if (buildSelection != null && buildSelection.enabled() && buildSelection.web() != null) {
                 webBuildForMeta = selectedBuilds.get(buildSelection.web().buildVersionId());
             }
-            generateReadme(fromVersion, toVersion, betweenVersions, outputPath, webBuildForMeta);
+            generateReadme(fromVersion, toVersion, betweenVersions, outputPath, webBuildForMeta,
+                    unapprovedVersions);
             generateBuildVersionFile(fromVersion, toVersion, outputPath, buildSelection, selectedBuilds);
             generateManualSetupReadmeIfNeeded(outputPath);
 
@@ -682,6 +747,7 @@ public class PatchGenerationService {
                     .createdByEmail(creator.getEmail())
                     .description(description)
                     .assignee(assignee)
+                    .containsUnapproved(!unapprovedVersions.isEmpty())
                     .build();
 
             Patch saved = patchRepository.save(patch);
@@ -799,8 +865,10 @@ public class PatchGenerationService {
      *
      * <p>from == to 는 허용한다 (빌드 전용 패치 시나리오: 같은 base 안에서 buildSelection 으로만 빌드 산출물을 갱신).
      * from > to 만 거부.
+     *
+     * @return 범위 내 미승인 버전 목록 (빈 목록이면 전부 승인됨)
      */
-    private void validateVersionRange(ReleaseVersion fromVersion, ReleaseVersion toVersion) {
+    private List<ReleaseVersion> validateVersionRange(ReleaseVersion fromVersion, ReleaseVersion toVersion) {
         if (compareVersions(fromVersion, toVersion) > 0) {
             throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
                     String.format("From 버전은 To 버전보다 높을 수 없습니다. (From: %s, To: %s)",
@@ -816,23 +884,12 @@ public class PatchGenerationService {
         // 임시버전(미승인 버전) 검증
         // 프로젝트 ID가 필요하므로 from 또는 to 버전에서 추출
         String projectIdForValidation = fromVersion.getProject().getProjectId();
-        List<ReleaseVersion> unapprovedVersions = releaseVersionRepository.findUnapprovedVersionsBetween(
+        return checkUnapprovedVersions(releaseVersionRepository.findUnapprovedVersionsBetween(
                 projectIdForValidation,
                 fromVersion.getReleaseType(),
                 fromVersion.getVersion(),
                 toVersion.getVersion()
-        );
-
-        if (!unapprovedVersions.isEmpty()) {
-            String unapprovedVersionList = unapprovedVersions.stream()
-                    .map(ReleaseVersion::getVersion)
-                    .reduce((v1, v2) -> v1 + ", " + v2)
-                    .orElse("");
-
-            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
-                    String.format("버전 범위 내에 미승인 버전이 존재합니다. 패치를 생성할 수 없습니다. (미승인 버전: %s)",
-                            unapprovedVersionList));
-        }
+        ));
     }
 
     /**
@@ -1406,9 +1463,11 @@ public class PatchGenerationService {
      * README.md 생성
      *
      * @param webBuild 빌드 picker 로 선택된 WEB 빌드 (없으면 null) — To 표기에 우선 사용
+     * @param unapprovedVersions 범위 내 미승인 버전 (비어있지 않으면 최상단에 경고 블록 출력)
      */
     private void generateReadme(ReleaseVersion fromVersion, ReleaseVersion toVersion,
-            List<ReleaseVersion> includedVersions, String outputPath, ReleaseVersion webBuild) {
+            List<ReleaseVersion> includedVersions, String outputPath, ReleaseVersion webBuild,
+            List<ReleaseVersion> unapprovedVersions) {
         try {
             Path readmePath = Paths.get(releaseBasePath, outputPath, "README.md");
 
@@ -1426,6 +1485,7 @@ public class PatchGenerationService {
                     .orElse("");
 
             StringBuilder content = new StringBuilder();
+            appendUnapprovedWarning(content, unapprovedVersions);
             content.append("# 생성 정보\n");
             // 운영자가 README 로 보는 시각이라 KST 명시
             content.append(String.format("- 패치 생성일시: %s (KST)\n",

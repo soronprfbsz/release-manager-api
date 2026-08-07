@@ -265,7 +265,10 @@ public final class PatchDto {
             IncludedBuilds includedBuilds,
 
             @Schema(description = "범위 안의 핫픽스 (별도 적용 안내용, 비어있으면 빈 배열)")
-            java.util.List<HotfixInRangeInfo> hotfixesInRange
+            java.util.List<HotfixInRangeInfo> hotfixesInRange,
+
+            @Schema(description = "미승인 버전 포함 여부 (생성 시점 스냅샷)", example = "false")
+            Boolean containsUnapproved
     ) {
 
     }
@@ -407,7 +410,10 @@ public final class PatchDto {
             Boolean isBuildIncluded,
 
             @Schema(description = "포함된 빌드 요약 (예: 'WEB · NC_SMS · NC_FAULT_MS', 빌드 미포함 시 null)", example = "WEB · NC_SMS · NC_FAULT_MS")
-            String includedBuildsSummary
+            String includedBuildsSummary,
+
+            @Schema(description = "미승인 버전 포함 여부 (생성 시점 스냅샷)", example = "false")
+            Boolean containsUnapproved
     ) {
 
     }

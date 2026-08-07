@@ -47,6 +47,7 @@ public interface PatchDtoMapper {
     @Mapping(target = "assigneeAvatarSeed", source = "assignee.avatarSeed")
     @Mapping(target = "isBuildOnly", source = "isBuildOnly")
     @Mapping(target = "isBuildIncluded", source = "isBuildIncluded")
+    @Mapping(target = "containsUnapproved", source = "containsUnapproved")
     @Mapping(target = "includedBuilds", source = ".", qualifiedByName = "toIncludedBuilds")
     @Mapping(target = "hotfixesInRange", source = ".", qualifiedByName = "toHotfixesInRange")
     PatchDto.DetailResponse toDetailResponse(Patch patch);
@@ -71,6 +72,7 @@ public interface PatchDtoMapper {
     @Mapping(target = "isBuildOnly", ignore = true)
     @Mapping(target = "isBuildIncluded", ignore = true)
     @Mapping(target = "includedBuildsSummary", ignore = true)
+    @Mapping(target = "containsUnapproved", ignore = true)
     PatchDto.ListResponse toListResponse(Patch patch);
 
     /**

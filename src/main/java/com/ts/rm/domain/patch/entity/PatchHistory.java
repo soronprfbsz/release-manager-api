@@ -108,6 +108,15 @@ public class PatchHistory {
     private String completedBy;
 
     /**
+     * 미승인 버전 포함 여부 (패치 생성 시점 스냅샷 복사)
+     *
+     * <p>완료 시 patch row 는 삭제되므로, 사이트가 미검증 버전을 적용한 사실은 여기에만 남는다.
+     */
+    @Column(name = "contains_unapproved", nullable = false)
+    @Builder.Default
+    private Boolean containsUnapproved = false;
+
+    /**
      * Patch 엔티티로부터 PatchHistory 생성 (패치 완료 시점 호출)
      *
      * @param patch       완료 처리할 Patch 엔티티
@@ -129,6 +138,7 @@ public class PatchHistory {
                 .createdByEmail(patch.getCreatedByEmail())
                 .completedBy(completedBy)
                 .completedAt(completedAt)
+                .containsUnapproved(Boolean.TRUE.equals(patch.getContainsUnapproved()))
                 .build();
     }
 
