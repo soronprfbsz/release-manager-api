@@ -149,44 +149,68 @@ public interface ReleaseVersionRepository extends JpaRepository<ReleaseVersion, 
     boolean existsBySite_SiteId(Long siteId);
 
     /**
-     * 프로젝트, 릴리즈 타입 내 미승인 버전 존재 여부 확인
+     * 프로젝트, 릴리즈 타입 내 미승인 <b>base</b> 버전 존재 여부 확인 (핫픽스 제외)
      *
-     * @param projectId   프로젝트 ID
-     * @param releaseType 릴리즈 타입 (STANDARD/CUSTOM)
-     * @param isApproved  승인 여부
-     * @return 미승인 버전 존재 여부
+     * <p>핫픽스는 base 버전 계보에 쌓이는 것이 아니라 특정 base 에 매달리는 별도 산출물이므로,
+     * 신규 버전 생성 차단 판정에서는 제외한다. 패치 생성 게이트
+     * ({@code findUnapprovedVersionsBetween}) 와 동일한 기준.
+     *
+     * @param projectId     프로젝트 ID
+     * @param releaseType   릴리즈 타입 (STANDARD/CUSTOM)
+     * @param isApproved    승인 여부
+     * @param hotfixVersion 핫픽스 번호 (base 만 보려면 0)
+     * @return 미승인 base 버전 존재 여부
      */
-    boolean existsByProject_ProjectIdAndReleaseTypeAndIsApproved(
-            String projectId, String releaseType, boolean isApproved);
+    boolean existsByProject_ProjectIdAndReleaseTypeAndIsApprovedAndHotfixVersion(
+            String projectId, String releaseType, boolean isApproved, int hotfixVersion);
 
     /**
-     * 프로젝트, 릴리즈 타입 내 미승인 버전 목록 조회
+     * 프로젝트, 릴리즈 타입 내 미승인 <b>base</b> 버전 목록 조회 (핫픽스 제외)
+     *
+     * @param projectId     프로젝트 ID
+     * @param releaseType   릴리즈 타입 (STANDARD/CUSTOM)
+     * @param isApproved    승인 여부
+     * @param hotfixVersion 핫픽스 번호 (base 만 보려면 0)
+     * @return 미승인 base 버전 목록
+     */
+    List<ReleaseVersion> findAllByProject_ProjectIdAndReleaseTypeAndIsApprovedAndHotfixVersion(
+            String projectId, String releaseType, boolean isApproved, int hotfixVersion);
+
+    /**
+     * 프로젝트, 릴리즈 타입 내 승인 여부별 버전 목록 조회
+     *
+     * <p>핫픽스/빌드도 함께 반환하므로 호출자가 필요에 따라 필터해야 한다.
+     * base 만 필요하면 위의 {@code ...AndHotfixVersion} 변형을 사용할 것.
      *
      * @param projectId   프로젝트 ID
      * @param releaseType 릴리즈 타입 (STANDARD/CUSTOM)
      * @param isApproved  승인 여부
-     * @return 미승인 버전 목록
+     * @return 버전 목록
      */
     List<ReleaseVersion> findAllByProject_ProjectIdAndReleaseTypeAndIsApproved(
             String projectId, String releaseType, boolean isApproved);
 
     /**
-     * 사이트 내 미승인 커스텀 버전 존재 여부 확인
+     * 사이트 내 미승인 커스텀 <b>base</b> 버전 존재 여부 확인 (핫픽스 제외)
      *
-     * @param siteId 사이트 ID
-     * @param isApproved 승인 여부
-     * @return 미승인 버전 존재 여부
+     * @param siteId        사이트 ID
+     * @param isApproved    승인 여부
+     * @param hotfixVersion 핫픽스 번호 (base 만 보려면 0)
+     * @return 미승인 base 버전 존재 여부
      */
-    boolean existsBySite_SiteIdAndIsApproved(Long siteId, boolean isApproved);
+    boolean existsBySite_SiteIdAndIsApprovedAndHotfixVersion(
+            Long siteId, boolean isApproved, int hotfixVersion);
 
     /**
-     * 사이트 내 미승인 커스텀 버전 목록 조회
+     * 사이트 내 미승인 커스텀 <b>base</b> 버전 목록 조회 (핫픽스 제외)
      *
-     * @param siteId 사이트 ID
-     * @param isApproved 승인 여부
-     * @return 미승인 버전 목록
+     * @param siteId        사이트 ID
+     * @param isApproved    승인 여부
+     * @param hotfixVersion 핫픽스 번호 (base 만 보려면 0)
+     * @return 미승인 base 버전 목록
      */
-    List<ReleaseVersion> findAllBySite_SiteIdAndIsApproved(Long siteId, boolean isApproved);
+    List<ReleaseVersion> findAllBySite_SiteIdAndIsApprovedAndHotfixVersion(
+            Long siteId, boolean isApproved, int hotfixVersion);
 
     // ========================================
     // Hotfix 관련 메서드

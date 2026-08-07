@@ -1051,13 +1051,18 @@ public class ReleaseVersionUploadService {
      * @throws BusinessException 미승인 버전이 존재하는 경우
      */
     private void validateNoUnapprovedVersionExists(String projectId, String releaseType) {
-        boolean hasUnapproved = releaseVersionRepository.existsByProject_ProjectIdAndReleaseTypeAndIsApproved(
-                projectId, releaseType, false);
+        // 핫픽스는 제외한다 — base 버전 계보에 쌓이는 것이 아니라 특정 base 에 매달리는 별도
+        // 산출물이므로, 검증 중인 핫픽스가 정기 버전 릴리즈를 막아서는 안 된다.
+        // (패치 생성 게이트 findUnapprovedVersionsBetween 도 동일하게 핫픽스를 제외한다)
+        boolean hasUnapproved = releaseVersionRepository
+                .existsByProject_ProjectIdAndReleaseTypeAndIsApprovedAndHotfixVersion(
+                        projectId, releaseType, false, 0);
 
         if (hasUnapproved) {
             // 미승인 버전 목록 조회 (에러 메시지용)
             List<ReleaseVersion> unapprovedVersions = releaseVersionRepository
-                    .findAllByProject_ProjectIdAndReleaseTypeAndIsApproved(projectId, releaseType, false);
+                    .findAllByProject_ProjectIdAndReleaseTypeAndIsApprovedAndHotfixVersion(
+                            projectId, releaseType, false, 0);
 
             String unapprovedVersionList = unapprovedVersions.stream()
                     .map(ReleaseVersion::getVersion)
@@ -1079,13 +1084,14 @@ public class ReleaseVersionUploadService {
      * @throws BusinessException 미승인 버전이 존재하는 경우
      */
     private void validateNoUnapprovedCustomVersionExists(Long siteId) {
-        boolean hasUnapproved = releaseVersionRepository.existsBySite_SiteIdAndIsApproved(
-                siteId, false);
+        // 핫픽스 제외 — validateNoUnapprovedVersionExists 와 동일한 이유
+        boolean hasUnapproved = releaseVersionRepository
+                .existsBySite_SiteIdAndIsApprovedAndHotfixVersion(siteId, false, 0);
 
         if (hasUnapproved) {
             // 미승인 버전 목록 조회 (에러 메시지용)
             List<ReleaseVersion> unapprovedVersions = releaseVersionRepository
-                    .findAllBySite_SiteIdAndIsApproved(siteId, false);
+                    .findAllBySite_SiteIdAndIsApprovedAndHotfixVersion(siteId, false, 0);
 
             String unapprovedVersionList = unapprovedVersions.stream()
                     .map(ReleaseVersion::getVersion)
