@@ -138,3 +138,9 @@ patch:
   cleanup:
     # 생성 후 이 일수가 지난 패치 파일을 자동 정리 (스케줄러 patch-cleanup 의 기본 보관 기간)
     retention-days: 30
+
+# Message Configuration
+message:
+  # 시스템 발신 알림(패치 독촉 등)의 발신자 계정 이메일.
+  # 이 계정을 찾지 못하면 독촉 발송만 건너뛰고 스케줄은 성공 처리된다.
+  system-sender-email: ${MESSAGE_SYSTEM_SENDER_EMAIL:admin@tscientific.co.kr}

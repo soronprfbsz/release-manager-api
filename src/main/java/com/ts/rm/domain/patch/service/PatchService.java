@@ -10,6 +10,7 @@ import com.ts.rm.domain.patch.entity.Patch;
 import com.ts.rm.domain.patch.entity.PatchIncludedBuild;
 import com.ts.rm.domain.patch.mapper.PatchDtoMapper;
 import com.ts.rm.domain.patch.repository.PatchIncludedBuildRepository;
+import com.ts.rm.domain.message.service.PatchReminderService;
 import com.ts.rm.domain.patch.repository.PatchRepository;
 import com.ts.rm.domain.project.entity.Project;
 import com.ts.rm.domain.releaseversion.entity.ReleaseVersion;
@@ -58,6 +59,7 @@ public class PatchService {
     private final PatchGenerationService patchGenerationService;
     private final PatchDownloadService patchDownloadService;
     private final PatchHistoryService patchHistoryService;
+    private final PatchReminderService patchReminderService;
     private final SiteVersionService siteVersionService;
     private final ReleaseVersionRepository releaseVersionRepository;
     private final ReleaseVersionFileSystemService releaseVersionFileSystemService;
@@ -295,6 +297,9 @@ public class PatchService {
         // 5. patch_file row 삭제
         patchRepository.delete(patch);
 
+        // 6. 처리된 패치의 미읽음 독촉은 배지에 남지 않도록 숨긴다
+        patchReminderService.hideRemindersFor(patchId);
+
         log.info("패치 완료 처리 완료 - patchId: {}, patchName: {}, completedBy: {}",
                 patchId, patch.getPatchName(), completedBy);
     }
@@ -393,6 +398,9 @@ public class PatchService {
 
         // 3. DB 레코드 삭제
         patchRepository.delete(patch);
+
+        // 4. 삭제된 패치의 미읽음 독촉 숨김
+        patchReminderService.hideRemindersFor(patchId);
 
         log.info("패치 삭제 완료 - ID: {}, Name: {}", patchId, patch.getPatchName());
     }
@@ -560,7 +568,11 @@ public class PatchService {
         }
 
         // 3. DB 레코드 일괄 삭제
+        List<Long> deletedIds = patches.stream().map(Patch::getPatchId).toList();
         patchRepository.deleteAll(patches);
+
+        // 4. 삭제된 패치들의 미읽음 독촉 숨김
+        deletedIds.forEach(patchReminderService::hideRemindersFor);
 
         String message = String.format("%d개 패치가 삭제되었습니다.", patches.size());
         log.info("패치 일괄 삭제 완료 - {}", message);
@@ -598,7 +610,11 @@ public class PatchService {
         }
 
         // 2. patch_file row 일괄 삭제 (메타 행은 cascade 로 동반 삭제)
+        List<Long> deletedIds = oldPatches.stream().map(Patch::getPatchId).toList();
         patchRepository.deleteAll(oldPatches);
+
+        // 3. 자동 삭제된 패치의 미읽음 독촉 숨김 — 없어진 패치를 재촉할 이유가 없다
+        deletedIds.forEach(patchReminderService::hideRemindersFor);
 
         log.info("오래된 패치 정리 완료 - retentionDays: {}, deletedCount: {}",
                 retentionDays, oldPatches.size());

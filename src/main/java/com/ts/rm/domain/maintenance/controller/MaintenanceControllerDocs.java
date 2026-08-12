@@ -45,4 +45,11 @@ public interface MaintenanceControllerDocs {
     ResponseEntity<ApiResponse<MaintenanceResultDto.CleanupResult>> cleanupOrphanDirectories(
             @Parameter(description = "이 시간 이상 변경 없는 디렉토리만 삭제 (시간)", example = "24") int quietHours,
             @Parameter(hidden = true) HttpServletRequest request);
+
+    @Operation(summary = "패치 처리 독촉 발송",
+            description = "자동 삭제 예정일까지 남은 일수가 마일스톤(D-15/10/5/4/3/2/1)에 해당하는 "
+                    + "미처리 패치의 생성자에게 독촉 메시지를 발송합니다. 같은 날 중복 발송은 "
+                    + "멱등 키로 차단됩니다.")
+    ResponseEntity<ApiResponse<MaintenanceResultDto.CleanupResult>> sendPatchReminders(
+            @Parameter(hidden = true) HttpServletRequest request);
 }

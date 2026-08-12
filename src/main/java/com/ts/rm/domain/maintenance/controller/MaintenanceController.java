@@ -3,6 +3,7 @@ package com.ts.rm.domain.maintenance.controller;
 import com.ts.rm.domain.maintenance.dto.MaintenanceResultDto;
 import com.ts.rm.domain.maintenance.service.BoardImageCleanupService;
 import com.ts.rm.domain.maintenance.service.ReleaseDirectoryCleanupService;
+import com.ts.rm.domain.message.service.PatchReminderService;
 import com.ts.rm.domain.patch.service.PatchService;
 import com.ts.rm.domain.scheduler.service.ScheduleJobHistoryService;
 import com.ts.rm.global.exception.BusinessException;
@@ -15,7 +16,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import java.time.LocalDateTime;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -36,6 +39,7 @@ public class MaintenanceController implements MaintenanceControllerDocs {
     private final ApiLogService apiLogService;
     private final PatchService patchService;
     private final ReleaseDirectoryCleanupService releaseDirectoryCleanupService;
+    private final PatchReminderService patchReminderService;
 
     private static final String SCHEDULER_HEADER = "X-Schedule-Job";
 
@@ -149,6 +153,31 @@ public class MaintenanceController implements MaintenanceControllerDocs {
         log.info("orphan 디렉토리 정리 API 호출 - quietHours: {}", quietHours);
         MaintenanceResultDto.CleanupResult result =
                 releaseDirectoryCleanupService.cleanupOrphanDirectories(quietHours);
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    /**
+     * 패치 처리 독촉 발송
+     *
+     * <p>자동 삭제 예정일까지 남은 일수가 마일스톤(D-15/10/5/4/3/2/1)에 해당하는
+     * 미처리 패치의 생성자에게 독촉 메시지를 보낸다.
+     *
+     * <p>정리(cleanup)가 아니라 발송이므로 POST 를 쓴다.
+     */
+    @Override
+    @PostMapping("/patch-reminders")
+    public ResponseEntity<ApiResponse<MaintenanceResultDto.CleanupResult>> sendPatchReminders(
+            HttpServletRequest request) {
+        validateMaintenanceAccess(request);
+        log.info("패치 독촉 발송 API 호출");
+
+        int sentCount = patchReminderService.sendReminders(LocalDateTime.now());
+
+        MaintenanceResultDto.CleanupResult result = MaintenanceResultDto.CleanupResult.of(
+                "patch-reminder",
+                sentCount,
+                String.format("패치 처리 독촉 %d건 발송 완료", sentCount));
+
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 

@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import com.ts.rm.domain.site.repository.SiteRepository;
 import com.ts.rm.domain.patch.entity.Patch;
+import com.ts.rm.domain.message.service.PatchReminderService;
 import com.ts.rm.domain.patch.repository.PatchRepository;
 import com.ts.rm.domain.patch.util.ScriptGenerator;
 import com.ts.rm.domain.releasefile.repository.ReleaseFileRepository;
@@ -42,6 +43,9 @@ class PatchServiceTest {
 
     @Mock
     private PatchRepository patchRepository;
+
+    @Mock
+    private PatchReminderService patchReminderService;
 
     @Mock
     private ReleaseVersionRepository releaseVersionRepository;
