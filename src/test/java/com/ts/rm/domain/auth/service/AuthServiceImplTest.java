@@ -275,17 +275,18 @@ class AuthServiceImplTest {
     }
 
     @Test
-    @DisplayName("회원가입 시 기본 역할은 USER")
-    void signUp_DefaultRoleIsUser() {
+    @DisplayName("회원가입 시 기본 역할은 GUEST")
+    void signUp_DefaultRoleIsGuest() {
         // given
         when(accountRepository.findByEmail(anyString())).thenReturn(Optional.empty());
         when(passwordEncoder.encode(anyString())).thenReturn("encodedPassword");
-        when(accountRepository.save(any(Account.class))).thenReturn(testAccount);
+        when(accountRepository.save(any(Account.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
 
         // when
         SignUpResponse response = authService.signUp(signUpRequest);
 
         // then
-        assertThat(response.getRole()).isEqualTo("USER");
+        assertThat(response.getRole()).isEqualTo("GUEST");
     }
 }

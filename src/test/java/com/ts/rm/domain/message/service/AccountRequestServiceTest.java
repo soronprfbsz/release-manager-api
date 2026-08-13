@@ -171,6 +171,20 @@ class AccountRequestServiceTest extends AbstractTestBase {
     }
 
     @Test
+    @DisplayName("유효 수신자 0명 + 미등록 이메일 - 순서가 뒤바뀌면 계정 열거 오라클이 생긴다 (수신자 검증이 이메일 조회보다 먼저여야 한다)")
+    void requestPasswordReset_noEligibleRecipientAndUnknownEmail_stillThrows() {
+        Account developer = saveAccount("dev5@test.com", "개발자5",
+                AccountRole.DEVELOPER.getCodeId(), AccountStatus.ACTIVE);
+
+        assertThatThrownBy(() -> accountRequestService.requestPasswordReset(
+                "nobody2@test.com", null, List.of(developer.getAccountId())))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("유효한 담당자")
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.INVALID_INPUT_VALUE);
+    }
+
+    @Test
     @DisplayName("시스템 발신 계정이 없으면 500 예외")
     void requestPasswordReset_missingSystemSender_throws() {
         ReflectionTestUtils.setField(
