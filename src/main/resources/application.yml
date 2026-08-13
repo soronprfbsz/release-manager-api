@@ -141,6 +141,14 @@ patch:
 
 # Message Configuration
 message:
-  # 시스템 발신 알림(패치 독촉 등)의 발신자 계정 이메일.
-  # 이 계정을 찾지 못하면 독촉 발송만 건너뛰고 스케줄은 성공 처리된다.
+  # 시스템 발신 알림(패치 독촉, 비밀번호 재설정/가입 처리 요청)의 발신자 계정 이메일.
+  # 이 계정을 찾지 못하면 — 패치 독촉은 발송만 건너뛰고 스케줄은 성공 처리되지만,
+  # 비밀번호 재설정/가입 처리 요청은 500 으로 실패한다. 특히 가입 처리 요청은
+  # signUp 트랜잭션 안에서 호출되므로 회원가입 전체가 500 으로 롤백된다.
   system-sender-email: ${MESSAGE_SYSTEM_SENDER_EMAIL:admin@tscientific.co.kr}
+
+account:
+  request:
+    # 같은 계정의 비밀번호 재설정 요청을 이 분(minute) 단위 버킷으로 묶어 중복 발송을 막는다.
+    # 고정 윈도라 버킷 경계에서는 짧은 간격의 연속 2건이 나갈 수 있다. 60 의 약수를 쓸 것.
+    password-reset-cooldown-minutes: 10
