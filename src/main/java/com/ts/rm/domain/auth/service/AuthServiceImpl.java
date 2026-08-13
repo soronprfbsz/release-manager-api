@@ -8,6 +8,7 @@ import com.ts.rm.domain.auth.dto.SignUpRequest;
 import com.ts.rm.domain.auth.dto.SignUpResponse;
 import com.ts.rm.domain.auth.dto.TokenResponse;
 import com.ts.rm.domain.common.repository.CodeRepository;
+import com.ts.rm.domain.message.service.AccountRequestService;
 import com.ts.rm.domain.refreshtoken.entity.RefreshToken;
 import com.ts.rm.domain.refreshtoken.service.RefreshTokenService;
 import com.ts.rm.global.exception.BusinessException;
@@ -38,6 +39,7 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final RefreshTokenService refreshTokenService;
+    private final AccountRequestService accountRequestService;
     private static final int MAX_LOGIN_ATTEMPTS = 5;
     private static final int LOCK_DURATION_MINUTES = 10;
 
@@ -70,7 +72,11 @@ public class AuthServiceImpl implements AuthService {
         Account savedAccount = accountRepository.save(account);
         log.info("New account created: {}", savedAccount.getEmail());
 
-        // 4. 응답 생성
+        // 4. 담당자에게 가입 처리 요청 발송 (같은 트랜잭션 — 요청 없는 GUEST 계정을 만들지 않는다)
+        accountRequestService.requestSignupApproval(
+                savedAccount, request.getRecipientAccountIds());
+
+        // 5. 응답 생성
         return SignUpResponse.builder()
                 .accountId(savedAccount.getAccountId())
                 .email(savedAccount.getEmail())

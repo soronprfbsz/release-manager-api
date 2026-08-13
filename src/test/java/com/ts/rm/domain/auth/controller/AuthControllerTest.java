@@ -96,6 +96,7 @@ class AuthControllerTest {
                 .email("test@example.com")
                 .password("password123!")
                 .accountName("홍길동")
+                .recipientAccountIds(List.of(1L))
                 .build();
 
         signUpResponse = SignUpResponse.builder()

@@ -4,8 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -16,10 +18,14 @@ import com.ts.rm.domain.auth.dto.SignInRequest;
 import com.ts.rm.domain.auth.dto.TokenResponse;
 import com.ts.rm.domain.auth.dto.SignUpRequest;
 import com.ts.rm.domain.auth.dto.SignUpResponse;
+import com.ts.rm.domain.message.service.AccountRequestService;
 import com.ts.rm.domain.refreshtoken.entity.RefreshToken;
 import com.ts.rm.domain.refreshtoken.service.RefreshTokenService;
+import com.ts.rm.global.exception.BusinessException;
+import com.ts.rm.global.exception.ErrorCode;
 import com.ts.rm.global.security.jwt.JwtTokenProvider;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -45,6 +51,9 @@ class AuthServiceImplTest {
 
     @Mock
     private RefreshTokenService refreshTokenService;
+
+    @Mock
+    private AccountRequestService accountRequestService;
 
     @InjectMocks
     private AuthServiceImpl authService;
@@ -113,6 +122,56 @@ class AuthServiceImplTest {
         verify(accountRepository).findByEmail("test@example.com");
         verify(passwordEncoder, never()).encode(anyString());
         verify(accountRepository, never()).save(any(Account.class));
+    }
+
+    @Test
+    @DisplayName("회원가입 성공 시 선택한 담당자에게 가입 처리 요청이 발송된다")
+    void signUp_sendsSignupApprovalRequest() {
+        // given
+        SignUpRequest request = SignUpRequest.builder()
+                .email("newbie@test.com")
+                .password("password123!")
+                .accountName("신입")
+                .recipientAccountIds(List.of(10L, 11L))
+                .build();
+
+        when(accountRepository.findByEmail("newbie@test.com")).thenReturn(Optional.empty());
+        when(passwordEncoder.encode(any())).thenReturn("encoded");
+        when(accountRepository.save(any(Account.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        // when
+        authService.signUp(request);
+
+        // then
+        verify(accountRequestService)
+                .requestSignupApproval(any(Account.class), eq(List.of(10L, 11L)));
+    }
+
+    @Test
+    @DisplayName("요청 발송이 실패하면 회원가입도 함께 실패한다")
+    void signUp_whenRequestFails_propagatesException() {
+        // given
+        SignUpRequest request = SignUpRequest.builder()
+                .email("newbie2@test.com")
+                .password("password123!")
+                .accountName("신입2")
+                .recipientAccountIds(List.of(10L))
+                .build();
+
+        when(accountRepository.findByEmail("newbie2@test.com")).thenReturn(Optional.empty());
+        when(passwordEncoder.encode(any())).thenReturn("encoded");
+        when(accountRepository.save(any(Account.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        doThrow(new BusinessException(ErrorCode.INVALID_INPUT_VALUE, "유효한 담당자를 선택해 주세요."))
+                .when(accountRequestService)
+                .requestSignupApproval(any(Account.class), any());
+
+        // when & then
+        // BusinessException 은 RuntimeException 이고 signUp 에 noRollbackFor 가 없으므로,
+        // 여기서 예외 전파를 확인하는 것만으로 Spring 기본 규칙에 의한 트랜잭션 롤백이 보장된다.
+        assertThatThrownBy(() -> authService.signUp(request))
+                .isInstanceOf(BusinessException.class);
     }
 
     @Test
