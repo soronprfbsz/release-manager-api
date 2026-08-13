@@ -20,6 +20,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -131,6 +133,7 @@ public class AccountRequestService {
      * @param newAccount          가입한 계정
      * @param recipientAccountIds 요청을 받을 담당자 계정 ID 목록
      */
+    @Transactional(propagation = Propagation.MANDATORY)
     public void requestSignupApproval(Account newAccount, List<Long> recipientAccountIds) {
         Account sender = findSystemSender();
         List<Account> recipients = findEligibleRecipients(recipientAccountIds);

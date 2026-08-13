@@ -31,6 +31,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -144,8 +145,11 @@ class AuthServiceImplTest {
         authService.signUp(request);
 
         // then
+        ArgumentCaptor<Account> accountCaptor = ArgumentCaptor.forClass(Account.class);
         verify(accountRequestService)
-                .requestSignupApproval(any(Account.class), eq(List.of(10L, 11L)));
+                .requestSignupApproval(accountCaptor.capture(), eq(List.of(10L, 11L)));
+        assertThat(accountCaptor.getValue().getEmail()).isEqualTo("newbie@test.com");
+        assertThat(accountCaptor.getValue().getRole()).isEqualTo("GUEST");
     }
 
     @Test

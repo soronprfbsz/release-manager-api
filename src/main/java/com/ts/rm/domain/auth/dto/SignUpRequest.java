@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.util.List;
 import lombok.AllArgsConstructor;
@@ -58,5 +59,5 @@ public class SignUpRequest {
     @Schema(description = "가입 처리를 요청할 담당자 계정 ID 목록", example = "[1, 2]")
     @NotEmpty(message = "처리를 요청할 담당자를 1명 이상 선택해주세요.")
     @Size(max = 20, message = "담당자는 최대 20명까지 선택 가능합니다.")
-    private List<Long> recipientAccountIds;
+    private List<@NotNull Long> recipientAccountIds;
 }
