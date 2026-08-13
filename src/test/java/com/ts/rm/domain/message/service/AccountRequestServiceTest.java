@@ -114,6 +114,22 @@ class AccountRequestServiceTest extends AbstractTestBase {
     }
 
     @Test
+    @DisplayName("메모 초과 - 상한을 넘겨도 예외 없이 발송되고 본문이 잘려서 담긴다")
+    void requestPasswordReset_memoExceedsLimit_isTruncated() {
+        String longMemo = "가".repeat(5000);
+
+        accountRequestService.requestPasswordReset(
+                requester.getEmail(), longMemo, List.of(admin.getAccountId()));
+
+        Message message = messageRepository.findAll().get(0);
+        // 원본 5,000자가 그대로 들어갔다면 실패한다 — 잘렸다는 증거
+        assertThat(message.getContent()).doesNotContain(longMemo);
+        assertThat(message.getContent()).contains("…");
+        // 상한(1,000) + 고정 문구 여유를 넉넉히 둔 상한선 — 잘리지 않았다면 5,000을 훌쩍 넘는다
+        assertThat(message.getContent().length()).isLessThan(2000);
+    }
+
+    @Test
     @DisplayName("수신자 필터 - ADMIN/OPERATOR 이면서 ACTIVE 인 계정만 남는다")
     void requestPasswordReset_filtersIneligibleRecipients() {
         Account developer = saveAccount("dev@test.com", "개발자",

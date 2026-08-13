@@ -1,9 +1,12 @@
 package com.ts.rm.domain.message.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 import com.ts.rm.domain.account.entity.Account;
 import com.ts.rm.domain.account.enums.AccountRole;
@@ -17,6 +20,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -82,6 +86,14 @@ class AccountRequestServiceUnitTest {
         assertThatCode(() -> accountRequestService.requestPasswordReset(
                 "user@test.com", null, List.of(2L)))
                 .doesNotThrowAnyException();
+
+        // any() 매처만 쓰면 재조회가 저장 전 사전 체크와 다른 키를 써도 테스트가 통과한다 —
+        // 실제로 같은 키를 썼는지 캡처해서 확인한다
+        ArgumentCaptor<String> dedupKeyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(messageRepository, times(2)).existsByDedupKey(dedupKeyCaptor.capture());
+        List<String> capturedKeys = dedupKeyCaptor.getAllValues();
+        assertThat(capturedKeys).hasSize(2);
+        assertThat(capturedKeys.get(0)).isEqualTo(capturedKeys.get(1));
     }
 
     @Test

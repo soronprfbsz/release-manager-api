@@ -44,6 +44,18 @@ public class AccountRequestService {
     private static final DateTimeFormatter DISPLAY_DATE_TIME =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
+    /**
+     * 요청자가 남긴 메모의 최대 길이.
+     *
+     * <p>{@code content} 는 TEXT(65,535바이트)라 이론상 훨씬 긴 메모도 담을 수 있다.
+     * 하지만 길이를 열어 두면 memo 크기만 바꿔가며 저장 성공(200)/실패(500)를 관찰해
+     * 계정 존재 여부를 알아낼 수 있다 — 계정 열거 오라클이 된다. Task 3 의 DTO 에도
+     * {@code @Size(max = 500)} 이 있지만, 이 서비스의 보안 속성이 다른 파일의 어노테이션에
+     * 의존하면 그게 지워질 때 조용히 깨진다. 500 보다 크게 잡아 정상 경로에서는 절대
+     * 발동하지 않도록 하면서, 이 서비스 자체가 자기완결적으로 상한을 강제한다.
+     */
+    private static final int MEMO_MAX_LENGTH = 1000;
+
     private final AccountRepository accountRepository;
     private final MessageRepository messageRepository;
     private final MessageNotificationPublisher notificationPublisher;
@@ -165,6 +177,8 @@ public class AccountRequestService {
         } catch (DataIntegrityViolationException e) {
             // dedupKey 충돌이 아니면(FK 위반, 컬럼 길이 초과 등) 진짜 장애다 — 삼키지 않는다
             if (!messageRepository.existsByDedupKey(dedupKey)) {
+                log.warn("비밀번호 재설정 요청 저장 실패 - dedupKey 충돌 아님 (dedupKey: {})",
+                        dedupKey, e);
                 throw e;
             }
             // 동시 요청이 UNIQUE 제약에 걸린 경우 — 성공과 구분되지 않아야 한다
@@ -231,7 +245,7 @@ public class AccountRequestService {
                 : "부서 없음";
         String memoLine = (memo == null || memo.isBlank())
                 ? ""
-                : String.format("%n· 남긴 메모: %s", memo);
+                : String.format("%n· 남긴 메모: %s", truncateMemo(memo));
 
         return String.format("""
                         %s(%s) 님이 비밀번호 재설정을 요청했습니다.
@@ -270,6 +284,16 @@ public class AccountRequestService {
 
     private String blankToDash(String value) {
         return (value == null || value.isBlank()) ? "-" : value;
+    }
+
+    /**
+     * memo 를 {@link #MEMO_MAX_LENGTH} 이내로 자른다 — 왜 자르는지는 상수 Javadoc 참고
+     * (계정 열거 오라클 차단). 잘렸다는 사실이 드러나도록 말줄임표를 붙인다.
+     */
+    private String truncateMemo(String memo) {
+        return memo.length() > MEMO_MAX_LENGTH
+                ? memo.substring(0, MEMO_MAX_LENGTH) + "…"
+                : memo;
     }
 
     private String toKstText(LocalDateTime nowUtc) {
