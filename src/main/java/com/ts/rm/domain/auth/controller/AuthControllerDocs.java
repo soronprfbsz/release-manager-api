@@ -2,6 +2,7 @@ package com.ts.rm.domain.auth.controller;
 
 import com.ts.rm.domain.account.dto.AccountDto;
 import com.ts.rm.domain.auth.dto.AccessTokenResponse;
+import com.ts.rm.domain.auth.dto.PasswordResetRequest;
 import com.ts.rm.domain.auth.dto.SignInRequest;
 import com.ts.rm.domain.auth.dto.SignUpRequest;
 import com.ts.rm.domain.auth.dto.SignUpResponse;
@@ -107,6 +108,14 @@ public interface AuthControllerDocs {
             )
     )
     ResponseEntity<ApiResponse<List<AccountDto.AdminContactResponse>>> getAdminContacts();
+
+    @Operation(
+            summary = "비밀번호 재설정 요청",
+            description = "비인증 공개 API. 선택한 담당자(ADMIN/OPERATOR)에게 비밀번호 재설정 요청 메시지를 발송합니다. "
+                    + "계정 열거 방지를 위해 등록되지 않은 이메일이거나 쿨다운(기본 10분) 중이어도 동일한 성공 응답을 반환합니다."
+    )
+    ResponseEntity<ApiResponse<Map<String, String>>> requestPasswordReset(
+            @RequestBody PasswordResetRequest request);
 
     /**
      * Swagger 스키마용 wrapper 클래스 - 회원가입 응답

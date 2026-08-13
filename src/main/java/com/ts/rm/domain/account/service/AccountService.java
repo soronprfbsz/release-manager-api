@@ -489,6 +489,7 @@ public class AccountService {
 
         List<AccountDto.AdminContactResponse> result = accounts.stream()
                 .map(account -> new AccountDto.AdminContactResponse(
+                        account.getAccountId(),
                         account.getDepartment() != null
                                 ? account.getDepartment().getDepartmentName()
                                 : "부서 없음",

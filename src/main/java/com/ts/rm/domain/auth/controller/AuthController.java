@@ -3,11 +3,13 @@ package com.ts.rm.domain.auth.controller;
 import com.ts.rm.domain.account.dto.AccountDto;
 import com.ts.rm.domain.account.service.AccountService;
 import com.ts.rm.domain.auth.dto.AccessTokenResponse;
+import com.ts.rm.domain.auth.dto.PasswordResetRequest;
 import com.ts.rm.domain.auth.dto.SignInRequest;
 import com.ts.rm.domain.auth.dto.SignUpRequest;
 import com.ts.rm.domain.auth.dto.SignUpResponse;
 import com.ts.rm.domain.auth.dto.TokenResponse;
 import com.ts.rm.domain.auth.service.AuthService;
+import com.ts.rm.domain.message.service.AccountRequestService;
 import com.ts.rm.domain.refreshtoken.service.RefreshTokenService;
 import com.ts.rm.global.response.ApiResponse;
 import jakarta.servlet.http.Cookie;
@@ -41,6 +43,7 @@ public class AuthController implements AuthControllerDocs {
     private final AuthService authService;
     private final RefreshTokenService refreshTokenService;
     private final AccountService accountService;
+    private final AccountRequestService accountRequestService;
 
     @Value("${app.jwt.refresh-token-expiration-ms:604800000}")
     private long refreshTokenExpirationMs;
@@ -157,6 +160,25 @@ public class AuthController implements AuthControllerDocs {
 
         log.info("관리자 연락처 조회 완료 - count: {}", response.size());
         return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
+     * 비밀번호 재설정 요청 API
+     *
+     * <p>비인증 공개 엔드포인트. 계정 존재 여부·쿨다운 중복 여부와 무관하게 항상 같은
+     * 응답을 준다 — 응답이 갈리면 그 자체가 계정 존재 신호가 된다.
+     */
+    @Override
+    @PostMapping("/password-reset-requests")
+    public ResponseEntity<ApiResponse<Map<String, String>>> requestPasswordReset(
+            @Valid @RequestBody PasswordResetRequest request) {
+        log.info("POST /api/auth/password-reset-requests");
+
+        accountRequestService.requestPasswordReset(
+                request.getEmail(), request.getMemo(), request.getRecipientAccountIds());
+
+        return ResponseEntity.ok(
+                ApiResponse.success(Map.of("message", "요청이 접수되었습니다.")));
     }
 
     /**

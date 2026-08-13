@@ -1,5 +1,6 @@
 package com.ts.rm.domain.auth.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -18,6 +19,7 @@ import com.ts.rm.domain.auth.dto.TokenResponse;
 import com.ts.rm.domain.auth.dto.SignUpRequest;
 import com.ts.rm.domain.auth.dto.SignUpResponse;
 import com.ts.rm.domain.auth.service.AuthService;
+import com.ts.rm.domain.message.service.AccountRequestService;
 import com.ts.rm.domain.refreshtoken.service.RefreshTokenService;
 import com.ts.rm.global.exception.GlobalExceptionHandler;
 import com.ts.rm.global.config.MessageConfig;
@@ -84,6 +86,9 @@ class AuthControllerTest {
 
     @MockitoBean
     private AccountService accountService;
+
+    @MockitoBean
+    private AccountRequestService accountRequestService;
 
     private SignUpRequest signUpRequest;
     private SignUpResponse signUpResponse;
@@ -189,6 +194,40 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("POST /api/auth/signup - 유효성 검증 실패 (recipientAccountIds 누락)")
+    void signUp_MissingRecipientAccountIds_ValidationFails() throws Exception {
+        // given
+        signUpRequest.setRecipientAccountIds(null);
+
+        // when & then
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(signUpRequest)))
+                .andDo(print())
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/signup - 유효성 검증 실패 (recipientAccountIds 원소가 null)")
+    void signUp_RecipientAccountIdsWithNullElement_ValidationFails() throws Exception {
+        // given
+        String body = """
+                {
+                  "email": "test@example.com",
+                  "password": "password123!",
+                  "accountName": "홍길동",
+                  "recipientAccountIds": [null]
+                }""";
+
+        // when & then
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andDo(print())
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     @DisplayName("POST /api/auth/signin - 로그인 성공")
     void signIn_Success() throws Exception {
         // given
@@ -254,8 +293,8 @@ class AuthControllerTest {
     void getAdminContacts_ReturnsList() throws Exception {
         // given
         List<AccountDto.AdminContactResponse> contacts = List.of(
-                new AccountDto.AdminContactResponse("인프라기술팀", "김관리자", "admin@example.com", "ADMIN"),
-                new AccountDto.AdminContactResponse("운영팀", "이운영자", "operator@example.com", "OPERATOR")
+                new AccountDto.AdminContactResponse(1L, "인프라기술팀", "김관리자", "admin@example.com", "ADMIN"),
+                new AccountDto.AdminContactResponse(2L, "운영팀", "이운영자", "operator@example.com", "OPERATOR")
         );
         when(accountService.getAdminContacts()).thenReturn(contacts);
 
@@ -266,12 +305,12 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.status").value("success"))
                 .andExpect(jsonPath("$.data").isArray())
                 .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[0].accountId").value(1))
                 .andExpect(jsonPath("$.data[0].departmentName").value("인프라기술팀"))
                 .andExpect(jsonPath("$.data[0].accountName").value("김관리자"))
                 .andExpect(jsonPath("$.data[0].email").value("admin@example.com"))
                 .andExpect(jsonPath("$.data[0].role").value("ADMIN"))
-                // 민감 필드 미노출 검증
-                .andExpect(jsonPath("$.data[0].accountId").doesNotExist())
+                // 민감 필드 미노출 검증 (accountId 는 담당자 선택용으로 의도적으로 노출됨)
                 .andExpect(jsonPath("$.data[0].password").doesNotExist())
                 .andExpect(jsonPath("$.data[0].phone").doesNotExist())
                 .andExpect(jsonPath("$.data[0].position").doesNotExist())
@@ -283,7 +322,7 @@ class AuthControllerTest {
     void getAdminContacts_NoDepartment_ReturnsDepartmentNone() throws Exception {
         // given
         List<AccountDto.AdminContactResponse> contacts = List.of(
-                new AccountDto.AdminContactResponse("부서 없음", "박관리자", "admin2@example.com", "ADMIN")
+                new AccountDto.AdminContactResponse(3L, "부서 없음", "박관리자", "admin2@example.com", "ADMIN")
         );
         when(accountService.getAdminContacts()).thenReturn(contacts);
 
@@ -307,5 +346,57 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.status").value("success"))
                 .andExpect(jsonPath("$.data").isArray())
                 .andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    @Test
+    @DisplayName("비인증 상태로 비밀번호 재설정을 요청할 수 있다")
+    void requestPasswordReset_isPubliclyAccessible() throws Exception {
+        String body = """
+                {
+                  "email": "user@test.com",
+                  "memo": "내선 1234",
+                  "recipientAccountIds": [1, 2]
+                }""";
+
+        mockMvc.perform(post("/api/auth/password-reset-requests")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.message").value("요청이 접수되었습니다."));
+    }
+
+    @Test
+    @DisplayName("미등록 이메일도 등록 이메일과 완전히 동일한 응답을 준다")
+    void requestPasswordReset_unknownEmail_returnsIdenticalResponse() throws Exception {
+        String knownBody = """
+                {"email": "user@test.com", "recipientAccountIds": [1]}""";
+        String unknownBody = """
+                {"email": "nobody@test.com", "recipientAccountIds": [1]}""";
+
+        String knownResponse = mockMvc.perform(post("/api/auth/password-reset-requests")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(knownBody))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        String unknownResponse = mockMvc.perform(post("/api/auth/password-reset-requests")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(unknownBody))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(unknownResponse).isEqualTo(knownResponse);
+    }
+
+    @Test
+    @DisplayName("담당자를 선택하지 않으면 400")
+    void requestPasswordReset_withoutRecipients_returnsBadRequest() throws Exception {
+        String body = """
+                {"email": "user@test.com", "recipientAccountIds": []}""";
+
+        mockMvc.perform(post("/api/auth/password-reset-requests")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest());
     }
 }

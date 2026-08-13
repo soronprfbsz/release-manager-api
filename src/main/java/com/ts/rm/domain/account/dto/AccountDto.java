@@ -279,10 +279,14 @@ public final class AccountDto {
     /**
      * 비밀번호 재설정 안내용 관리자 연락처 응답 (비인증 공개 API)
      *
-     * <p>민감 필드(accountId, password, phone, position, status 등)는 절대 포함하지 않는다.
+     * <p>accountId 는 비밀번호 재설정 요청 시 담당자를 선택하기 위해 노출된다. 그 외
+     * 민감 필드(password, phone, position, status 등)는 절대 포함하지 않는다.
      */
     @Schema(description = "관리자 연락처 응답")
     public record AdminContactResponse(
+            @Schema(description = "계정 ID", example = "1")
+            Long accountId,
+
             @Schema(description = "부서명 (부서 없으면 '부서 없음')", example = "인프라기술팀")
             String departmentName,
 
