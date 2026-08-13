@@ -24,7 +24,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.IllegalTransactionStateException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Import(TestQueryDslConfig.class)
 @Transactional
@@ -39,6 +43,9 @@ class AccountRequestServiceTest extends AbstractTestBase {
 
     @Autowired
     private MessageRepository messageRepository;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     private Account systemSender;
     private Account admin;
@@ -174,6 +181,79 @@ class AccountRequestServiceTest extends AbstractTestBase {
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.INTERNAL_SERVER_ERROR);
+    }
+
+    @Test
+    @DisplayName("가입 승인 요청 - 선택한 담당자 전원에게 메시지가 발송된다")
+    void requestSignupApproval_sendsToSelectedRecipients() {
+        Account newAccount = saveAccount("newbie@test.com", "신입", "GUEST", AccountStatus.ACTIVE);
+
+        accountRequestService.requestSignupApproval(
+                newAccount, List.of(admin.getAccountId(), operator.getAccountId()));
+
+        List<Message> messages = messageRepository.findAll();
+        assertThat(messages).hasSize(1);
+
+        Message message = messages.get(0);
+        assertThat(message.getMessageType()).isEqualTo(MessageType.SIGNUP_APPROVAL_REQUEST);
+        assertThat(message.getSenderEmail()).isEqualTo(systemSender.getEmail());
+        assertThat(message.getRefType()).isEqualTo("ACCOUNT");
+        assertThat(message.getRefId()).isEqualTo(newAccount.getAccountId());
+        assertThat(message.getDedupKey())
+                .isEqualTo("SIGNUP_APPROVAL_REQUEST:" + newAccount.getAccountId());
+        assertThat(message.getRecipients())
+                .extracting(recipient -> recipient.getRecipient().getAccountId())
+                .containsExactlyInAnyOrder(admin.getAccountId(), operator.getAccountId());
+        assertThat(message.getTitle()).contains("신입");
+        assertThat(message.getContent()).contains("newbie@test.com");
+    }
+
+    @Test
+    @DisplayName("가입 승인 요청 - ADMIN/OPERATOR 이면서 ACTIVE 인 계정만 수신자가 된다")
+    void requestSignupApproval_filtersIneligibleRecipients() {
+        Account newAccount = saveAccount("newbie2@test.com", "신입2", "GUEST", AccountStatus.ACTIVE);
+        Account developer = saveAccount("dev3@test.com", "개발자3",
+                AccountRole.DEVELOPER.getCodeId(), AccountStatus.ACTIVE);
+        Account inactiveAdmin = saveAccount("old3@test.com", "퇴사자3",
+                AccountRole.ADMIN.getCodeId(), AccountStatus.INACTIVE);
+
+        accountRequestService.requestSignupApproval(newAccount,
+                List.of(admin.getAccountId(), developer.getAccountId(),
+                        inactiveAdmin.getAccountId()));
+
+        Message message = messageRepository.findAll().get(0);
+        assertThat(message.getRecipients())
+                .extracting(recipient -> recipient.getRecipient().getAccountId())
+                .containsExactly(admin.getAccountId());
+    }
+
+    @Test
+    @DisplayName("가입 승인 요청 - 유효 수신자 0명이면 계정 정보를 노출하지 않는 400 예외")
+    void requestSignupApproval_noEligibleRecipient_throwsWithoutAccountInfo() {
+        Account newAccount = saveAccount("newbie3@test.com", "신입3", "GUEST", AccountStatus.ACTIVE);
+        Account developer = saveAccount("dev4@test.com", "개발자4",
+                AccountRole.DEVELOPER.getCodeId(), AccountStatus.ACTIVE);
+
+        assertThatThrownBy(() -> accountRequestService.requestSignupApproval(
+                newAccount, List.of(developer.getAccountId())))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("유효한 담당자")
+                .hasMessageNotContaining("개발자4")
+                .hasMessageNotContaining("dev4@test.com")
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.INVALID_INPUT_VALUE);
+    }
+
+    @Test
+    @DisplayName("가입 승인 요청 - 트랜잭션 없이 호출하면 예외가 발생한다 (MANDATORY 전파 고정)")
+    void requestSignupApproval_withoutTransaction_throwsIllegalTransactionState() {
+        TransactionTemplate suspended = new TransactionTemplate(transactionManager);
+        suspended.setPropagationBehavior(TransactionDefinition.PROPAGATION_NOT_SUPPORTED);
+
+        assertThatThrownBy(() -> suspended.execute(status -> {
+            accountRequestService.requestSignupApproval(admin, List.of(admin.getAccountId()));
+            return null;
+        })).isInstanceOf(IllegalTransactionStateException.class);
     }
 
     private Account saveAccount(String email, String name, String role, AccountStatus status) {
