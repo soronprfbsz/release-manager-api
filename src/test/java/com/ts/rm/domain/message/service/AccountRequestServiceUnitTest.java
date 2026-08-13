@@ -1,5 +1,6 @@
 package com.ts.rm.domain.message.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -21,6 +22,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -97,6 +99,45 @@ class AccountRequestServiceUnitTest {
     }
 
     @Test
+    @DisplayName("MySQL 이 제약명을 '테이블.인덱스' 로 수식해도 흡수된다 (마지막 '.' 뒤 세그먼트 비교)")
+    void requestPasswordReset_qualifiedConstraintName_isAbsorbed() {
+        Account sender = account(1L, "system@test.com", "시스템",
+                AccountRole.ADMIN.getCodeId());
+        Account admin = account(2L, "admin@test.com", "관리자",
+                AccountRole.ADMIN.getCodeId());
+        Account requester = account(3L, "user@test.com", "요청자",
+                AccountRole.USER.getCodeId());
+
+        given(accountRepository.findByEmail("system@test.com")).willReturn(Optional.of(sender));
+        given(accountRepository.findAllById(any())).willReturn(List.of(admin));
+        given(accountRepository.findByEmail("user@test.com")).willReturn(Optional.of(requester));
+        // 제약명만으로 판정되면 재조회는 사전 체크 1번만 일어난다
+        given(messageRepository.existsByDedupKey(any())).willReturn(false);
+
+        given(transactionTemplate.execute(any()))
+                .willAnswer(invocation -> {
+                    TransactionCallback<?> callback = invocation.getArgument(0);
+                    callback.doInTransaction(new SimpleTransactionStatus());
+                    return null;
+                });
+        // MySQL 8.0.19+ 는 제약명을 "테이블.인덱스" 로 수식해 돌려준다
+        ConstraintViolationException qualifiedViolation = new ConstraintViolationException(
+                "could not execute statement",
+                new SQLException("Duplicate entry for key 'message.uk_msg_dedup_key'"),
+                "message.uk_msg_dedup_key");
+        given(messageRepository.saveAndFlush(any(Message.class)))
+                .willThrow(new DataIntegrityViolationException("could not execute statement",
+                        qualifiedViolation));
+
+        assertThatCode(() -> accountRequestService.requestPasswordReset(
+                "user@test.com", null, List.of(2L)))
+                .doesNotThrowAnyException();
+
+        // 수식된 이름도 세그먼트 비교로 판정됐다면 폴백(재조회) 없이 사전 체크 1번만 호출된다
+        verify(messageRepository, times(1)).existsByDedupKey(any());
+    }
+
+    @Test
     @DisplayName("dedupKey 와 무관한 제약 위반은 이름이 달라 흡수되지 않고 그대로 전파한다 (제약명 기반 판정)")
     void requestPasswordReset_differentConstraintViolation_isRethrown() {
         Account sender = account(1L, "system@test.com", "시스템",
@@ -162,6 +203,44 @@ class AccountRequestServiceUnitTest {
         assertThatThrownBy(() -> accountRequestService.requestPasswordReset(
                 "user@test.com", null, List.of(2L)))
                 .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("제약명을 뽑을 수 없어도 재조회(폴백)가 행을 찾으면 흡수한다 (폴백 존재 이유)")
+    void requestPasswordReset_fallbackFindsExistingRow_isAbsorbed() {
+        Account sender = account(1L, "system@test.com", "시스템",
+                AccountRole.ADMIN.getCodeId());
+        Account admin = account(2L, "admin@test.com", "관리자",
+                AccountRole.ADMIN.getCodeId());
+        Account requester = account(3L, "user@test.com", "요청자",
+                AccountRole.USER.getCodeId());
+
+        given(accountRepository.findByEmail("system@test.com")).willReturn(Optional.of(sender));
+        given(accountRepository.findAllById(any())).willReturn(List.of(admin));
+        given(accountRepository.findByEmail("user@test.com")).willReturn(Optional.of(requester));
+        // 1번째 호출(저장 전 사전 체크)은 false 여야 저장까지 진행된다.
+        // 2번째 호출(제약명을 못 뽑아 도는 폴백 재조회)은 true — 이게 흡수 방향이다.
+        given(messageRepository.existsByDedupKey(any())).willReturn(false, true);
+
+        given(transactionTemplate.execute(any()))
+                .willAnswer(invocation -> {
+                    TransactionCallback<?> callback = invocation.getArgument(0);
+                    callback.doInTransaction(new SimpleTransactionStatus());
+                    return null;
+                });
+        // 원인 체인에 ConstraintViolationException 이 없어 제약명을 뽑을 수 없는 상황
+        given(messageRepository.saveAndFlush(any(Message.class)))
+                .willThrow(new DataIntegrityViolationException("could not execute statement"));
+
+        assertThatCode(() -> accountRequestService.requestPasswordReset(
+                "user@test.com", null, List.of(2L)))
+                .doesNotThrowAnyException();
+
+        // 두 번의 existsByDedupKey 호출(사전 체크 / 폴백 재조회)이 같은 dedupKey 를 썼는지 고정
+        ArgumentCaptor<String> dedupKeyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(messageRepository, times(2)).existsByDedupKey(dedupKeyCaptor.capture());
+        List<String> calls = dedupKeyCaptor.getAllValues();
+        assertThat(calls.get(0)).isEqualTo(calls.get(1));
     }
 
     private Account account(Long id, String email, String name, String role) {

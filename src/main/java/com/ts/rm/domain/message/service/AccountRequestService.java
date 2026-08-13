@@ -207,9 +207,26 @@ public class AccountRequestService {
     private boolean isDedupKeyConstraintViolation(DataIntegrityViolationException e, String dedupKey) {
         String constraintName = extractConstraintName(e);
         if (constraintName != null && !constraintName.isBlank()) {
-            return DEDUP_KEY_CONSTRAINT_NAME.equalsIgnoreCase(constraintName);
+            return matchesDedupKeyConstraintName(constraintName);
         }
         return messageRepository.existsByDedupKey(dedupKey);
+    }
+
+    /**
+     * 제약명이 dedupKey UNIQUE 제약({@value #DEDUP_KEY_CONSTRAINT_NAME})을 가리키는지 비교한다.
+     *
+     * <p>MySQL 8.0.19+ 는 제약명을 {@code 테이블.인덱스} 형태로 수식해 돌려준다(예:
+     * {@code message.uk_msg_dedup_key}). 완전일치로 비교하면 그 환경에서는 non-blank 인데
+     * 불일치가 나 폴백(재조회)도 못 타고 그대로 rethrow 되는데, 이는 dedup 충돌에도 500 을
+     * 내보내 계정 열거 방지가 막으려던 차등 응답 그 자체가 된다. 마지막 {@code .} 뒤
+     * 세그먼트만 비교해 수식 여부와 무관하게 판정한다(구분자가 없으면 전체 문자열이 그
+     * 세그먼트다). 현재 스택(MariaDB 10.11.5)은 제약명을 수식하지 않아 오늘은 결함이 아니지만,
+     * DB 이전 시 조용히 되살아나는 것을 막기 위해 미리 경화한다.
+     */
+    private boolean matchesDedupKeyConstraintName(String constraintName) {
+        int lastDot = constraintName.lastIndexOf('.');
+        String unqualified = lastDot >= 0 ? constraintName.substring(lastDot + 1) : constraintName;
+        return DEDUP_KEY_CONSTRAINT_NAME.equalsIgnoreCase(unqualified);
     }
 
     private String extractConstraintName(Throwable e) {
