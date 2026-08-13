@@ -13,6 +13,10 @@ import com.ts.rm.domain.message.entity.Message;
 import com.ts.rm.domain.message.enums.MessageType;
 import com.ts.rm.domain.message.repository.MessageRepository;
 import com.ts.rm.global.exception.BusinessException;
+import com.ts.rm.global.exception.ErrorCode;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -60,9 +64,16 @@ class AccountRequestServiceTest extends AbstractTestBase {
     @Test
     @DisplayName("정상 요청 - 선택한 담당자 전원에게 메시지가 발송된다")
     void requestPasswordReset_sendsToSelectedRecipients() {
+        // toKstText 가 실제로 UTC→KST(+9h) 변환을 거쳤는지 검증하기 위한 경계값 —
+        // 호출 전/후 KST 분(minute) 문자열 중 하나는 본문에 반드시 포함되어야 한다
+        DateTimeFormatter kstMinute = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+        String beforeKst = LocalDateTime.now(ZoneId.of("Asia/Seoul")).format(kstMinute);
+
         accountRequestService.requestPasswordReset(
                 requester.getEmail(), "내선 1234로 연락 주세요",
                 List.of(admin.getAccountId(), operator.getAccountId()));
+
+        String afterKst = LocalDateTime.now(ZoneId.of("Asia/Seoul")).format(kstMinute);
 
         List<Message> messages = messageRepository.findAll();
         assertThat(messages).hasSize(1);
@@ -73,6 +84,7 @@ class AccountRequestServiceTest extends AbstractTestBase {
         assertThat(message.getRefType()).isEqualTo("ACCOUNT");
         assertThat(message.getRefId()).isEqualTo(requester.getAccountId());
         assertThat(message.getContent()).contains("내선 1234로 연락 주세요");
+        assertThat(message.getContent()).containsAnyOf(beforeKst, afterKst);
         assertThat(message.getRecipients())
                 .extracting(recipient -> recipient.getRecipient().getAccountId())
                 .containsExactlyInAnyOrder(admin.getAccountId(), operator.getAccountId());
@@ -90,6 +102,9 @@ class AccountRequestServiceTest extends AbstractTestBase {
     @Test
     @DisplayName("쿨다운 - 같은 버킷 안의 재요청은 메시지를 늘리지 않는다")
     void requestPasswordReset_withinCooldown_doesNotDuplicate() {
+        // 버킷을 60분으로 넓혀 두 호출 사이 10분 경계를 넘어 테스트가 흔들리는 것을 막는다
+        ReflectionTestUtils.setField(accountRequestService, "cooldownMinutes", 60);
+
         accountRequestService.requestPasswordReset(
                 requester.getEmail(), null, List.of(admin.getAccountId()));
         accountRequestService.requestPasswordReset(
@@ -127,7 +142,9 @@ class AccountRequestServiceTest extends AbstractTestBase {
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("유효한 담당자")
                 .hasMessageNotContaining("개발자2")
-                .hasMessageNotContaining("dev2@test.com");
+                .hasMessageNotContaining("dev2@test.com")
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.INVALID_INPUT_VALUE);
     }
 
     @Test
@@ -138,7 +155,9 @@ class AccountRequestServiceTest extends AbstractTestBase {
 
         assertThatThrownBy(() -> accountRequestService.requestPasswordReset(
                 requester.getEmail(), null, List.of(admin.getAccountId())))
-                .isInstanceOf(BusinessException.class);
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.INTERNAL_SERVER_ERROR);
     }
 
     private Account saveAccount(String email, String name, String role, AccountStatus status) {

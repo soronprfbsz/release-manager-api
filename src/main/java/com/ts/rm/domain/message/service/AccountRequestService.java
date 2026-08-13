@@ -63,6 +63,14 @@ public class AccountRequestService {
      * 삼켜도 커밋 시점에 {@code UnexpectedRollbackException} 이 터져 500 이 나간다.
      * 그러면 미등록 이메일(항상 200)과 응답이 갈려 계정 열거 방지가 무너진다.
      *
+     * <p><b>전제조건</b>: 호출자는 반드시 비트랜잭셔널이어야 한다. 이 메서드는 내부에서
+     * {@link #saveAndNotify}를 통해 별도 트랜잭션을 새로 연다(전파 기본값 REQUIRED). 만약
+     * 호출자에 {@code @Transactional}을 붙이면 그 트랜잭션에 편승하게 되어, UNIQUE 충돌이
+     * 나도 호출자 트랜잭션 전체가 rollback-only 로 마킹된다 — 결국 커밋 시점에
+     * {@code UnexpectedRollbackException}이 터져 500이 나가고, 미등록 이메일(항상 200)과
+     * 응답이 갈려 계정 열거 방지가 무너진다. 컨트롤러에서 이 메서드를 호출할 때는 그 호출
+     * 경로에 {@code @Transactional}이 없는지 반드시 확인해야 한다.
+     *
      * @param email               요청자 이메일 (미등록이어도 예외를 던지지 않는다)
      * @param memo                요청자가 남긴 메모 (선택)
      * @param recipientAccountIds 요청을 받을 담당자 계정 ID 목록
@@ -155,6 +163,10 @@ public class AccountRequestService {
             });
             log.info("비밀번호 재설정 요청 발송 - 수신자 {}명", message.getRecipients().size());
         } catch (DataIntegrityViolationException e) {
+            // dedupKey 충돌이 아니면(FK 위반, 컬럼 길이 초과 등) 진짜 장애다 — 삼키지 않는다
+            if (!messageRepository.existsByDedupKey(dedupKey)) {
+                throw e;
+            }
             // 동시 요청이 UNIQUE 제약에 걸린 경우 — 성공과 구분되지 않아야 한다
             log.info("비밀번호 재설정 요청 건너뜀 - 멱등 키 충돌 (dedupKey: {})", dedupKey);
         }
@@ -195,11 +207,18 @@ public class AccountRequestService {
      * 쿨다운 버킷으로 내린 멱등 키
      *
      * <p>같은 버킷에 떨어지는 요청은 같은 키를 갖는다. {@code cooldownMinutes} 는 60 의
-     * 약수여야 시간 경계가 어긋나지 않는다 (기본 10).
+     * 약수여야 시간 경계가 어긋나지 않는다 (기본 10). 고정 윈도 방식이라 버킷 경계
+     * 직전/직후(예: 09:09:59 와 09:10:01)는 몇 초 차이인데도 서로 다른 버킷에 떨어져
+     * 둘 다 발송될 수 있다 — 완벽한 슬라이딩 윈도가 아닌, 저비용 근사치다.
+     *
+     * <p>{@code cooldownMinutes} 가 0 이하이거나 60 을 넘으면(설정 오류) 나눗셈 예외나
+     * 의미 없는 버킷이 나올 수 있어 1~60 범위로 클램프한다 — 미인증 엔드포인트에서
+     * 설정 오류가 500 으로 새는 것은 계정 열거 방지가 막으려던 차등 응답 그 자체다.
      */
     private String passwordResetDedupKey(Long accountId, LocalDateTime nowUtc) {
+        int bucketMinutes = Math.max(1, Math.min(60, cooldownMinutes));
         LocalDateTime bucket = nowUtc
-                .withMinute(nowUtc.getMinute() / cooldownMinutes * cooldownMinutes)
+                .withMinute(nowUtc.getMinute() / bucketMinutes * bucketMinutes)
                 .withSecond(0)
                 .withNano(0);
         return "PASSWORD_RESET_REQUEST:" + accountId + ":" + bucket.format(DEDUP_BUCKET);
