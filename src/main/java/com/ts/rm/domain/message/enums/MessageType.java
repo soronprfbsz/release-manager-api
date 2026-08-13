@@ -21,7 +21,15 @@ public enum MessageType {
 
     /** 패치 자동삭제 예정 독촉 (시스템 발신) */
     @Schema(description = "패치 처리 독촉")
-    PATCH_REMINDER("패치 처리 독촉");
+    PATCH_REMINDER("패치 처리 독촉"),
+
+    /** 미인증 사용자의 비밀번호 재설정 요청 (시스템 발신) */
+    @Schema(description = "비밀번호 재설정 요청")
+    PASSWORD_RESET_REQUEST("비밀번호 재설정 요청"),
+
+    /** 신규 가입자의 권한·부서 배치 요청 (시스템 발신) */
+    @Schema(description = "가입 처리 요청")
+    SIGNUP_APPROVAL_REQUEST("가입 처리 요청");
 
     private final String description;
 }
