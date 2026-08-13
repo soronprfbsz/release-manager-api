@@ -14,6 +14,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ts.rm.domain.account.dto.AccountDto;
 import com.ts.rm.domain.account.repository.AccountRepository;
 import com.ts.rm.domain.account.service.AccountService;
+import com.ts.rm.domain.auth.dto.PasswordResetRequest;
 import com.ts.rm.domain.auth.dto.SignInRequest;
 import com.ts.rm.domain.auth.dto.TokenResponse;
 import com.ts.rm.domain.auth.dto.SignUpRequest;
@@ -348,9 +349,18 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.data.length()").value(0));
     }
 
+    /**
+     * 이 슬라이스({@code @WebMvcTest} + {@code excludeAutoConfiguration =
+     * SecurityAutoConfiguration.class} + {@code addFilters = false})는 보안 필터가
+     * 전부 꺼져 있어 어떤 엔드포인트든 인증 없이 200을 준다. 즉 이 테스트는 "공개
+     * 접근성" 자체를 입증하지 못한다 — 그 근거는 {@code SecurityConfig} 의
+     * {@code /api/auth/**} permitAll 이며, 필터가 살아 있는 별도 슬라이스가 있어야
+     * 진짜 접근성을 검증할 수 있다. 이 테스트가 실제로 고정하는 것은 요청이 성공적으로
+     * 처리되면 200과 접수 메시지를 반환한다는 것뿐이다.
+     */
     @Test
-    @DisplayName("비인증 상태로 비밀번호 재설정을 요청할 수 있다")
-    void requestPasswordReset_isPubliclyAccessible() throws Exception {
+    @DisplayName("요청이 접수되면 200과 접수 메시지를 반환한다")
+    void requestPasswordReset_returnsAcceptedMessage() throws Exception {
         String body = """
                 {
                   "email": "user@test.com",
@@ -365,9 +375,15 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.data.message").value("요청이 접수되었습니다."));
     }
 
+    /**
+     * {@code AccountRequestService} 가 목이라 "미등록 이메일"이 실제로 모델링되지는
+     * 않는다 — 이 테스트가 고정하는 것은 컨트롤러가 입력값에 따라 분기하지 않는다는 것과
+     * 응답 본문의 결정성이다. "미등록이어도 예외 없이 조용히 반환한다"는 서비스 계층
+     * 통합 테스트({@code AccountRequestServiceTest})가 담당한다.
+     */
     @Test
-    @DisplayName("미등록 이메일도 등록 이메일과 완전히 동일한 응답을 준다")
-    void requestPasswordReset_unknownEmail_returnsIdenticalResponse() throws Exception {
+    @DisplayName("컨트롤러는 입력값에 따라 분기하지 않아 응답이 항상 동일하다")
+    void requestPasswordReset_doesNotBranchOnInput_returnsIdenticalResponse() throws Exception {
         String knownBody = """
                 {"email": "user@test.com", "recipientAccountIds": [1]}""";
         String unknownBody = """
@@ -397,6 +413,27 @@ class AuthControllerTest {
         mockMvc.perform(post("/api/auth/password-reset-requests")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
+                .andExpect(status().isBadRequest());
+    }
+
+    /**
+     * {@code @Size(max = 500)} 은 단순 입력 검증이 아니라
+     * {@code AccountRequestService.MEMO_MAX_LENGTH}(1000)와 맺은 계약이다. 이 상한이
+     * 1000을 넘겨 완화되면 정상 입력이 400도 알림도 없이 조용히 잘린다.
+     */
+    @Test
+    @DisplayName("memo가 500자를 넘으면 400")
+    void requestPasswordReset_memoTooLong_returnsBadRequest() throws Exception {
+        String tooLongMemo = "a".repeat(501);
+        PasswordResetRequest request = PasswordResetRequest.builder()
+                .email("user@test.com")
+                .memo(tooLongMemo)
+                .recipientAccountIds(List.of(1L))
+                .build();
+
+        mockMvc.perform(post("/api/auth/password-reset-requests")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest());
     }
 }
