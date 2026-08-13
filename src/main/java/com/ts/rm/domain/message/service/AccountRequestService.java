@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -39,6 +40,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class AccountRequestService {
 
     private static final String REF_TYPE_ACCOUNT = "ACCOUNT";
+    /** dedupKey UNIQUE 인덱스명 — V24__add_message.sql 에서 정의한 값과 반드시 일치해야 한다 */
+    private static final String DEDUP_KEY_CONSTRAINT_NAME = "uk_msg_dedup_key";
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final ZoneId UTC = ZoneId.of("UTC");
     private static final DateTimeFormatter DEDUP_BUCKET =
@@ -178,8 +181,8 @@ public class AccountRequestService {
             });
             log.info("비밀번호 재설정 요청 발송 - 수신자 {}명", message.getRecipients().size());
         } catch (DataIntegrityViolationException e) {
-            // dedupKey 충돌이 아니면(FK 위반, 컬럼 길이 초과 등) 진짜 장애다 — 삼키지 않는다
-            if (!messageRepository.existsByDedupKey(dedupKey)) {
+            if (!isDedupKeyConstraintViolation(e, dedupKey)) {
+                // dedupKey 충돌이 아니면(FK 위반, 컬럼 길이 초과 등) 진짜 장애다 — 삼키지 않는다
                 log.warn("비밀번호 재설정 요청 저장 실패 - dedupKey 충돌 아님 (dedupKey: {})",
                         dedupKey, e);
                 throw e;
@@ -187,6 +190,35 @@ public class AccountRequestService {
             // 동시 요청이 UNIQUE 제약에 걸린 경우 — 성공과 구분되지 않아야 한다
             log.info("비밀번호 재설정 요청 건너뜀 - 멱등 키 충돌 (dedupKey: {})", dedupKey);
         }
+    }
+
+    /**
+     * 잡은 예외가 dedupKey UNIQUE 제약({@value #DEDUP_KEY_CONSTRAINT_NAME}) 위반인지 판정한다.
+     *
+     * <p>원인 체인에서 Hibernate {@link ConstraintViolationException} 을 찾아 제약명으로
+     * 판정하는 것이 1순위다 — DB 재조회가 없어 세션 상태에 의존하지 않는다.
+     * {@code open-in-view} 가 기본값(true)이라 재조회가 방금 flush 에 실패한 것과 같은
+     * EntityManager 에서 실행될 수 있고, 그러면 Hibernate 가 자동 flush 를 재시도하며 실패한
+     * INSERT 를 다시 던져 catch 블록 안에서 500 이 날 수 있다.
+     *
+     * <p>제약명을 뽑아낼 수 없을 때(null/빈 값 — 드라이버·버전에 따라 있을 수 있다)만
+     * 기존 재조회 방식으로 폴백한다. 오늘 동작보다 안전성이 떨어지지 않도록 하기 위함이다.
+     */
+    private boolean isDedupKeyConstraintViolation(DataIntegrityViolationException e, String dedupKey) {
+        String constraintName = extractConstraintName(e);
+        if (constraintName != null && !constraintName.isBlank()) {
+            return DEDUP_KEY_CONSTRAINT_NAME.equalsIgnoreCase(constraintName);
+        }
+        return messageRepository.existsByDedupKey(dedupKey);
+    }
+
+    private String extractConstraintName(Throwable e) {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof ConstraintViolationException constraintViolation) {
+                return constraintViolation.getConstraintName();
+            }
+        }
+        return null;
     }
 
     private Account findSystemSender() {

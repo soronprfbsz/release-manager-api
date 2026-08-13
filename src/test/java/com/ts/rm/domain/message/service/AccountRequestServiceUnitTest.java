@@ -1,6 +1,5 @@
 package com.ts.rm.domain.message.service;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -14,13 +13,14 @@ import com.ts.rm.domain.account.enums.AccountStatus;
 import com.ts.rm.domain.account.repository.AccountRepository;
 import com.ts.rm.domain.message.entity.Message;
 import com.ts.rm.domain.message.repository.MessageRepository;
+import java.sql.SQLException;
 import java.util.List;
 import java.util.Optional;
+import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -57,7 +57,7 @@ class AccountRequestServiceUnitTest {
     }
 
     @Test
-    @DisplayName("동시 요청으로 UNIQUE 제약이 깨져도 호출자에게 예외가 전파되지 않는다")
+    @DisplayName("동시 요청으로 UNIQUE 제약이 깨져도 호출자에게 예외가 전파되지 않는다 (제약명 기반 판정)")
     void requestPasswordReset_uniqueViolation_isAbsorbed() {
         Account sender = account(1L, "system@test.com", "시스템",
                 AccountRole.ADMIN.getCodeId());
@@ -69,9 +69,8 @@ class AccountRequestServiceUnitTest {
         given(accountRepository.findByEmail("system@test.com")).willReturn(Optional.of(sender));
         given(accountRepository.findAllById(any())).willReturn(List.of(admin));
         given(accountRepository.findByEmail("user@test.com")).willReturn(Optional.of(requester));
-        // 저장 전 사전 체크는 false(그래서 저장을 시도), 저장 실패 후 재확인은 true(그래서
-        // 진짜 dedupKey 충돌로 판정하고 흡수) — 순서대로 다른 값을 준다
-        given(messageRepository.existsByDedupKey(any())).willReturn(false, true);
+        // 저장 전 사전 체크(쿨다운)만 호출된다 — 제약명으로 판정되면 재조회는 일어나지 않는다
+        given(messageRepository.existsByDedupKey(any())).willReturn(false);
 
         // TransactionTemplate 이 콜백을 실행하다 제약 위반을 만나는 상황을 재현한다
         given(transactionTemplate.execute(any()))
@@ -80,20 +79,58 @@ class AccountRequestServiceUnitTest {
                     callback.doInTransaction(new SimpleTransactionStatus());
                     return null;
                 });
+        // 대소문자가 달라도(UK_MSG_DEDUP_KEY vs uk_msg_dedup_key) 판정되는지 함께 확인한다
+        ConstraintViolationException dedupKeyViolation = new ConstraintViolationException(
+                "could not execute statement",
+                new SQLException("Duplicate entry for key 'UK_MSG_DEDUP_KEY'"),
+                "UK_MSG_DEDUP_KEY");
         given(messageRepository.saveAndFlush(any(Message.class)))
-                .willThrow(new DataIntegrityViolationException("duplicate dedup_key"));
+                .willThrow(new DataIntegrityViolationException("could not execute statement",
+                        dedupKeyViolation));
 
         assertThatCode(() -> accountRequestService.requestPasswordReset(
                 "user@test.com", null, List.of(2L)))
                 .doesNotThrowAnyException();
 
-        // any() 매처만 쓰면 재조회가 저장 전 사전 체크와 다른 키를 써도 테스트가 통과한다 —
-        // 실제로 같은 키를 썼는지 캡처해서 확인한다
-        ArgumentCaptor<String> dedupKeyCaptor = ArgumentCaptor.forClass(String.class);
-        verify(messageRepository, times(2)).existsByDedupKey(dedupKeyCaptor.capture());
-        List<String> capturedKeys = dedupKeyCaptor.getAllValues();
-        assertThat(capturedKeys).hasSize(2);
-        assertThat(capturedKeys.get(0)).isEqualTo(capturedKeys.get(1));
+        // 재조회 없이 제약명만으로 판정했다면 existsByDedupKey 는 사전 체크 1번만 호출된다
+        verify(messageRepository, times(1)).existsByDedupKey(any());
+    }
+
+    @Test
+    @DisplayName("dedupKey 와 무관한 제약 위반은 이름이 달라 흡수되지 않고 그대로 전파한다 (제약명 기반 판정)")
+    void requestPasswordReset_differentConstraintViolation_isRethrown() {
+        Account sender = account(1L, "system@test.com", "시스템",
+                AccountRole.ADMIN.getCodeId());
+        Account admin = account(2L, "admin@test.com", "관리자",
+                AccountRole.ADMIN.getCodeId());
+        Account requester = account(3L, "user@test.com", "요청자",
+                AccountRole.USER.getCodeId());
+
+        given(accountRepository.findByEmail("system@test.com")).willReturn(Optional.of(sender));
+        given(accountRepository.findAllById(any())).willReturn(List.of(admin));
+        given(accountRepository.findByEmail("user@test.com")).willReturn(Optional.of(requester));
+        given(messageRepository.existsByDedupKey(any())).willReturn(false);
+
+        given(transactionTemplate.execute(any()))
+                .willAnswer(invocation -> {
+                    TransactionCallback<?> callback = invocation.getArgument(0);
+                    callback.doInTransaction(new SimpleTransactionStatus());
+                    return null;
+                });
+        ConstraintViolationException otherViolation = new ConstraintViolationException(
+                "could not execute statement",
+                new SQLException("Cannot add or update a child row"),
+                "fk_message_sender_account_id");
+        given(messageRepository.saveAndFlush(any(Message.class)))
+                .willThrow(new DataIntegrityViolationException("could not execute statement",
+                        otherViolation));
+
+        assertThatThrownBy(() -> accountRequestService.requestPasswordReset(
+                "user@test.com", null, List.of(2L)))
+                .isInstanceOf(DataIntegrityViolationException.class);
+
+        // 제약명이 dedupKey 것과 다르므로 재조회(폴백) 없이 바로 거부됐다
+        verify(messageRepository, times(1)).existsByDedupKey(any());
     }
 
     @Test
