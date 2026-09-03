@@ -29,7 +29,15 @@ public enum MessageType {
 
     /** 신규 가입자의 권한·부서 배치 요청 (시스템 발신) */
     @Schema(description = "가입 처리 요청")
-    SIGNUP_APPROVAL_REQUEST("가입 처리 요청");
+    SIGNUP_APPROVAL_REQUEST("가입 처리 요청"),
+
+    /** 관리자가 타인의 계정 정보를 변경했음을 대상자에게 통지 (수정자 발신) */
+    @Schema(description = "계정 정보 변경")
+    ACCOUNT_UPDATED("계정 정보 변경"),
+
+    /** 관리자가 타인의 비밀번호를 초기화했음을 대상자에게 통지 (초기화 수행자 발신) */
+    @Schema(description = "비밀번호 초기화")
+    PASSWORD_RESET_DONE("비밀번호 초기화");
 
     private final String description;
 }

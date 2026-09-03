@@ -2,6 +2,7 @@ package com.ts.rm.domain.account.service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -19,6 +20,7 @@ import com.ts.rm.domain.common.repository.CodeRepository;
 import com.ts.rm.domain.department.entity.Department;
 import com.ts.rm.domain.department.repository.DepartmentHierarchyRepository;
 import com.ts.rm.domain.department.repository.DepartmentRepository;
+import com.ts.rm.domain.message.service.AccountChangeNotifier;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
 import com.ts.rm.global.pagination.PageRowNumberUtil;
@@ -40,6 +42,10 @@ import lombok.extern.slf4j.Slf4j;
 public class AccountService {
 
     private static final String POSITION_CODE_TYPE = "POSITION";
+    private static final String ROLE_CODE_TYPE = "ACCOUNT_ROLE";
+    private static final String STATUS_CODE_TYPE = "ACCOUNT_STATUS";
+    private static final String NO_DEPARTMENT_TEXT = "미배치";
+    private static final String EMPTY_VALUE_TEXT = "없음";
 
     private final AccountRepository accountRepository;
     private final DepartmentRepository departmentRepository;
@@ -47,6 +53,7 @@ public class AccountService {
     private final CodeRepository codeRepository;
     private final AccountDtoMapper mapper;
     private final PasswordEncoder passwordEncoder;
+    private final AccountChangeNotifier accountChangeNotifier;
 
     @Transactional
     public AccountDto.DetailResponse createAccount(AccountDto.CreateRequest request) {
@@ -193,6 +200,11 @@ public class AccountService {
 
         Account account = findAccountByAccountId(accountId);
 
+        // 변경 통지는 "요청에 담겼는지"가 아니라 "값이 실제로 달라졌는지"로 판정한다.
+        // 화면이 폼 전체를 항상 실어 보내기 때문에, 요청 필드 기준으로 알리면 바뀌지 않은
+        // 항목까지 변경됐다고 통지하게 된다.
+        AccountSnapshot before = AccountSnapshot.of(account);
+
         // 이름 수정
         if (request.accountName() != null && !request.accountName().isBlank()) {
             account.setAccountName(request.accountName());
@@ -258,6 +270,8 @@ public class AccountService {
                 throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
             }
         }
+
+        accountChangeNotifier.notifyAccountUpdated(account, collectChanges(before, account));
 
         log.info("Account updated successfully by admin with accountId: {}", accountId);
         return toDetailResponseWithPositionName(account);
@@ -369,6 +383,124 @@ public class AccountService {
         }
     }
 
+    /**
+     * 변경 통지용 계정 스냅샷
+     *
+     * <p>부서명까지 값으로 떠 둔다 — 변경 후에는 이전 부서를 다시 조회할 수 없다.
+     */
+    private record AccountSnapshot(
+            String accountName,
+            String phone,
+            String position,
+            Long departmentId,
+            String departmentName,
+            String role,
+            String status) {
+
+        static AccountSnapshot of(Account account) {
+            Department department = account.getDepartment();
+            return new AccountSnapshot(
+                    account.getAccountName(),
+                    account.getPhone(),
+                    account.getPosition(),
+                    department != null ? department.getDepartmentId() : null,
+                    department != null ? department.getDepartmentName() : null,
+                    account.getRole(),
+                    account.getStatus());
+        }
+    }
+
+    /**
+     * 변경 전후를 비교해 실제로 달라진 항목만 표시용 문자열로 만든다.
+     *
+     * @param before 변경 전 스냅샷
+     * @param after  변경이 적용된 계정
+     * @return 변경 항목 목록 (변경이 없으면 빈 목록)
+     */
+    private List<AccountChangeNotifier.FieldChange> collectChanges(
+            AccountSnapshot before, Account after) {
+        List<AccountChangeNotifier.FieldChange> changes = new ArrayList<>();
+
+        if (changed(before.accountName(), after.getAccountName())) {
+            changes.add(new AccountChangeNotifier.FieldChange("이름",
+                    blankToNone(before.accountName()), blankToNone(after.getAccountName())));
+        }
+
+        if (changed(before.phone(), after.getPhone())) {
+            changes.add(new AccountChangeNotifier.FieldChange("연락처",
+                    blankToNone(before.phone()), blankToNone(after.getPhone())));
+        }
+
+        if (changed(before.position(), after.getPosition())) {
+            changes.add(new AccountChangeNotifier.FieldChange("직급",
+                    codeName(POSITION_CODE_TYPE, before.position()),
+                    codeName(POSITION_CODE_TYPE, after.getPosition())));
+        }
+
+        Department afterDepartment = after.getDepartment();
+        Long afterDepartmentId = afterDepartment != null ? afterDepartment.getDepartmentId() : null;
+        if (!Objects.equals(before.departmentId(), afterDepartmentId)) {
+            changes.add(new AccountChangeNotifier.FieldChange("부서",
+                    departmentText(before.departmentName()),
+                    departmentText(afterDepartment != null
+                            ? afterDepartment.getDepartmentName() : null)));
+        }
+
+        if (changed(before.role(), after.getRole())) {
+            changes.add(new AccountChangeNotifier.FieldChange("권한",
+                    codeName(ROLE_CODE_TYPE, before.role()),
+                    codeName(ROLE_CODE_TYPE, after.getRole())));
+        }
+
+        if (changed(before.status(), after.getStatus())) {
+            changes.add(new AccountChangeNotifier.FieldChange("상태",
+                    codeName(STATUS_CODE_TYPE, before.status()),
+                    codeName(STATUS_CODE_TYPE, after.getStatus())));
+        }
+
+        return changes;
+    }
+
+    /**
+     * 값이 실제로 달라졌는지 판정한다.
+     *
+     * <p>null 과 빈 문자열은 같은 것으로 본다. 화면 폼은 비어 있는 입력을 {@code ""} 로 보내는데,
+     * 원래 null 이던 값과 raw 비교하면 달라진 것으로 잡혀 "연락처: 없음 → 없음" 같은 빈 통지가
+     * 나간다.
+     */
+    private boolean changed(String before, String after) {
+        return !Objects.equals(blankToNull(before), blankToNull(after));
+    }
+
+    private String blankToNull(String value) {
+        return (value == null || value.isBlank()) ? null : value;
+    }
+
+    /**
+     * 코드값을 표시명으로 변환한다.
+     *
+     * <p>코드 테이블에 없으면 원본 코드를 그대로 보여준다. 예를 들어 가입 직후 권한인
+     * {@code GUEST} 는 code 테이블에는 있지만 {@link AccountRole} enum 에는 없다 — 표시를
+     * enum 이 아닌 코드 테이블에 맡기는 이유이고, 어느 쪽에도 없는 값이 와도 통지가
+     * 깨지지 않아야 한다.
+     */
+    private String codeName(String codeTypeId, String codeId) {
+        if (codeId == null || codeId.isBlank()) {
+            return EMPTY_VALUE_TEXT;
+        }
+        return codeRepository.findByCodeTypeIdAndCodeId(codeTypeId, codeId)
+                .map(code -> code.getCodeName())
+                .orElse(codeId);
+    }
+
+    private String departmentText(String departmentName) {
+        return departmentName != null ? departmentName : NO_DEPARTMENT_TEXT;
+    }
+
+    private String blankToNone(String value) {
+        return (value == null || value.isBlank()) ? EMPTY_VALUE_TEXT : value;
+    }
+
     private Account findAccountByAccountId(Long accountId) {
         return accountRepository
                 .findByAccountId(accountId)
@@ -468,6 +600,9 @@ public class AccountService {
         String temporaryPassword = PasswordGenerator.generate();
         target.resetPassword(passwordEncoder.encode(temporaryPassword));
 
+        // 6. 대상자에게 초기화 사실 통지 (임시 비밀번호는 담지 않는다)
+        accountChangeNotifier.notifyPasswordReset(target);
+
         // 평문은 로그에 남기지 않는다 (대상 ID만 기록)
         log.info("Password reset completed - targetId: {}", targetAccountId);
 
@@ -533,9 +668,21 @@ public class AccountService {
             throw new BusinessException(ErrorCode.ACCOUNT_NOT_FOUND);
         }
 
-        // 3. 일괄 부서 변경
+        // 3. 일괄 부서 변경 (실제로 부서가 달라진 계정에게만 통지)
         for (Account account : accounts) {
+            Department before = account.getDepartment();
+            Long beforeDepartmentId = before != null ? before.getDepartmentId() : null;
+            String beforeDepartmentName = before != null
+                    ? before.getDepartmentName()
+                    : NO_DEPARTMENT_TEXT;
+
             account.setDepartment(targetDepartment);
+
+            if (!Objects.equals(beforeDepartmentId, request.targetDepartmentId())) {
+                accountChangeNotifier.notifyAccountUpdated(account, List.of(
+                        new AccountChangeNotifier.FieldChange(
+                                "부서", beforeDepartmentName, targetDepartmentName)));
+            }
         }
 
         // 4. 응답 반환

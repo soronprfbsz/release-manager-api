@@ -19,7 +19,9 @@ import com.ts.rm.domain.account.mapper.AccountDtoMapper;
 import com.ts.rm.domain.account.repository.AccountRepository;
 import com.ts.rm.domain.common.repository.CodeRepository;
 import com.ts.rm.domain.department.repository.DepartmentHierarchyRepository;
+import com.ts.rm.domain.department.entity.Department;
 import com.ts.rm.domain.department.repository.DepartmentRepository;
+import com.ts.rm.domain.message.service.AccountChangeNotifier;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
@@ -35,6 +37,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
 import org.mockito.InjectMocks;
 import org.mockito.MockedStatic;
 import org.mockito.Mock;
@@ -70,6 +74,12 @@ class AccountServiceTest {
 
     @Mock
     private PasswordEncoder passwordEncoder;
+
+    @Mock
+    private AccountChangeNotifier accountChangeNotifier;
+
+    @Captor
+    private ArgumentCaptor<List<AccountChangeNotifier.FieldChange>> changesCaptor;
 
     @InjectMocks
     private AccountService accountService;
@@ -763,4 +773,186 @@ class AccountServiceTest {
         // then
         assertThat(result).isEmpty();
     }
+
+    // ========================================
+    // 계정 변경 통지 테스트
+    // ========================================
+
+    @Test
+    @DisplayName("계정 변경 통지 - 요청에 담겼어도 값이 그대로면 변경 항목에서 빠진다")
+    void adminUpdateAccount_NotifiesOnlyActuallyChangedFields() {
+        // given - 화면은 폼 전체를 실어 보낸다. 이름/상태는 기존 값과 동일하고 권한만 실제로 바뀐다.
+        AccountDto.AdminUpdateRequest request = AccountDto.AdminUpdateRequest.builder()
+                .accountName("테스트계정")
+                .role("ADMIN")
+                .status("ACTIVE")
+                .build();
+
+        given(accountRepository.findByAccountId(anyLong())).willReturn(Optional.of(testAccount));
+
+        try (MockedStatic<SecurityUtil> securityUtil = Mockito.mockStatic(SecurityUtil.class)) {
+            securityUtil.when(SecurityUtil::getCurrentRole).thenReturn("ADMIN");
+
+            // when
+            accountService.adminUpdateAccount(1L, request);
+        }
+
+        // then
+        then(accountChangeNotifier).should(times(1))
+                .notifyAccountUpdated(eq(testAccount), changesCaptor.capture());
+
+        List<AccountChangeNotifier.FieldChange> changes = changesCaptor.getValue();
+        assertThat(changes).hasSize(1);
+        assertThat(changes.get(0).label()).isEqualTo("권한");
+        assertThat(changes.get(0).before()).isEqualTo("USER");
+        assertThat(changes.get(0).after()).isEqualTo("ADMIN");
+    }
+
+    @Test
+    @DisplayName("계정 변경 통지 - 실제 변경이 없으면 빈 목록을 넘긴다")
+    void adminUpdateAccount_NoActualChange_PassesEmptyList() {
+        // given - 모든 필드가 기존 값과 동일
+        AccountDto.AdminUpdateRequest request = AccountDto.AdminUpdateRequest.builder()
+                .accountName("테스트계정")
+                .status("ACTIVE")
+                .build();
+
+        given(accountRepository.findByAccountId(anyLong())).willReturn(Optional.of(testAccount));
+
+        // when
+        accountService.adminUpdateAccount(1L, request);
+
+        // then
+        then(accountChangeNotifier).should(times(1))
+                .notifyAccountUpdated(eq(testAccount), changesCaptor.capture());
+        assertThat(changesCaptor.getValue()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("계정 변경 통지 - 빈 문자열은 미입력과 같게 보아 변경으로 잡지 않는다")
+    void adminUpdateAccount_BlankEqualsNull_NotReported() {
+        // given - 화면 폼은 비어 있는 연락처를 "" 로 보낸다. 원래 null 이던 값과 같아야 한다.
+        AccountDto.AdminUpdateRequest request = AccountDto.AdminUpdateRequest.builder()
+                .phone("")
+                .build();
+
+        given(accountRepository.findByAccountId(anyLong())).willReturn(Optional.of(testAccount));
+
+        // when
+        accountService.adminUpdateAccount(1L, request);
+
+        // then
+        then(accountChangeNotifier).should(times(1))
+                .notifyAccountUpdated(eq(testAccount), changesCaptor.capture());
+        assertThat(changesCaptor.getValue()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("계정 변경 통지 - 부서 배치 시 변경 전은 '미배치'로 표기")
+    void adminUpdateAccount_DepartmentAssigned_ReportsUnassignedAsBefore() {
+        // given
+        Department department = Department.builder()
+                .departmentId(7L)
+                .departmentName("서비스기술팀")
+                .build();
+
+        AccountDto.AdminUpdateRequest request = AccountDto.AdminUpdateRequest.builder()
+                .departmentId(7L)
+                .build();
+
+        given(accountRepository.findByAccountId(anyLong())).willReturn(Optional.of(testAccount));
+        given(departmentRepository.findById(7L)).willReturn(Optional.of(department));
+
+        // when
+        accountService.adminUpdateAccount(1L, request);
+
+        // then
+        then(accountChangeNotifier).should(times(1))
+                .notifyAccountUpdated(eq(testAccount), changesCaptor.capture());
+
+        List<AccountChangeNotifier.FieldChange> changes = changesCaptor.getValue();
+        assertThat(changes).hasSize(1);
+        assertThat(changes.get(0).label()).isEqualTo("부서");
+        assertThat(changes.get(0).before()).isEqualTo("미배치");
+        assertThat(changes.get(0).after()).isEqualTo("서비스기술팀");
+    }
+
+    @Test
+    @DisplayName("일괄 부서 이동 통지 - 이미 대상 부서인 계정은 통지하지 않는다")
+    void batchTransferDepartment_NotifiesOnlyMovedAccounts() {
+        // given
+        Department target = Department.builder()
+                .departmentId(7L)
+                .departmentName("서비스기술팀")
+                .build();
+
+        Account unassigned = Account.builder()
+                .accountId(2L)
+                .email("moved@example.com")
+                .accountName("이동대상")
+                .role("USER")
+                .status("ACTIVE")
+                .build();
+
+        Account alreadyThere = Account.builder()
+                .accountId(3L)
+                .email("stay@example.com")
+                .accountName("기존소속")
+                .role("USER")
+                .status("ACTIVE")
+                .department(target)
+                .build();
+
+        AccountDto.BatchTransferDepartmentRequest request =
+                new AccountDto.BatchTransferDepartmentRequest(List.of(2L, 3L), 7L);
+
+        given(departmentRepository.findById(7L)).willReturn(Optional.of(target));
+        given(accountRepository.findAllById(List.of(2L, 3L)))
+                .willReturn(List.of(unassigned, alreadyThere));
+
+        // when
+        accountService.batchTransferDepartment(request);
+
+        // then - 실제로 부서가 달라진 계정에게만 통지
+        then(accountChangeNotifier).should(times(1))
+                .notifyAccountUpdated(eq(unassigned), changesCaptor.capture());
+        then(accountChangeNotifier).should(never())
+                .notifyAccountUpdated(eq(alreadyThere), any());
+
+        List<AccountChangeNotifier.FieldChange> changes = changesCaptor.getValue();
+        assertThat(changes).hasSize(1);
+        assertThat(changes.get(0).label()).isEqualTo("부서");
+        assertThat(changes.get(0).before()).isEqualTo("미배치");
+        assertThat(changes.get(0).after()).isEqualTo("서비스기술팀");
+    }
+
+    @Test
+    @DisplayName("비밀번호 초기화 통지 - 대상자에게 발송한다")
+    void resetPassword_NotifiesTarget() {
+        // given
+        Long targetId = 2L;
+        Account target = Account.builder()
+                .accountId(targetId)
+                .email("target@example.com")
+                .password("encoded")
+                .accountName("대상자")
+                .role("USER")
+                .status("ACTIVE")
+                .build();
+
+        given(accountRepository.findByAccountId(targetId)).willReturn(Optional.of(target));
+        given(passwordEncoder.encode(anyString())).willReturn("encodedTemp");
+
+        try (MockedStatic<SecurityUtil> securityUtil = Mockito.mockStatic(SecurityUtil.class)) {
+            securityUtil.when(SecurityUtil::getCurrentAccountId).thenReturn(1L);
+            securityUtil.when(SecurityUtil::getCurrentRole).thenReturn("ADMIN");
+
+            // when
+            accountService.resetPassword(targetId);
+        }
+
+        // then
+        then(accountChangeNotifier).should(times(1)).notifyPasswordReset(target);
+    }
+
 }
