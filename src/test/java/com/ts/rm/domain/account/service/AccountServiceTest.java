@@ -23,6 +23,7 @@ import com.ts.rm.domain.department.entity.Department;
 import com.ts.rm.domain.department.repository.DepartmentRepository;
 import com.ts.rm.domain.message.service.AccountChangeNotifier;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.util.ReflectionTestUtils;
 import com.ts.rm.global.exception.BusinessException;
 import com.ts.rm.global.exception.ErrorCode;
 import com.ts.rm.global.security.SecurityUtil;
@@ -742,6 +743,72 @@ class AccountServiceTest {
         // 민감 필드 미노출: AdminContactResponse 자체가 4개 필드만 가짐
         assertThat(result.get(0).email()).isEqualTo("admin@example.com");
         assertThat(result.get(1).email()).isEqualTo("operator@example.com");
+    }
+
+    @Test
+    @DisplayName("관리자 연락처 조회 - 시스템 발신 계정은 담당자 후보에서 제외")
+    void getAdminContacts_ExcludesSystemSenderAccount() {
+        // given - 시스템 계정은 알림을 보내는 주체일 뿐 요청을 처리할 사람이 아니다
+        ReflectionTestUtils.setField(accountService, "systemSenderEmail", "system@example.com");
+
+        Account system = buildAccount(1L, "ADMIN");
+        system.setEmail("system@example.com");
+        system.setAccountName("시스템 관리자");
+
+        Account admin = buildAccount(10L, "ADMIN");
+        admin.setEmail("admin@example.com");
+        admin.setAccountName("관리자");
+
+        given(accountRepository.findActiveAdminContacts()).willReturn(List.of(system, admin));
+
+        // when
+        List<AccountDto.AdminContactResponse> result = accountService.getAdminContacts();
+
+        // then
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).email()).isEqualTo("admin@example.com");
+    }
+
+    @Test
+    @DisplayName("관리자 연락처 조회 - 시스템 계정 판정은 대소문자를 구분하지 않는다")
+    void getAdminContacts_SystemSenderMatchIsCaseInsensitive() {
+        // given - 설정값과 계정 이메일의 대소문자가 다르다
+        ReflectionTestUtils.setField(accountService, "systemSenderEmail", "System@Example.com");
+
+        Account system = buildAccount(1L, "ADMIN");
+        system.setEmail("system@example.com");
+
+        Account admin = buildAccount(10L, "ADMIN");
+        admin.setEmail("admin@example.com");
+
+        given(accountRepository.findActiveAdminContacts()).willReturn(List.of(system, admin));
+
+        // when
+        List<AccountDto.AdminContactResponse> result = accountService.getAdminContacts();
+
+        // then
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).email()).isEqualTo("admin@example.com");
+    }
+
+    @Test
+    @DisplayName("관리자 연락처 조회 - 시스템 계정이 유일한 담당자면 목록에 남긴다")
+    void getAdminContacts_OnlySystemSender_KeepsIt() {
+        // given - 후보가 하나도 없으면 요청 자체를 보낼 수 없게 된다
+        ReflectionTestUtils.setField(accountService, "systemSenderEmail", "system@example.com");
+
+        Account system = buildAccount(1L, "ADMIN");
+        system.setEmail("system@example.com");
+        system.setAccountName("시스템 관리자");
+
+        given(accountRepository.findActiveAdminContacts()).willReturn(List.of(system));
+
+        // when
+        List<AccountDto.AdminContactResponse> result = accountService.getAdminContacts();
+
+        // then
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).email()).isEqualTo("system@example.com");
     }
 
     @Test

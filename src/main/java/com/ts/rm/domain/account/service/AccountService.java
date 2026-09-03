@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -54,6 +55,19 @@ public class AccountService {
     private final AccountDtoMapper mapper;
     private final PasswordEncoder passwordEncoder;
     private final AccountChangeNotifier accountChangeNotifier;
+
+    /**
+     * 시스템 발신 계정 — 담당자 후보에서 제외한다.
+     *
+     * <p>이 계정은 알림을 <b>보내는</b> 주체이지 요청을 처리할 사람이 아니다. 목록에 남겨 두면
+     * 요청이 아무도 보지 않는 수신함으로 들어간다.
+     *
+     * <p>단, 이 계정이 유일한 ADMIN/OPERATOR 라면 남긴다 — 후보가 하나도 없으면 사용자가
+     * 비밀번호 재설정·가입 처리 요청 자체를 보낼 수 없게 된다. 신규 구축 직후처럼 실계정이
+     * 아직 없는 환경이 여기에 해당한다.
+     */
+    @Value("${message.system-sender-email:admin@tscientific.co.kr}")
+    private String systemSenderEmail;
 
     @Transactional
     public AccountDto.DetailResponse createAccount(AccountDto.CreateRequest request) {
@@ -501,6 +515,14 @@ public class AccountService {
         return (value == null || value.isBlank()) ? EMPTY_VALUE_TEXT : value;
     }
 
+    /**
+     * 시스템 발신 계정인지 판정한다 (대소문자 무시 — 이메일은 대소문자를 구분하지 않는다).
+     */
+    private boolean isSystemSender(Account account) {
+        return systemSenderEmail != null
+                && systemSenderEmail.equalsIgnoreCase(account.getEmail());
+    }
+
     private Account findAccountByAccountId(Long accountId) {
         return accountRepository
                 .findByAccountId(accountId)
@@ -622,7 +644,15 @@ public class AccountService {
 
         List<Account> accounts = accountRepository.findActiveAdminContacts();
 
-        List<AccountDto.AdminContactResponse> result = accounts.stream()
+        // 시스템 계정은 제외하되, 그것뿐이면 남긴다 (필드 Javadoc 참고)
+        List<Account> candidates = accounts.stream()
+                .filter(account -> !isSystemSender(account))
+                .toList();
+        if (candidates.isEmpty()) {
+            candidates = accounts;
+        }
+
+        List<AccountDto.AdminContactResponse> result = candidates.stream()
                 .map(account -> new AccountDto.AdminContactResponse(
                         account.getAccountId(),
                         account.getDepartment() != null

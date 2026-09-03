@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -14,9 +16,11 @@ import com.ts.rm.domain.account.enums.AccountStatus;
 import com.ts.rm.domain.account.repository.AccountRepository;
 import com.ts.rm.domain.message.entity.Message;
 import com.ts.rm.domain.message.repository.MessageRepository;
+import com.ts.rm.global.exception.BusinessException;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -241,6 +245,64 @@ class AccountRequestServiceUnitTest {
         verify(messageRepository, times(2)).existsByDedupKey(dedupKeyCaptor.capture());
         List<String> calls = dedupKeyCaptor.getAllValues();
         assertThat(calls.get(0)).isEqualTo(calls.get(1));
+    }
+
+    @Test
+    @DisplayName("담당자 재검증 - 다른 담당자가 있으면 시스템 계정 ID 를 직접 보내도 거부한다")
+    void findEligibleRecipients_excludesSystemSenderWhenRealAdminExists() {
+        // given - 목록 API 에서 빠져 있어도 ID 는 직접 보낼 수 있다
+        Account sender = account(1L, "system@test.com", "시스템",
+                AccountRole.ADMIN.getCodeId());
+        Account admin = account(2L, "admin@test.com", "관리자",
+                AccountRole.ADMIN.getCodeId());
+
+        given(accountRepository.findByEmail("system@test.com")).willReturn(Optional.of(sender));
+        given(accountRepository.findAllById(Set.of(1L))).willReturn(List.of(sender));
+        // 실계정 담당자가 존재하므로 시스템 계정으로의 우회를 허용하지 않는다
+        given(accountRepository.findActiveAdminContacts()).willReturn(List.of(sender, admin));
+
+        // when & then
+        assertThatThrownBy(() ->
+                accountRequestService.requestPasswordReset("user@test.com", null, List.of(1L)))
+                .isInstanceOf(BusinessException.class);
+
+        then(messageRepository).should(never()).saveAndFlush(any());
+    }
+
+    @Test
+    @DisplayName("담당자 재검증 - 시스템 계정이 유일한 담당자면 수신자로 허용한다")
+    void findEligibleRecipients_allowsSystemSenderWhenItIsTheOnlyContact() {
+        // given - 실계정 담당자가 아직 없는 환경 (신규 구축 직후)
+        Account sender = account(1L, "system@test.com", "시스템",
+                AccountRole.ADMIN.getCodeId());
+        Account requester = account(3L, "user@test.com", "요청자",
+                AccountRole.USER.getCodeId());
+
+        given(accountRepository.findByEmail("system@test.com")).willReturn(Optional.of(sender));
+        given(accountRepository.findAllById(Set.of(1L))).willReturn(List.of(sender));
+        given(accountRepository.findActiveAdminContacts()).willReturn(List.of(sender));
+        given(accountRepository.findByEmail("user@test.com")).willReturn(Optional.of(requester));
+        given(messageRepository.existsByDedupKey(any())).willReturn(false);
+        given(transactionTemplate.execute(any()))
+                .willAnswer(invocation -> {
+                    TransactionCallback<?> callback = invocation.getArgument(0);
+                    callback.doInTransaction(new SimpleTransactionStatus());
+                    return null;
+                });
+        given(messageRepository.saveAndFlush(any(Message.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+
+        // when
+        assertThatCode(() -> accountRequestService.requestPasswordReset(
+                "user@test.com", null, List.of(1L)))
+                .doesNotThrowAnyException();
+
+        // then - 시스템 계정 본인이 수신자로 담긴다
+        ArgumentCaptor<Message> captor = ArgumentCaptor.forClass(Message.class);
+        then(messageRepository).should(times(1)).saveAndFlush(captor.capture());
+        assertThat(captor.getValue().getRecipients()).hasSize(1);
+        assertThat(captor.getValue().getRecipients().get(0).getRecipientEmail())
+                .isEqualTo("system@test.com");
     }
 
     private Account account(Long id, String email, String name, String role) {

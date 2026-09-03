@@ -250,6 +250,14 @@ public class AccountRequestService {
     /**
      * 수신자 재검증 — 프론트가 보낸 ID를 신뢰하지 않는다.
      *
+     * <p>시스템 발신 계정은 담당자 후보에서 제외한다. 목록 API 에서도 빼지만, 그 목록을
+     * 거치지 않고 ID 를 직접 보낼 수 있으므로 실제 강제는 여기서 한다 — 아무도 보지 않는
+     * 수신함으로 요청이 들어가는 것을 막는다.
+     *
+     * <p>예외는 하나: 시스템 계정이 <b>유일한</b> ADMIN/OPERATOR 인 환경. 그때까지 막으면
+     * 요청 자체를 보낼 수 없으므로 허용한다. 판정은 보낸 ID 집합이 아니라 전체 담당자
+     * 목록으로 한다 — 보낸 ID 만 보면 실계정이 있는데도 시스템 계정만 지정해 우회할 수 있다.
+     *
      * <p>어떤 계정이 왜 걸러졌는지는 응답에 담지 않는다. 미인증 엔드포인트에서 계정
      * 상태를 알려주면 그 자체가 정보 노출이다.
      */
@@ -262,11 +270,38 @@ public class AccountRequestService {
                 .filter(account -> AccountStatus.ACTIVE.name().equals(account.getStatus()))
                 .toList();
 
-        if (eligible.isEmpty()) {
-            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
-                    "유효한 담당자를 선택해 주세요.");
+        List<Account> withoutSystemSender = eligible.stream()
+                .filter(account -> !isSystemSender(account))
+                .toList();
+        if (!withoutSystemSender.isEmpty()) {
+            return withoutSystemSender;
         }
-        return eligible;
+
+        // 남은 것이 시스템 계정뿐 — 다른 담당자가 실제로 없을 때만 허용한다
+        if (!eligible.isEmpty() && !existsNonSystemAdminContact()) {
+            return eligible;
+        }
+
+        throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE,
+                "유효한 담당자를 선택해 주세요.");
+    }
+
+    /**
+     * 시스템 계정 말고 다른 활성 ADMIN/OPERATOR 가 존재하는지 확인한다.
+     *
+     * <p>보낸 ID 가 시스템 계정뿐일 때만 호출되므로 정상 경로에서는 실행되지 않는다.
+     */
+    private boolean existsNonSystemAdminContact() {
+        return accountRepository.findActiveAdminContacts().stream()
+                .anyMatch(account -> !isSystemSender(account));
+    }
+
+    /**
+     * 시스템 발신 계정인지 판정한다 (대소문자 무시 — 이메일은 대소문자를 구분하지 않는다).
+     */
+    private boolean isSystemSender(Account account) {
+        return systemSenderEmail != null
+                && systemSenderEmail.equalsIgnoreCase(account.getEmail());
     }
 
     /**
