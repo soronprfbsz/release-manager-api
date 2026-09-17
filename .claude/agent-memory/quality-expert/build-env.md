@@ -1,12 +1,23 @@
 ---
 name: 백엔드 빌드 환경 제약
-description: WSL 환경에 Java 17 미설치, gradlew 직접 빌드 불가. 소스 정적 분석으로 대체.
+description: WSL에 Java 17과 Java 21 모두 설치됨. JAVA_HOME 명시 시 gradlew 빌드/테스트 정상 동작.
 type: project
 ---
 
-WSL2 환경에 Java 21 (openjdk-21)만 설치됨.
-build.gradle toolchain = JavaLanguageVersion.of(17) 요구로 gradlew clean build 실패.
+WSL2 환경에 openjdk-17-jdk-headless가 설치되어 있음 (`/usr/lib/jvm/java-17-openjdk-amd64`).
+단, `JAVA_HOME`을 명시하지 않으면 Java 21이 기본으로 잡혀 toolchain=17 요구에 실패할 수 있음.
 
-**Why:** Java 17 미설치. gradle.properties 경로 지정으로도 우회 불가 — toolchain 매처가 버전 17 일치를 강제함.
+**Why:** 과거에는 Java 17이 미설치였으나 현재는 설치됨. `JAVA_HOME` 명시 필수.
 
-**How to apply:** 빌드 검증이 필요할 때는 사용자가 직접 Windows/IntelliJ 환경에서 수행 요청. quality-expert는 소스 정적 분석 + 프론트 type-check로 대체.
+**How to apply:** 빌드/테스트 실행 시 반드시 아래 방식 사용.
+
+```bash
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 && ./gradlew <task>
+```
+
+테스트 필터 예시:
+```bash
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 && ./gradlew test --tests '*BuildsInRangeServiceTest' --rerun-tasks
+```
+
+2026-05-27 확인: BuildsInRangeServiceTest 전체 BUILD SUCCESSFUL (2분 7초).
