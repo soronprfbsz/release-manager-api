@@ -74,7 +74,8 @@ public class MessageService {
         log.info("메시지 발송 완료 - messageId: {}, 수신자 {}명",
                 saved.getMessageId(), recipients.size());
 
-        return mapper.toDetail(saved, saved.getRecipients(), null);
+        // 방금 내가 보낸 메시지라 읽음 확인을 볼 자격이 있다
+        return mapper.toDetail(saved, saved.getRecipients(), null, true);
     }
 
     /**
@@ -142,7 +143,9 @@ public class MessageService {
             throw new BusinessException(ErrorCode.FORBIDDEN, "열람 권한이 없는 메시지입니다.");
         }
 
-        return mapper.toDetail(message, recipients, mine != null ? mine.getReadAt() : null);
+        // 읽음 확인은 발신자에게만 — 수신자는 같이 받은 사람의 열람 여부를 볼 수 없다
+        return mapper.toDetail(message, recipients, mine != null ? mine.getReadAt() : null,
+                isSender);
     }
 
     /**
