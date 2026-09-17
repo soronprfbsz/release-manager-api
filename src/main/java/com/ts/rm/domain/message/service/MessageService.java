@@ -6,6 +6,7 @@ import com.ts.rm.domain.account.repository.AccountRepository;
 import com.ts.rm.domain.message.dto.MessageDto;
 import com.ts.rm.domain.message.entity.Message;
 import com.ts.rm.domain.message.entity.MessageRecipient;
+import com.ts.rm.domain.message.enums.MessageType;
 import com.ts.rm.domain.message.mapper.MessageDtoMapper;
 import com.ts.rm.domain.message.repository.MessageRecipientRepository;
 import com.ts.rm.domain.message.repository.MessageRepository;
@@ -143,9 +144,17 @@ public class MessageService {
             throw new BusinessException(ErrorCode.FORBIDDEN, "열람 권한이 없는 메시지입니다.");
         }
 
-        // 읽음 확인은 발신자에게만 — 수신자는 같이 받은 사람의 열람 여부를 볼 수 없다
+        /*
+         * 읽음 확인은 '사람이 직접 보낸' 메시지의 발신자에게만 보여준다.
+         *
+         * 시스템 알림은 시스템 계정(admin) 명의로 나가므로, 그 계정으로 로그인한
+         * 사람이 열면 isSender 가 true 가 되어 다른 수신자의 열람 여부까지 보였다.
+         * 그 사람도 실제로는 알림을 받은 수신자일 뿐이므로 발신자로 취급하지 않는다.
+         */
+        boolean canSeeReadReceipts = isSender && message.getMessageType() == MessageType.USER;
+
         return mapper.toDetail(message, recipients, mine != null ? mine.getReadAt() : null,
-                isSender);
+                canSeeReadReceipts);
     }
 
     /**
