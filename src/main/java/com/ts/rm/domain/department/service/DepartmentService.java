@@ -362,25 +362,25 @@ public class DepartmentService {
         // 부모가 변경되는 경우에만 계층 구조 업데이트
         boolean parentChanged = !newParentId.equals(currentParentId);
         if (parentChanged) {
-            // 모든 하위 부서 ID 조회 (자기 포함)
-            List<Long> descendantIds = new ArrayList<>();
-            descendantIds.add(departmentId);
-            descendantIds.addAll(hierarchyRepository.findDescendantIds(departmentId));
-
-            // 기존 조상 관계 삭제 (자기 참조 제외)
-            for (Long descId : descendantIds) {
-                hierarchyRepository.deleteAncestorRelationships(descId);
+            // 이동 대상 서브트리(자기 포함)와 서브트리 내 상대 깊이 — 관계 삭제 전에 조회해야 한다
+            Map<Long, Integer> relativeDepths = new HashMap<>();
+            for (DepartmentHierarchy h : hierarchyRepository.findByAncestorDepartmentId(departmentId)) {
+                relativeDepths.put(h.getDescendant().getDepartmentId(), h.getDepth());
             }
+            List<Long> subtreeIds = new ArrayList<>(relativeDepths.keySet());
+
+            // 서브트리 외부 조상과의 관계만 삭제 (서브트리 내부 관계는 유지).
+            // 벌크 삭제 후 영속성 컨텍스트가 비워지므로(clearAutomatically) 이후 사용할 엔티티는 재조회한다
+            hierarchyRepository.deleteExternalAncestorRelationships(subtreeIds);
+            department = findDepartmentById(departmentId);
 
             // 새 부모의 조상들과 연결
             List<DepartmentHierarchy> newParentAncestors =
                     hierarchyRepository.findByDescendantDepartmentId(newParentId);
 
-            for (Long descId : descendantIds) {
+            for (Long descId : subtreeIds) {
                 Department descendant = findDepartmentById(descId);
-
-                // 이동 대상 부서와의 상대적 깊이 계산
-                int relativeDepth = getRelativeDepth(departmentId, descId);
+                int relativeDepth = relativeDepths.get(descId);
 
                 for (DepartmentHierarchy ancestorHierarchy : newParentAncestors) {
                     DepartmentHierarchy newHierarchy = DepartmentHierarchy.createWithDepth(
@@ -412,18 +412,6 @@ public class DepartmentService {
         }
 
         return mapper.toResponse(department);
-    }
-
-    private int getRelativeDepth(Long ancestorId, Long descendantId) {
-        if (ancestorId.equals(descendantId)) {
-            return 0;
-        }
-
-        return hierarchyRepository.findByAncestorDepartmentId(ancestorId).stream()
-                .filter(h -> h.getDescendant().getDepartmentId().equals(descendantId))
-                .findFirst()
-                .map(DepartmentHierarchy::getDepth)
-                .orElse(0);
     }
 
     private Department findDepartmentById(Long departmentId) {

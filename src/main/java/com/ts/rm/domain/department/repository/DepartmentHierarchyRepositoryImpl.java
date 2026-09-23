@@ -36,17 +36,6 @@ public class DepartmentHierarchyRepositoryImpl implements DepartmentHierarchyRep
     }
 
     @Override
-    public long deleteAncestorRelationships(Long descendantId) {
-        return queryFactory
-                .delete(departmentHierarchy)
-                .where(
-                        departmentHierarchy.descendant.departmentId.eq(descendantId)
-                                .and(departmentHierarchy.depth.gt(0))
-                )
-                .execute();
-    }
-
-    @Override
     public List<Long> findDescendantIds(Long ancestorId) {
         return queryFactory
                 .select(departmentHierarchy.descendant.departmentId)

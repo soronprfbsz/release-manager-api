@@ -19,14 +19,6 @@ public interface DepartmentHierarchyRepositoryCustom {
     long deleteByDepartmentId(Long departmentId);
 
     /**
-     * 특정 부서를 후손으로 하는 모든 계층 삭제 (부서 이동 시 기존 관계 제거용)
-     *
-     * @param descendantId 후손 부서 ID
-     * @return 삭제된 행 수
-     */
-    long deleteAncestorRelationships(Long descendantId);
-
-    /**
      * 특정 부서의 모든 하위 부서 ID 목록 조회 (자기 자신 제외)
      *
      * @param ancestorId 조상 부서 ID
