@@ -1,0 +1,162 @@
+# ========================================
+# GitHub Actions — 빌드 + 106 서버 배포 (구 .gitlab-ci.yml 이관)
+# self-hosted runner(10.110.1.106, label rm-106) 에서 호스트 docker 로 직접 배포한다.
+# ========================================
+
+name: Deploy
+
+on:
+  workflow_dispatch:
+
+# 배포가 겹치면 컨테이너 교체가 경쟁하므로 직렬화 (진행 중인 배포는 취소하지 않음)
+concurrency:
+  group: deploy-release-manager-api
+  cancel-in-progress: false
+
+env:
+  # App
+  SERVER_NAME: release-manager-api
+  SERVER_HOST: 10.110.1.106
+  SERVER_PORT: "8081"
+  SERVER_EXTERNAL_PORT: "18080"
+  SERVER_ENVIRONMENT: production
+  FLYWAY_ENABLED: "true"
+  MARIADB_HOST: 10.110.1.106
+  MARIADB_PORT: "13306"
+  MARIADB_DATABASE: release_manager
+  REDIS_HOST: 10.110.1.106
+  REDIS_PORT: "16379"
+  RELEASE_DIR: /mnt/release-manager/resources
+  # Docker Image
+  DOCKER_IMAGE: ts/release-manager-api:latest
+  # 치환 변수는 워크스페이스 루트의 .env 에서 읽는다 (app 의 env_file: ../.env 와 동일 파일)
+  COMPOSE: docker compose -p release_manager --env-file .env -f docker/docker-compose.yml
+
+jobs:
+  deploy:
+    # 이 워크플로는 PUBLIC 미러(soronprfbsz/*)에도 push 된다 — 거기서는 절대 실행하지 않는다.
+    if: github.repository_owner == 'tscorp-dev2'
+    runs-on: [self-hosted, rm-106]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Build jar
+        run: bash ./gradlew build -x test --no-daemon
+
+      - name: Build image
+        env:
+          DOCKER_BUILDKIT: "1"
+        run: |
+          docker build \
+            -f docker/Dockerfile.ci \
+            -t ${DOCKER_IMAGE} \
+            --label git-sha=${GITHUB_SHA} \
+            --progress=plain \
+            .
+
+      - name: Write .env
+        env:
+          MARIADB_ROOT_PASSWORD: ${{ secrets.MARIADB_ROOT_PASSWORD }}
+          MARIADB_USERNAME: ${{ secrets.MARIADB_USERNAME }}
+          MARIADB_PASSWORD: ${{ secrets.MARIADB_PASSWORD }}
+          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        run: |
+          umask 077
+          cat > .env <<EOF
+          SERVER_NAME=${SERVER_NAME}
+          SERVER_ENVIRONMENT=${SERVER_ENVIRONMENT}
+          SERVER_HOST=${SERVER_HOST}
+          SERVER_PORT=${SERVER_PORT}
+          SERVER_EXTERNAL_PORT=${SERVER_EXTERNAL_PORT}
+          FLYWAY_ENABLED=${FLYWAY_ENABLED}
+          MARIADB_HOST=${MARIADB_HOST}
+          MARIADB_PORT=${MARIADB_PORT}
+          MARIADB_DATABASE=${MARIADB_DATABASE}
+          MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
+          MARIADB_USERNAME=${MARIADB_USERNAME}
+          MARIADB_PASSWORD=${MARIADB_PASSWORD}
+          REDIS_HOST=${REDIS_HOST}
+          REDIS_PORT=${REDIS_PORT}
+          REDIS_PASSWORD=${REDIS_PASSWORD}
+          JWT_SECRET=${JWT_SECRET}
+          RELEASE_DIR=${RELEASE_DIR}
+          RELEASE_BASE_PATH=/app/resources
+          DOCKER_IMAGE=${DOCKER_IMAGE}
+          EOF
+          docker network ls | grep -q network-ts || docker network create network-ts
+
+      - name: Ensure MariaDB / Redis
+        env:
+          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+        run: |
+          # 정지 상태로 남은 컨테이너만 정리 (실행 중인 DB/Redis 는 건드리지 않는다)
+          ${COMPOSE} rm -f mariadb redis app || true
+
+          start_service() {
+            local name=$1 container=$2 service=$3
+            echo "=== ${name} 시작 ==="
+            if docker ps --format '{{.Names}}' | grep -q "^${container}$"; then
+              echo "✓ ${name} 실행 중"
+            elif docker ps -a --format '{{.Names}}' | grep -q "^${container}$"; then
+              docker start ${container} && echo "✓ ${name} 재시작됨"
+            else
+              ${COMPOSE} up -d ${service} && echo "✓ ${name} 생성됨"
+            fi
+          }
+          start_service "MariaDB" "release-manager-mariadb" "mariadb"
+          start_service "Redis" "release-manager-redis" "redis"
+
+          health_check() {
+            local name=$1 container=$2 cmd=$3 max=${4:-60}
+            echo "=== ${name} 헬스체크 ==="
+            attempt=0
+            until eval "$cmd" || [ $attempt -eq $max ]; do
+              attempt=$((attempt+1))
+              echo "  ${name} 대기 중... ($attempt/$max)"
+              sleep 3
+            done
+            if [ $attempt -eq $max ]; then
+              echo "✗ ${name} 헬스체크 실패"
+              docker logs --tail 20 ${container}
+              exit 1
+            fi
+            echo "✓ ${name} 준비 완료 (${attempt}회 시도)"
+          }
+          health_check "MariaDB" "release-manager-mariadb" "docker exec release-manager-mariadb healthcheck.sh --connect --innodb_initialized"
+          health_check "Redis" "release-manager-redis" "docker exec release-manager-redis redis-cli -a \"${REDIS_PASSWORD}\" ping 2>/dev/null | grep -q PONG"
+
+      - name: Deploy app
+        run: |
+          docker stop ${SERVER_NAME} || true
+          docker rm -f ${SERVER_NAME} || true
+          ${COMPOSE} up -d --no-deps app
+          sleep 10
+
+      - name: Health check
+        run: |
+          max=60; attempt=0
+          until curl -sf http://${SERVER_HOST}:${SERVER_EXTERNAL_PORT}/actuator/health > /dev/null || [ $attempt -eq $max ]; do
+            attempt=$((attempt+1))
+            echo "  App 대기 중... ($attempt/$max)"
+            sleep 3
+          done
+          if [ $attempt -eq $max ]; then
+            echo "✗ App 헬스체크 실패"
+            docker logs --tail 50 ${SERVER_NAME}
+            exit 1
+          fi
+          echo "✅ 배포 성공 (${attempt}회, $((attempt * 3))초)"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f .env
+          docker image prune -f 2>/dev/null || true
+          docker ps --filter "name=${SERVER_NAME}" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
