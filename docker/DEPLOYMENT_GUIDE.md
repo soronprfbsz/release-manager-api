@@ -54,12 +54,13 @@ vi .env
 | `MARIADB_HOST` | MariaDB 호스트 | `localhost` | `mariadb` |
 | `REDIS_HOST` | Redis 호스트 | `localhost` | `redis` |
 
-### GitLab CI/CD Variables
+### GitHub Actions Secrets
 
-CI/CD 파이프라인용 변수는 GitLab > Settings > CI/CD > Variables에 등록:
+CI/CD 파이프라인용 비밀값은 GitHub 저장소 **Settings → Secrets and variables → Actions → Repository secrets** 에 등록한다
+(`MARIADB_ROOT_PASSWORD`, `MARIADB_USERNAME`, `MARIADB_PASSWORD`, `REDIS_PASSWORD`, `JWT_SECRET`).
 
-- 특수문자 포함 비밀번호: **"Expand variable reference" 체크 해제 필수**
-- 민감 정보: Masked 옵션 활성화 권장
+- 값은 등록 후 조회 불가 — 변경은 같은 이름으로 덮어쓴다 (`gh secret set <이름> -R tscorp-dev2/release-manager-api`)
+- 비밀이 아닌 값(서버 IP·포트·경로)은 `.github/workflows/deploy.yml` 의 `env:` 에서 관리
 
 ---
 
@@ -67,11 +68,12 @@ CI/CD 파이프라인용 변수는 GitLab > Settings > CI/CD > Variables에 등�
 
 ### CI/CD 자동 배포 (권장)
 
-`.gitlab-ci.yml` 파이프라인이 자동으로 실행됩니다:
+`main` 브랜치에 push 하면 `.github/workflows/deploy.yml` 이 배포 서버의 self-hosted runner 에서 자동 실행됩니다
+(Actions 탭 → Deploy → Run workflow 로 수동 실행도 가능):
 
 1. **build**: Gradle 빌드
 2. **docker-build**: Docker 이미지 빌드
-3. **deploy**: GitLab Runner 호스트에 배포
+3. **deploy**: 배포 서버(runner 호스트)에서 app 컨테이너 교체 + 헬스체크
 
 ### 수동 배포
 
@@ -326,7 +328,7 @@ docker compose up -d
 1. **파일 권한**: 755 (디렉토리), 644 (파일)
 2. **컨테이너 사용자**: spring 사용자로 실행 (non-root)
 3. **네트워크**: 내부 Docker 네트워크(network-ts) 사용
-4. **환경변수**: `.env` 파일 Git 제외, GitLab Variables로 관리
+4. **환경변수**: `.env` 파일 Git 제외, GitHub Actions Secrets로 관리
 5. **포트 노출**: 필요한 포트만 외부 노출
 
 ---
@@ -347,4 +349,4 @@ docker compose up -d
 문제 발생 시:
 1. 로그 확인: `docker compose logs -f app`
 2. 상태 확인: `docker compose ps`
-3. 이슈 등록: GitLab Issues
+3. 이슈 등록: GitHub Issues

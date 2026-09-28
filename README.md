@@ -14,7 +14,7 @@
 - SSH 터미널 (WebSocket)
 - RESTful API + gRPC
 - Swagger API 문서화
-- GitLab CI/CD + Harbor Registry
+- GitHub Actions CI/CD (self-hosted runner 자동 배포)
 
 ## 기술 스택
 
@@ -29,7 +29,7 @@
 | RPC | gRPC, Protocol Buffers |
 | Build | Gradle 9.x |
 | Container | Docker, Docker Compose |
-| CI/CD | GitLab CI/CD, Harbor Registry |
+| CI/CD | GitHub Actions (self-hosted runner) |
 
 ## 빠른 시작
 
@@ -268,38 +268,43 @@ CREATE TABLE new_table (
 
 ## CI/CD 파이프라인
 
+워크플로: `.github/workflows/deploy.yml` — 배포 서버에 설치된 self-hosted runner(label `rm-106`)가
+호스트의 docker 로 직접 빌드·배포한다. `tscorp-dev2` 조직 저장소에서만 실행된다(미러 저장소에서는 skip).
+
 ### 파이프라인 구조
 
 ```
-main 브랜치 push
+main 브랜치 push (또는 Actions 탭 → Deploy → Run workflow 수동 실행)
   ↓
-1. build-job          → Gradle 빌드
+1. Build jar          → ./gradlew build -x test
   ↓
-2. test-job (수동)    → 테스트 실행
+2. Build image        → docker/Dockerfile.ci 로 ts/release-manager-api:latest 빌드 (label git-sha=커밋)
   ↓
-3. docker-build-job   → Docker 이미지 빌드 (ts/release-manager-api:latest)
+3. Write .env         → workflow env + Secrets 로 .env 생성 (배포 후 삭제)
   ↓
-4. harbor-push-job (수동) → Harbor Registry에 푸시 (latest + 커밋SHA)
+4. Ensure MariaDB / Redis → 실행 중이면 그대로 두고, 없을 때만 기동 + 헬스체크
   ↓
-5. deploy-job         → GitLab Runner 호스트 배포
+5. Deploy app         → app 컨테이너만 교체 (docker compose up -d --no-deps app)
+  ↓
+6. Health check       → /actuator/health 확인
 ```
 
-### GitLab Variables 설정
+배포 결과 확인: 저장소 **Actions** 탭, 또는 서버에서
+`docker inspect release-manager-api --format '{{index .Config.Labels "git-sha"}}'`.
 
-Settings → CI/CD → Variables에 다음 변수 추가:
+### 설정값
 
-| 변수명 | 설명 |
-|--------|------|
-| `SERVER_NAME` | 애플리케이션 이름 |
-| `SERVER_HOST` | 배포 서버 IP |
-| `SERVER_EXTERNAL_PORT` | 외부 접근 포트 |
-| `RELEASE_BASE_PATH` | 릴리즈 파일 경로 (`/app/resources`) |
-| `MARIADB_*` | MariaDB 접속 정보 |
-| `REDIS_*` | Redis 접속 정보 |
-| `JWT_SECRET` | JWT 시크릿 키 (최소 256비트) |
-| `HARBOR_*` | Harbor Registry 접속 정보 |
+- **비밀값** — 저장소 **Settings → Secrets and variables → Actions → Repository secrets**
 
-**주의**: 특수문자 포함 변수는 "Expand variable reference" 비활성화
+  | Secret | 설명 |
+  |--------|------|
+  | `MARIADB_ROOT_PASSWORD` | MariaDB root 비밀번호 |
+  | `MARIADB_USERNAME` / `MARIADB_PASSWORD` | 애플리케이션 DB 계정 |
+  | `REDIS_PASSWORD` | Redis 비밀번호 |
+  | `JWT_SECRET` | JWT 시크릿 키 (최소 256비트) |
+
+  값은 등록 후 다시 볼 수 없고 덮어쓰기만 가능하다. 운영 DB·Redis 비밀번호를 바꾸면 Secret 도 같이 바꿔야 다음 배포가 성공한다.
+- **비밀이 아닌 값** (서버 IP, 포트, `RELEASE_DIR` 등) — `deploy.yml` 상단 `env:` 에서 관리
 
 ## 포트 정보
 
