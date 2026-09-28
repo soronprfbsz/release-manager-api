@@ -6,6 +6,8 @@
 name: Deploy
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 # 배포가 겹치면 컨테이너 교체가 경쟁하므로 직렬화 (진행 중인 배포는 취소하지 않음)
