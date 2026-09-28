@@ -129,8 +129,9 @@ jobs:
             fi
             echo "✓ ${name} 준비 완료 (${attempt}회 시도)"
           }
+          # 비밀번호는 문자열에 박지 말고 eval 시점에 변수로 전개 — 값에 $ 가 있으면 재해석되어 깨진다
           health_check "MariaDB" "release-manager-mariadb" "docker exec release-manager-mariadb healthcheck.sh --connect --innodb_initialized"
-          health_check "Redis" "release-manager-redis" "docker exec release-manager-redis redis-cli -a \"${REDIS_PASSWORD}\" ping 2>/dev/null | grep -q PONG"
+          health_check "Redis" "release-manager-redis" "docker exec release-manager-redis redis-cli -a \"\$REDIS_PASSWORD\" ping 2>/dev/null | grep -q PONG"
 
       - name: Deploy app
         run: |
