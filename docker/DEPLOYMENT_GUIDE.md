@@ -59,7 +59,7 @@ vi .env
 CI/CD 파이프라인용 비밀값은 GitHub 저장소 **Settings → Secrets and variables → Actions → Repository secrets** 에 등록한다
 (`MARIADB_ROOT_PASSWORD`, `MARIADB_USERNAME`, `MARIADB_PASSWORD`, `REDIS_PASSWORD`, `JWT_SECRET`).
 
-- 값은 등록 후 조회 불가 — 변경은 같은 이름으로 덮어쓴다 (`gh secret set <이름> -R tscorp-dev2/release-manager-api`)
+- 값은 등록 후 조회 불가 — 변경은 같은 이름으로 덮어쓴다 (`gh secret set <이름> -R tsf-dev2-team/release-manager-api`)
 - 비밀이 아닌 값(서버 IP·포트·경로)은 `.github/workflows/deploy.yml` 의 `env:` 에서 관리
 
 ---

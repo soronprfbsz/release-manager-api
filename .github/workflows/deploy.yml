@@ -37,7 +37,7 @@ env:
 jobs:
   deploy:
     # 이 워크플로는 PUBLIC 미러(soronprfbsz/*)에도 push 된다 — 거기서는 절대 실행하지 않는다.
-    if: github.repository_owner == 'tscorp-dev2'
+    if: github.repository_owner == 'tsf-dev2-team'
     runs-on: [self-hosted, rm-106]
     steps:
       - uses: actions/checkout@v4

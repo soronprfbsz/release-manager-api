@@ -269,7 +269,7 @@ CREATE TABLE new_table (
 ## CI/CD 파이프라인
 
 워크플로: `.github/workflows/deploy.yml` — 배포 서버에 설치된 self-hosted runner(label `rm-106`)가
-호스트의 docker 로 직접 빌드·배포한다. `tscorp-dev2` 조직 저장소에서만 실행된다(미러 저장소에서는 skip).
+호스트의 docker 로 직접 빌드·배포한다. `tsf-dev2-team` 조직 저장소에서만 실행된다(미러 저장소에서는 skip).
 
 ### 파이프라인 구조
 
