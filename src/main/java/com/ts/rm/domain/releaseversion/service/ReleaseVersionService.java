@@ -234,7 +234,7 @@ public class ReleaseVersionService {
     private void rejectIfDependentChildrenExist(ReleaseVersion base) {
         Long baseId = base.getReleaseVersionId();
         List<ReleaseVersion> builds = releaseVersionRepository
-                .findAllByBuildBaseVersion_ReleaseVersionIdOrderByBuildVersionDesc(baseId);
+                .findAllByBuildBaseVersion_ReleaseVersionIdOrderByCreatedAtDescReleaseVersionIdDesc(baseId);
         List<ReleaseVersion> hotfixes = releaseVersionRepository
                 .findAllByHotfixBaseVersion_ReleaseVersionIdOrderByHotfixVersionAsc(baseId);
         List<ReleaseVersion> customChildren = releaseVersionRepository
@@ -761,14 +761,14 @@ public class ReleaseVersionService {
      * 특정 버전의 빌드 목록 조회
      *
      * @param baseVersionId 빌드 원본 버전 ID
-     * @return 빌드 목록 응답 (build_version DESC)
+     * @return 빌드 목록 응답 (created_at DESC)
      */
     public ReleaseVersionDto.BuildListResponse getBuilds(Long baseVersionId) {
         log.info("빌드 목록 조회 - baseVersionId: {}", baseVersionId);
 
         ReleaseVersion baseVersion = findVersionById(baseVersionId);
         List<ReleaseVersion> builds = releaseVersionRepository
-                .findAllByBuildBaseVersion_ReleaseVersionIdOrderByBuildVersionDesc(baseVersionId);
+                .findAllByBuildBaseVersion_ReleaseVersionIdOrderByCreatedAtDescReleaseVersionIdDesc(baseVersionId);
 
         List<ReleaseVersionDto.BuildItem> items = builds.stream()
                 .map(this::toBuildItem)

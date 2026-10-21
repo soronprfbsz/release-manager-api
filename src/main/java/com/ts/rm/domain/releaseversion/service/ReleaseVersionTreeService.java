@@ -15,6 +15,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -38,6 +39,16 @@ public class ReleaseVersionTreeService {
     private final ReleaseVersionHierarchyRepository hierarchyRepository;
     private final ReleaseFileRepository releaseFileRepository;
     private final ReleaseVersionFileSystemService fileSystemService;
+
+    /**
+     * 빌드 노드 정렬: 마지막에 생성된 빌드가 맨 위.
+     * build_version(yyMMdd)만으로는 같은 날짜의 회차(-1/-2) 순서가 결정되지 않으므로 생성 시각을 기준으로 하고,
+     * 같은 시각(초 단위 저장)이면 auto-increment PK 로 생성 순서를 확정한다.
+     */
+    private static final Comparator<ReleaseVersion> BUILD_NEWEST_FIRST = Comparator
+            .comparing(ReleaseVersion::getCreatedAt)
+            .thenComparing(ReleaseVersion::getReleaseVersionId)
+            .reversed();
 
     /**
      * 표준 릴리즈 버전 트리 조회 (프로젝트별)
@@ -253,11 +264,11 @@ public class ReleaseVersionTreeService {
                     .toList();
         }
 
-        // 빌드 목록 조회 및 정렬 (build_version DESC)
+        // 빌드 목록 조회 및 정렬 (마지막 생성이 위로)
         List<ReleaseVersionDto.BuildNode> buildNodes = new ArrayList<>();
         List<ReleaseVersion> builds = buildsByParentId.get(version.getReleaseVersionId());
         if (builds != null && !builds.isEmpty()) {
-            builds.sort((b1, b2) -> Integer.compare(b2.getBuildVersion(), b1.getBuildVersion()));
+            builds.sort(BUILD_NEWEST_FIRST);
             buildNodes = builds.stream()
                     .map(this::buildBuildNode)
                     .toList();
@@ -437,11 +448,11 @@ public class ReleaseVersionTreeService {
                     .toList();
         }
 
-        // 빌드 목록 조회 및 정렬 (build_version DESC = 최신이 위로)
+        // 빌드 목록 조회 및 정렬 (마지막 생성이 위로)
         List<ReleaseVersionDto.BuildNode> buildNodes = new ArrayList<>();
         List<ReleaseVersion> builds = buildsByParentId.get(version.getReleaseVersionId());
         if (builds != null && !builds.isEmpty()) {
-            builds.sort((b1, b2) -> Integer.compare(b2.getBuildVersion(), b1.getBuildVersion()));
+            builds.sort(BUILD_NEWEST_FIRST);
             buildNodes = builds.stream()
                     .map(this::buildBuildNode)
                     .toList();

@@ -151,13 +151,13 @@ public interface ReleaseVersionRepositoryCustom {
      * 두 base 버전 사이의 빌드 행 (build_version > 0) 조회.
      *
      * <p>표준 패치는 siteId 가 null. 커스텀 패치는 해당 사이트의 빌드만 반환한다.
-     * 결과는 build_version DESC 정렬.
+     * 결과는 created_at DESC 정렬 (마지막 생성이 맨 앞).
      *
      * @param projectId  프로젝트 ID
      * @param fromBaseId 시작 base 버전 ID (포함)
      * @param toBaseId   종료 base 버전 ID (포함)
      * @param siteId 사이트 ID (null = 표준)
-     * @return 빌드 ReleaseVersion 목록 (build_version DESC)
+     * @return 빌드 ReleaseVersion 목록 (created_at DESC)
      */
     List<ReleaseVersion> findBuildsInBaseRange(String projectId, Long fromBaseId, Long toBaseId, Long siteId);
 

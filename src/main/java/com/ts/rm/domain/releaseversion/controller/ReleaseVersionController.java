@@ -417,7 +417,7 @@ public class ReleaseVersionController implements ReleaseVersionControllerDocs {
      * 특정 버전의 빌드 목록 조회
      *
      * @param id 원본 버전 ID
-     * @return 빌드 목록 (build_version DESC)
+     * @return 빌드 목록 (created_at DESC)
      */
     @Override
     @GetMapping("/versions/{id}/builds")

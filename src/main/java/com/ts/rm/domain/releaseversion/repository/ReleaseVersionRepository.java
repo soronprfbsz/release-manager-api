@@ -268,12 +268,12 @@ public interface ReleaseVersionRepository extends JpaRepository<ReleaseVersion, 
     // ========================================
 
     /**
-     * 특정 버전의 빌드 목록 조회 (빌드 버전 내림차순)
+     * 특정 버전의 빌드 목록 조회 (마지막 생성이 맨 앞)
      *
      * @param buildBaseVersionId 빌드 원본 버전 ID
-     * @return 빌드 목록 (build_version DESC)
+     * @return 빌드 목록 (created_at DESC)
      */
-    List<ReleaseVersion> findAllByBuildBaseVersion_ReleaseVersionIdOrderByBuildVersionDesc(Long buildBaseVersionId);
+    List<ReleaseVersion> findAllByBuildBaseVersion_ReleaseVersionIdOrderByCreatedAtDescReleaseVersionIdDesc(Long buildBaseVersionId);
 
     /**
      * 같은 base + 같은 buildVersion(yyMMdd) 안에서 build_iteration 이 가장 큰 행.
